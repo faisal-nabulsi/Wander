@@ -1,6 +1,6 @@
 //
 //  DeviceConnectionContext.swift
-//  StikDebug
+//  Wander
 //
 //  Created by Stephen.
 //

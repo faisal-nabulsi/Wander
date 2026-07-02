@@ -1,6 +1,6 @@
 //
 //  ProfileView.swift
-//  StikDebug
+//  Wander
 //
 //  Created by s s on 2025/11/29.
 //

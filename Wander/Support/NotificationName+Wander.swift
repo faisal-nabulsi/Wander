@@ -1,6 +1,6 @@
 //
 //  NotificationName+StikDebug.swift
-//  StikDebug
+//  Wander
 //
 
 import Foundation

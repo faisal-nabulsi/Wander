@@ -1,6 +1,6 @@
 //
 //  AppFeature.swift
-//  StikDebug
+//  Wander
 //
 
 import SwiftUI

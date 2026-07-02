@@ -1,6 +1,6 @@
 //
 //  BackgroundLocationManager.swift
-//  StikDebug
+//  Wander
 //
 
 import CoreLocation

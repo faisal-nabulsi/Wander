@@ -1,6 +1,6 @@
 //
 //  AutoScriptAssignments.swift
-//  StikDebug
+//  Wander
 //
 
 private struct AutoScriptAssignment {

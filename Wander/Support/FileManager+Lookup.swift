@@ -1,6 +1,6 @@
 //
 //  FileManager+Lookup.swift
-//  StikDebug
+//  Wander
 //
 
 import Foundation

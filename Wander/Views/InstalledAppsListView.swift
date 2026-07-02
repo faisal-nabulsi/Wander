@@ -1,6 +1,6 @@
 //
 //  InstalledAppsListView.swift
-//  StikDebug
+//  Wander
 //
 //  Created by Stossy11 on 28/03/2025.
 //

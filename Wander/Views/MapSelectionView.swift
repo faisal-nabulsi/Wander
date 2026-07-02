@@ -1,6 +1,6 @@
 //
 //  MapSelectionView.swift
-//  StikDebug
+//  Wander
 //
 //  Created by Stephen on 11/3/25.
 //

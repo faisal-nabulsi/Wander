@@ -1,6 +1,6 @@
 //
 //  AccessibilityAnnouncer.swift
-//  StikDebug
+//  Wander
 //
 
 import UIKit

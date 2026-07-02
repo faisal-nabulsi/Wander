@@ -1,6 +1,6 @@
 //
 //  AlertPresenter.swift
-//  StikDebug
+//  Wander
 //
 
 import UIKit

@@ -1,6 +1,6 @@
 //
 //  DeviceInfoManager.swift
-//  StikDebug
+//  Wander
 //
 //  Created by Stephen on 8/2/25.
 //

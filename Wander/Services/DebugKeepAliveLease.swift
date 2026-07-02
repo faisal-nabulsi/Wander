@@ -1,6 +1,6 @@
 //
 //  DebugKeepAliveLease.swift
-//  StikDebug
+//  Wander
 //
 
 import Foundation

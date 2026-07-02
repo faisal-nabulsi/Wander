@@ -1,7 +1,7 @@
 //
 //  IconsFetcher.swift
 //  Dont change the name of the actual file (it will break stuff)
-//  StikDebug
+//  Wander
 //
 //  Created by neoarz on 3/28/25.
 //

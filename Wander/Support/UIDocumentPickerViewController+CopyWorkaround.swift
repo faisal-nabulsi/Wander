@@ -1,6 +1,6 @@
 //
 //  UIDocumentPickerViewController+CopyWorkaround.swift
-//  StikDebug
+//  Wander
 //
 
 import UIKit

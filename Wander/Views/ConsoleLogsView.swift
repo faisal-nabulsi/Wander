@@ -1,6 +1,6 @@
 //
 //  ConsoleLogsView.swift
-//  StikDebug
+//  Wander
 //
 //  Created by neoarz on 3/29/25.
 //

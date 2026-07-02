@@ -1,6 +1,6 @@
 //
 //  RunJSView.swift
-//  StikDebug
+//  Wander
 //
 //  Created by s s on 2025/4/24.
 //

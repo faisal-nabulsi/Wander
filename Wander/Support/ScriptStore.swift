@@ -1,6 +1,6 @@
 //
 //  ScriptStore.swift
-//  StikDebug
+//  Wander
 //
 
 import Foundation

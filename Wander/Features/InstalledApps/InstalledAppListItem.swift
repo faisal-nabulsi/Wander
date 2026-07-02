@@ -1,6 +1,6 @@
 //
 //  InstalledAppListItem.swift
-//  StikDebug
+//  Wander
 //
 
 import Foundation

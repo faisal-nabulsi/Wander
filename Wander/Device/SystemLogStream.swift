@@ -1,6 +1,6 @@
 //
 //  SystemLogStream.swift
-//  StikDebug
+//  Wander
 //
 //  Created by Stephen on 09/21/2025.
 //

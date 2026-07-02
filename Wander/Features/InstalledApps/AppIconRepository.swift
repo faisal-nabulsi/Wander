@@ -1,6 +1,6 @@
 //
 //  AppIconRepository.swift
-//  StikDebug
+//  Wander
 //
 
 import SwiftUI

@@ -1,6 +1,6 @@
 //
 //  ScriptEditorView.swift
-//  StikDebug
+//  Wander
 //
 //  Created by s s on 2025/7/4.
 //

@@ -1,6 +1,6 @@
 //
 //  TunnelManager.swift
-//  StikDebug
+//  Wander
 //
 
 import Foundation

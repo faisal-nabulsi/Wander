@@ -1,6 +1,6 @@
 //
 //  HomeView.swift
-//  StikDebug
+//  Wander
 //
 //  Created by Stephen on 3/26/25.
 //

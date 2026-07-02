@@ -1,6 +1,6 @@
 //
 //  JSDebugSupport.swift
-//  StikDebug
+//  Wander
 //
 //  Created by Stephen on 2026/3/30.
 //

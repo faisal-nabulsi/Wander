@@ -1,6 +1,6 @@
 //
 //  MainTabView.swift
-//  StikDebug
+//  Wander
 //
 //  Created by Stephen on 3/27/25.
 //
@@ -60,6 +60,9 @@ struct MainTabView: View {
     @State private var showSetup = false
     @State private var didRunSetupCheck = false
 
+    @ObservedObject private var gate = RemoteGate.shared
+    @ObservedObject private var license = License.shared
+
     var body: some View {
         ZStack {
             Color.clear.ignoresSafeArea()
@@ -81,6 +84,7 @@ struct MainTabView: View {
                     didRunSetupCheck = true
                     setupChecker.check()
                 }
+                gate.refresh()
             }
             .onChange(of: setupChecker.hasRunOnce) { _, ran in
                 // After the first launch check, nudge the setup sheet only if something's missing.
@@ -89,8 +93,14 @@ struct MainTabView: View {
             .sheet(isPresented: $showSetup) {
                 SetupChecklistView()
             }
+            .fullScreenCover(isPresented: Binding(get: { gate.locked && !license.isLicensed }, set: { _ in })) {
+                PaywallView()
+            }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { SimulationSession.shared.rescheduleIfActive() }
+                if phase == .active {
+                    SimulationSession.shared.rescheduleIfActive()
+                    gate.refresh()
+                }
             }
             .tint(Color(red: 0.094, green: 0.373, blue: 0.647))   // Wander brand blue
             .onOpenURL { url in

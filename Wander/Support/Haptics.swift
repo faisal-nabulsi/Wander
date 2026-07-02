@@ -1,6 +1,6 @@
 //
 //  Haptics.swift
-//  StikDebug
+//  Wander
 //
 
 import UIKit

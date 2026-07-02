@@ -1,6 +1,6 @@
 //
 //  InstalledAppsViewModel.swift
-//  StikDebug
+//  Wander
 //
 
 import Combine

@@ -1,6 +1,6 @@
 //
 //  InstalledAppRows.swift
-//  StikDebug
+//  Wander
 //
 
 import SwiftUI

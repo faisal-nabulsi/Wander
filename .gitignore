@@ -24,6 +24,9 @@ SELLING_PLAN.md
 buildlog.txt
 assets/
 *.ipa
+## NEVER commit license signing keys
+*.key
+*-private.key
 *.pbxuser
 !default.pbxuser
 *.mode1v3
