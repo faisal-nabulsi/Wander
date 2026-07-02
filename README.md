@@ -1,10 +1,30 @@
 # Wander
 
-**Free location spoofing for iPhone — no jailbreak, no paid software.**
+### Set your iPhone's location to anywhere in the world — free, no jailbreak.
 
-Wander sets your iPhone's GPS to anywhere in the world. Drop a pin and teleport, walk around with an on‑screen joystick, or drive a real road route at realistic speed. It runs entirely on‑device.
+Teleport with a tap, roam with an on‑screen joystick, or drive a real road route at realistic speed. 100% on‑device. A free, open‑source alternative to **iMyFone AnyTo** and **Tenorshare iAnyGo**.
 
-> Wander is a free, open‑source alternative to paid tools like iMyFone AnyTo and Tenorshare iAnyGo.
+<p align="center">
+  <img src="docs/screenshots/teleport.png" width="30%" alt="Teleport — tap the map and go"/>
+  &nbsp;
+  <img src="docs/screenshots/joystick.png" width="30%" alt="Joystick — move in real time"/>
+  &nbsp;
+  <img src="docs/screenshots/route.png" width="30%" alt="Route — drive a real road at realistic speed"/>
+</p>
+
+## ⚡ Install in one tap
+
+Add Wander's **SideStore / AltStore source**, then tap install — you'll get auto‑updates too:
+
+```
+https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/apps.json
+```
+
+📲 On your iPhone: [**Add to SideStore**](sidestore://source?url=https%3A%2F%2Fraw.githubusercontent.com%2Ffaisal-nabulsi%2FWander%2Fmain%2Fapps.json) · [**Add to AltStore**](altstore://source?url=https%3A%2F%2Fraw.githubusercontent.com%2Ffaisal-nabulsi%2FWander%2Fmain%2Fapps.json)
+
+Prefer to do it manually? Grab [`Wander.ipa` from the latest release](https://github.com/faisal-nabulsi/Wander/releases/latest) and sideload it.
+
+> Requires iOS 17+, Developer Mode, a pairing file, and a tunnel (LocalDevVPN on a free Apple ID). Full setup is below — the in‑app **Setup checklist** walks you through it.
 
 ---
 
@@ -35,7 +55,7 @@ Location simulation on iOS 17+ works by talking to the device's own developer se
 The whole flow is: **install → connect a tunnel → add a pairing file → open Wander.**
 
 ### 1. Install Wander
-Sideload `Wander.ipa` with **[SideStore](https://sidestore.io)** or **AltStore** using your Apple ID. (SideStore is recommended — it refreshes the app automatically so you don't have to reinstall every 7 days.)
+Set up **[SideStore](https://sidestore.io)** or **AltStore** with your Apple ID (SideStore is recommended — it refreshes the app automatically so you never have to reinstall). Then either **add the source** above for a one‑tap install with auto‑updates, or sideload `Wander.ipa` from [Releases](https://github.com/faisal-nabulsi/Wander/releases/latest) manually.
 
 ### 2. Connect a tunnel
 Wander needs a loopback tunnel to reach the device's developer services.

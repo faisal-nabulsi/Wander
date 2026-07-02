@@ -1,0 +1,46 @@
+{
+  "name": "Wander",
+  "identifier": "com.github.faisal-nabulsi.wander",
+  "subtitle": "Free location spoofer for iPhone",
+  "description": "Wander — set your iPhone's GPS anywhere. Teleport, live joystick, and realistic route playback. Free and open-source.",
+  "iconURL": "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/Wander/Assets.xcassets/AppIcon.appiconset/icon.png",
+  "website": "https://github.com/faisal-nabulsi/Wander",
+  "tintColor": "185FA5",
+  "apps": [
+    {
+      "name": "Wander",
+      "bundleIdentifier": "com.stik.stikdebug",
+      "developerName": "faisal-nabulsi",
+      "subtitle": "Set your GPS anywhere — free.",
+      "localizedDescription": "Wander sets your iPhone's location to anywhere in the world, on-device and free.\n\n• Teleport — search an address or drop a pin and go\n• Joystick — an on-screen stick that moves you in real time\n• Route — drive a real road route at realistic speed (paces to the real ETA, slows for turns)\n• Places — saved, recent, and famous landmark locations\n• Natural jitter, km/h ⇄ mph, and an in-app setup checklist\n\nA free, open-source alternative to paid tools like iMyFone AnyTo and Tenorshare iAnyGo. Requires iOS 17+, Developer Mode, a pairing file, and a tunnel (LocalDevVPN on a free Apple ID). See the GitHub README for setup.",
+      "iconURL": "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/Wander/Assets.xcassets/AppIcon.appiconset/icon.png",
+      "tintColor": "185FA5",
+      "category": "utilities",
+      "screenshotURLs": [
+        "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/teleport.png",
+        "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/joystick.png",
+        "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
+      ],
+      "version": "1.0",
+      "versionDate": "2026-07-02",
+      "versionDescription": "First public release of Wander.",
+      "downloadURL": "https://github.com/faisal-nabulsi/Wander/releases/download/v1.0/Wander.ipa",
+      "size": 4399209,
+      "versions": [
+        {
+          "version": "1.0",
+          "date": "2026-07-02",
+          "localizedDescription": "First public release of Wander.",
+          "downloadURL": "https://github.com/faisal-nabulsi/Wander/releases/download/v1.0/Wander.ipa",
+          "size": 4399209,
+          "minOSVersion": "17.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {}
+      }
+    }
+  ],
+  "news": []
+}
