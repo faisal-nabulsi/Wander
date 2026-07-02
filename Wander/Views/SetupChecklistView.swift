@@ -40,6 +40,9 @@ final class SetupChecker: ObservableObject {
 struct SetupChecklistView: View {
     @ObservedObject var checker = SetupChecker.shared
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var showPairingImporter = false
+    @State private var importResult: (text: String, isError: Bool)?
 
     var body: some View {
         NavigationStack {
@@ -86,6 +89,32 @@ struct SetupChecklistView: View {
                     }
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
+                    // One-tap fixes for whatever isn't ready yet.
+                    if !checker.allReady {
+                        VStack(spacing: 10) {
+                            if !checker.hasPairing {
+                                Button {
+                                    showPairingImporter = true
+                                } label: {
+                                    Label("Import pairing file", systemImage: "doc.badge.plus")
+                                        .frame(maxWidth: .infinity).frame(height: 30)
+                                }
+                                .buttonStyle(.borderedProminent).tint(Wander.brand).controlSize(.large)
+                            }
+                            if !checker.reachable {
+                                Link(destination: URL(string: "https://apps.apple.com/us/app/localdevvpn/id6755608044")!) {
+                                    Label("Get the tunnel app (LocalDevVPN)", systemImage: "arrow.down.circle")
+                                        .frame(maxWidth: .infinity).frame(height: 30)
+                                }
+                                .buttonStyle(.bordered).controlSize(.large)
+                            }
+                            if let m = importResult {
+                                Label(m.text, systemImage: m.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                                    .font(.caption).foregroundStyle(m.isError ? .red : .green)
+                            }
+                        }
+                    }
+
                     if checker.allReady {
                         Label("You're all set — go spoof your location.", systemImage: "checkmark.seal.fill")
                             .font(.subheadline).foregroundStyle(.green)
@@ -112,6 +141,33 @@ struct SetupChecklistView: View {
             }
             .background(Color.blue.opacity(0.07).ignoresSafeArea())
             .onAppear { if !checker.hasRunOnce { checker.check() } }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { checker.check() }
+            }
+            .fileImporter(
+                isPresented: $showPairingImporter,
+                allowedContentTypes: PairingFileStore.supportedContentTypes,
+                allowsMultipleSelection: false
+            ) { result in
+                handleImport(result)
+            }
+        }
+    }
+
+    private func handleImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            do {
+                try PairingFileStore.importFromPicker(url)
+                importResult = ("Pairing file imported", false)
+                startTunnelInBackground()
+                checker.check()
+            } catch {
+                importResult = ("Import failed: \(error.localizedDescription)", true)
+            }
+        case .failure(let error):
+            importResult = ("Import failed: \(error.localizedDescription)", true)
         }
     }
 
