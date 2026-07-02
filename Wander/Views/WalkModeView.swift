@@ -1,0 +1,247 @@
+//
+//  WalkModeView.swift
+//  Wander
+//
+//  Live "walk" mode: an on-screen joystick moves the simulated location in
+//  real time. Direction comes from the stick angle, speed from how far it's
+//  pushed. Each tick advances the coordinate and re-sends it through the same
+//  DVT LocationSimulation engine the Map screen uses.
+//
+
+import SwiftUI
+import MapKit
+import CoreLocation
+
+struct WalkModeView: View {
+    private let tickInterval: TimeInterval = 0.5
+    private let joystickRadius: CGFloat = 52
+
+    @State private var coordinate: CLLocationCoordinate2D?
+    @State private var visibleCenter: CLLocationCoordinate2D?
+    @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
+    @StateObject private var currentLocation = CurrentLocation()
+
+    @State private var speedMps: Double = 6_000.0 / 3_600.0   // default 6 km/h
+    @AppStorage("useMph") private var useMph = false
+    @State private var knobOffset: CGSize = .zero
+    @State private var isWalking = false
+    @State private var moveTimer: Timer?
+
+    @State private var showAlert = false
+    @State private var alertTitle = ""
+    @State private var alertMessage = ""
+
+    var body: some View {
+        NavigationStack {
+            ZStack(alignment: .bottom) {
+                mapLayer
+                controls
+            }
+            .navigationTitle("Joystick")
+            .alert(alertTitle, isPresented: $showAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(alertMessage)
+            }
+            .onDisappear { stopTimer() }
+            .onReceive(NotificationCenter.default.publisher(for: .stopSimulationRequested)) { _ in
+                localReset()
+            }
+            .onAppear { currentLocation.request() }
+            .onReceive(currentLocation.$coordinate.compactMap { $0 }) { c in
+                if coordinate == nil && !isWalking {
+                    cameraPosition = .region(MKCoordinateRegion(center: c, latitudinalMeters: 2500, longitudinalMeters: 2500))
+                }
+            }
+        }
+    }
+
+    private var mapLayer: some View {
+        Map(position: $cameraPosition) {
+            if let coordinate {
+                Annotation("You", coordinate: coordinate) {
+                    ZStack {
+                        Circle().fill(.blue.opacity(0.25)).frame(width: 34, height: 34)
+                        Circle().fill(.blue).frame(width: 16, height: 16)
+                            .overlay(Circle().stroke(.white, lineWidth: 2))
+                    }
+                }
+            }
+        }
+        .onMapCameraChange(frequency: .continuous) { context in
+            visibleCenter = context.region.center
+        }
+        .overlay(alignment: .center) {
+            if coordinate == nil { MapCrosshair() }
+        }
+        .ignoresSafeArea()
+    }
+
+    private var controls: some View {
+        WanderCard {
+            VStack(spacing: 14) {
+                if coordinate == nil {
+                    AddressSearchBar(placeholder: "Search a place to start") { coord, _ in
+                        coordinate = coord
+                        recenter(on: coord)
+                    }
+                    WanderPrimaryButton(title: "Set start point", icon: Wander.Icon.setHere) {
+                        setStartToCenter()
+                    }
+                } else {
+                    HStack(alignment: .center, spacing: 16) {
+                        joystick
+                        VStack(spacing: 10) {
+                            Text("\(Int(SpeedFormat.fromMps(speedMps, useMph: useMph))) \(SpeedFormat.unitLabel(useMph: useMph))")
+                                .font(.title3.bold()).monospacedDigit()
+                            HStack(spacing: 6) {
+                                Button("Walk") { speedMps = 6_000.0 / 3_600.0 }.buttonStyle(.bordered).font(.caption)
+                                Button("Run") { speedMps = 12_000.0 / 3_600.0 }.buttonStyle(.bordered).font(.caption)
+                                Button("Drive") { speedMps = 50_000.0 / 3_600.0 }.buttonStyle(.bordered).font(.caption)
+                            }
+                        }
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { SpeedFormat.fromMps(speedMps, useMph: useMph) },
+                            set: { speedMps = SpeedFormat.toMps($0, useMph: useMph) }
+                        ),
+                        in: SpeedFormat.sliderRange(useMph: useMph),
+                        step: 1
+                    )
+                    WanderPrimaryButton(title: "Stop", icon: Wander.Icon.stop, role: .destructive) {
+                        stop()
+                    }
+                }
+            }
+        }
+    }
+
+    private var joystick: some View {
+        ZStack {
+            Circle()
+                .fill(Color.secondary.opacity(0.12))
+                .frame(width: (joystickRadius + 30) * 2, height: (joystickRadius + 30) * 2)
+            Circle()
+                .fill(isWalking ? Color.accentColor : Color.gray)
+                .frame(width: 60, height: 60)
+                .offset(knobOffset)
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            var v = value.translation
+                            let dist = hypot(v.width, v.height)
+                            if dist > joystickRadius {
+                                let scale = joystickRadius / dist
+                                v = CGSize(width: v.width * scale, height: v.height * scale)
+                            }
+                            knobOffset = v
+                            if !isWalking { start() }
+                        }
+                        .onEnded { _ in
+                            knobOffset = .zero
+                        }
+                )
+        }
+        .frame(width: (joystickRadius + 30) * 2, height: (joystickRadius + 30) * 2)
+    }
+
+    // MARK: - Start / stop
+
+    private func setStartToCenter() {
+        guard let center = visibleCenter else {
+            alert("Pan the map", "Move the map so a location is centered, then try again.")
+            return
+        }
+        coordinate = center
+        recenter(on: center)
+    }
+
+    private func start() {
+        guard let coordinate else { return }
+        guard pairingFilePath() != nil else {
+            alert("Pairing file required", "Import a pairing file in Settings before simulating location.")
+            self.coordinate = nil
+            return
+        }
+        isWalking = true
+        SimulationSession.shared.started()
+        send(coordinate)
+        startTimer()
+    }
+
+    private func stop() {
+        // Global stop: clears the device location and broadcasts a reset.
+        SimulationSession.shared.stopAll()
+    }
+
+    private func localReset() {
+        stopTimer()
+        isWalking = false
+        knobOffset = .zero
+        coordinate = nil          // back to "set a new start" state
+    }
+
+    // MARK: - Movement
+
+    private func startTimer() {
+        stopTimer()
+        moveTimer = Timer.scheduledTimer(withTimeInterval: tickInterval, repeats: true) { _ in
+            step()
+        }
+    }
+
+    private func stopTimer() {
+        moveTimer?.invalidate()
+        moveTimer = nil
+    }
+
+    private func step() {
+        guard isWalking, var coord = coordinate else { return }
+        let magnitude = min(hypot(knobOffset.width, knobOffset.height) / joystickRadius, 1)
+        guard magnitude > 0.02 else { return }
+
+        // Screen up (-y) is north; +x is east.
+        let bearing = atan2(Double(knobOffset.width), Double(-knobOffset.height))
+        let distance = speedMps * Double(magnitude) * tickInterval
+
+        let metersPerDegLat = 111_320.0
+        let dLat = (distance * cos(bearing)) / metersPerDegLat
+        let lonScale = max(cos(coord.latitude * .pi / 180), 0.000001)
+        let dLon = (distance * sin(bearing)) / (metersPerDegLat * lonScale)
+
+        coord.latitude += dLat
+        coord.longitude += dLon
+        coordinate = coord
+        recenter(on: coord)
+        send(coord)
+    }
+
+    private func recenter(on coord: CLLocationCoordinate2D) {
+        cameraPosition = .camera(MapCamera(centerCoordinate: coord, distance: 1_200))
+    }
+
+    // MARK: - Engine
+
+    private func pairingFilePath() -> String? {
+        let url = PairingFileStore.prepareURL()
+        return FileManager.default.fileExists(atPath: url.path) ? url.path : nil
+    }
+
+    private func send(_ coord: CLLocationCoordinate2D) {
+        guard let path = pairingFilePath() else { return }
+        LocationSimulationCommandQueue.shared.async {
+            _ = simulate_location(DeviceConnectionContext.targetIPAddress, coord.latitude, coord.longitude, path)
+        }
+    }
+
+    private func alert(_ title: String, _ message: String) {
+        alertTitle = title
+        alertMessage = message
+        showAlert = true
+    }
+}
+
+#Preview {
+    WalkModeView()
+}

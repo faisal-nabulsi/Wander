@@ -1,0 +1,59 @@
+name: Build Debug IPA
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build IPA
+    runs-on: macos-latest
+    env:
+      UPLOAD_IPA: ${{ vars.UPLOAD_IPA || 'true' }}
+
+    steps:
+      - name: 1. Fetch Source Code
+        uses: actions/checkout@v6
+
+      - name: 2. Configure Xcode Environment
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.0.1'
+
+      - name: 3. Compile Project Archive
+        run: |
+          xcodebuild clean archive \
+            -project Wander.xcodeproj \
+            -scheme "Wander" \
+            -configuration Debug \
+            -archivePath build/Wander.xcarchive \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_OPTIMIZATION_LEVEL="-Onone" \
+            IPHONEOS_DEPLOYMENT_TARGET=17.4
+
+      - name: 4. Package .app into .ipa
+        run: |
+          cp -R build/Wander.xcarchive/Products/Applications/Wander.app .
+          mkdir -p Payload
+          cp -R Wander.app Payload/
+          zip -r Wander.ipa Payload
+          rm -rf Payload Wander.app
+
+      - name: 5. Store IPA as Workflow Artifact
+        if: env.UPLOAD_IPA == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: Wander-Debug.ipa
+          path: Wander.ipa
+          retention-days: 90
