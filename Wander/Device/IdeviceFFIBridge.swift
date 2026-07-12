@@ -291,6 +291,70 @@ extension JITEnableContext {
         }
     }
 
+    /// Directly asks the device whether Developer Mode is enabled — the same thing desktop
+    /// tools (pymobiledevice3, iGo) do via lockdownd's DeveloperModeStatus. Works with NO DDI
+    /// mounted and Dev Mode off, and never starts a simulation. Returns true if enabled.
+    func getDeveloperModeStatus() throws -> Bool {
+        try IdeviceBridge.withTunnelHandles(for: self) { adapter, handshake in
+            try IdeviceBridge.withConnectedClient(
+                fallback: "Failed to connect to image mounter",
+                missingClientMessage: "Image mounter client was not created",
+                connect: { image_mounter_connect_rsd(adapter, handshake, $0) },
+                cleanup: { image_mounter_free($0) }
+            ) { client in
+                var status: Int32 = 0
+                if let ffiError = image_mounter_query_developer_mode_status(client, &status) {
+                    throw IdeviceBridge.consumeFFIError(ffiError, fallback: "Failed to query Developer Mode status")
+                }
+                return status == 1
+            }
+        }
+    }
+
+    /// Reliable "is the personalized DDI mounted?" probe for iOS 17+, where
+    /// image_mounter_copy_devices wrongly reports 0. The DTServiceHub RSD service is only
+    /// advertised once the DDI is mounted, so its availability is the mount signal.
+    func isDeveloperServiceAvailable() throws -> Bool {
+        try IdeviceBridge.withTunnelHandles(for: self) { _, handshake in
+            var available = false
+            if let ffiError = rsd_service_available(handshake, "com.apple.instruments.dtservicehub", &available) {
+                throw IdeviceBridge.consumeFFIError(ffiError, fallback: "Failed to query developer services")
+            }
+            return available
+        }
+    }
+
+    /// Query the device's UDID over lockdown (needed to register the device with Apple before
+    /// signing — a free provisioning profile requires the device to be registered).
+    func getDeviceUDID() throws -> String {
+        try IdeviceBridge.withTunnelHandles(for: self) { adapter, handshake in
+            try IdeviceBridge.withConnectedClient(
+                fallback: "Failed to connect to lockdownd",
+                missingClientMessage: "Lockdownd client was not created",
+                connect: { lockdownd_connect_rsd(adapter, handshake, $0) },
+                cleanup: { lockdownd_client_free($0) }
+            ) { lockdownClient in
+                var plist: plist_t?
+                if let ffiError = lockdownd_get_value(lockdownClient, "UniqueDeviceID", nil, &plist) {
+                    throw IdeviceBridge.consumeFFIError(ffiError, fallback: "Failed to query UniqueDeviceID")
+                }
+                guard let plistValue = plist else {
+                    throw NSError(domain: "sign", code: -1, userInfo: [NSLocalizedDescriptionKey: "No UDID returned"])
+                }
+                defer { plist_free(plistValue) }
+
+                var cString: UnsafeMutablePointer<CChar>?
+                plist_get_string_val(plistValue, &cString)
+                defer { if let cString { plist_mem_free(cString) } }
+
+                guard let cString, let udid = String(validatingUTF8: cString), !udid.isEmpty else {
+                    throw NSError(domain: "sign", code: -1, userInfo: [NSLocalizedDescriptionKey: "Couldn't read device UDID"])
+                }
+                return udid
+            }
+        }
+    }
+
     func mountPersonalDDI(withImagePath imagePath: String, trustcachePath: String, manifestPath: String) throws {
         let imageData = try IdeviceBridge.mappedFileData(atPath: imagePath, description: "developer disk image")
         let trustcacheData = try IdeviceBridge.mappedFileData(atPath: trustcachePath, description: "developer disk image trust cache")
@@ -437,6 +501,165 @@ extension JITEnableContext {
                         fallback: "Failed to add provisioning profile",
                         domain: "profiles"
                     )
+                }
+            }
+        }
+    }
+
+    /// The on-device half of a self-refresh: stage an IPA over AFC, then upgrade-install it
+    /// in place — over the SAME rppairing tunnel + (adapter, handshake) the misagent calls
+    /// already use successfully on iOS 26.5. Signing (AltSign) happens off-device beforehand.
+    func stageAndUpgradeIPA(atPath ipaPath: String, bundleID: String) throws {
+        let ipaData = try Data(contentsOf: URL(fileURLWithPath: ipaPath), options: .mappedIfSafe)
+        let stagingDir = "PublicStaging"
+        let remotePath = "\(stagingDir)/\(bundleID).ipa"
+
+        try IdeviceBridge.withTunnelHandles(for: self) { adapter, handshake in
+            // 1) AFC — stage the IPA into PublicStaging/<bundleID>.ipa
+            try IdeviceBridge.withConnectedClient(
+                fallback: "Failed to connect to AFC",
+                missingClientMessage: "AFC client was not created",
+                domain: "install",
+                connect: { afc_client_connect_rsd(adapter, handshake, $0) },
+                cleanup: { afc_client_free($0) }
+            ) { afcClient in
+                _ = afc_make_directory(afcClient, stagingDir)   // fine if it already exists
+
+                var fileHandle: OpaquePointer?
+                if let ffiError = afc_file_open(afcClient, remotePath, AfcWrOnly, &fileHandle) {
+                    throw IdeviceBridge.consumeFFIError(ffiError, fallback: "Failed to open staging file", domain: "install")
+                }
+                guard let fileHandle else {
+                    throw NSError(domain: "install", code: -1, userInfo: [NSLocalizedDescriptionKey: "AFC file handle was not created"])
+                }
+                defer { afc_file_close(fileHandle) }
+
+                // Stream the IPA in 1 MB chunks so large payloads write cleanly over the tunnel.
+                let chunkSize = 1 << 20
+                try ipaData.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                    guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
+                    var offset = 0
+                    while offset < ipaData.count {
+                        let n = min(chunkSize, ipaData.count - offset)
+                        if let ffiError = afc_file_write(fileHandle, base + offset, n) {
+                            throw IdeviceBridge.consumeFFIError(ffiError, fallback: "Failed to write staged IPA", domain: "install")
+                        }
+                        offset += n
+                    }
+                }
+            }
+
+            // 2) installation_proxy — upgrade-install from the staged path
+            try IdeviceBridge.withConnectedClient(
+                fallback: "Failed to connect to installation proxy",
+                missingClientMessage: "Installation proxy client was not created",
+                domain: "install",
+                connect: { installation_proxy_connect_rsd(adapter, handshake, $0) },
+                cleanup: { installation_proxy_client_free($0) }
+            ) { instClient in
+                let options = plist_new_dict()
+                defer { plist_free(options) }
+                plist_dict_set_item(options, "CFBundleIdentifier", plist_new_string(bundleID))
+
+                if let ffiError = installation_proxy_upgrade(instClient, remotePath, options) {
+                    throw IdeviceBridge.consumeFFIError(ffiError, fallback: "Failed to install/upgrade app", domain: "install")
+                }
+            }
+        }
+    }
+
+    /// Recursively push a (signed) .app bundle into PublicStaging over AFC, then upgrade-install
+    /// it — the install half of self-refresh. Handles a directory (walks + recreates the tree)
+    /// instead of a single .ipa file, over the same rppairing tunnel.
+    func stageAndUpgradeAppBundle(atLocalPath localAppPath: String, bundleID: String) throws {
+        let fm = FileManager.default
+        let localAppURL = URL(fileURLWithPath: localAppPath)
+        let appName = localAppURL.lastPathComponent
+        let stagingRoot = "PublicStaging"
+        let remoteAppDir = "\(stagingRoot)/\(appName)"
+
+        try IdeviceBridge.withTunnelHandles(for: self) { adapter, handshake in
+            try IdeviceBridge.withConnectedClient(
+                fallback: "Failed to connect to AFC",
+                missingClientMessage: "AFC client was not created",
+                domain: "install",
+                connect: { afc_client_connect_rsd(adapter, handshake, $0) },
+                cleanup: { afc_client_free($0) }
+            ) { afcClient in
+                _ = afc_make_directory(afcClient, stagingRoot)
+                _ = afc_make_directory(afcClient, remoteAppDir)
+
+                guard let enumerator = fm.enumerator(at: localAppURL, includingPropertiesForKeys: [.isDirectoryKey]) else {
+                    throw NSError(domain: "install", code: -1, userInfo: [NSLocalizedDescriptionKey: "Couldn't read the app bundle"])
+                }
+
+                // Compute the relative path via components on the symlink-resolved URLs, so
+                // /var vs /private/var normalization can't corrupt the remote path.
+                let baseComponents = localAppURL.resolvingSymlinksInPath().pathComponents
+                func relativePath(_ url: URL) -> String? {
+                    let comps = url.resolvingSymlinksInPath().pathComponents
+                    guard comps.count > baseComponents.count else { return nil }
+                    return comps[baseComponents.count...].joined(separator: "/")
+                }
+
+                var dirRels: [String] = []
+                var fileEntries: [(rel: String, url: URL)] = []
+                for case let fileURL as URL in enumerator {
+                    guard let rel = relativePath(fileURL) else { continue }
+                    let isDir = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+                    if isDir { dirRels.append(rel) } else { fileEntries.append((rel, fileURL)) }
+                }
+
+                // Create directories shallow-first so every file has an existing parent.
+                for rel in dirRels.sorted(by: { $0.components(separatedBy: "/").count < $1.components(separatedBy: "/").count }) {
+                    _ = afc_make_directory(afcClient, "\(remoteAppDir)/\(rel)")
+                }
+
+                for entry in fileEntries {
+                    let remotePath = "\(remoteAppDir)/\(entry.rel)"
+                    let data = try Data(contentsOf: entry.url, options: .mappedIfSafe)
+                    var fileHandle: OpaquePointer?
+                    if let ffiError = afc_file_open(afcClient, remotePath, AfcWrOnly, &fileHandle) {
+                        let inner = IdeviceBridge.consumeFFIError(ffiError, fallback: "open", domain: "install")
+                        throw NSError(domain: "install", code: 106, userInfo: [NSLocalizedDescriptionKey: "AFC open '\(entry.rel)': \(inner.localizedDescription)"])
+                    }
+                    guard let fileHandle else {
+                        throw NSError(domain: "install", code: -1, userInfo: [NSLocalizedDescriptionKey: "AFC handle nil: \(entry.rel)"])
+                    }
+
+                    let chunkSize = 1 << 20
+                    var writeError: Error?
+                    data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                        guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
+                        var offset = 0
+                        while offset < data.count {
+                            let n = min(chunkSize, data.count - offset)
+                            if let ffiError = afc_file_write(fileHandle, base + offset, n) {
+                                writeError = IdeviceBridge.consumeFFIError(ffiError, fallback: "AFC write failed: \(entry.rel)", domain: "install")
+                                return
+                            }
+                            offset += n
+                        }
+                    }
+                    afc_file_close(fileHandle)
+                    if let writeError { throw writeError }
+                }
+            }
+
+            try IdeviceBridge.withConnectedClient(
+                fallback: "Failed to connect to installation proxy",
+                missingClientMessage: "Installation proxy client was not created",
+                domain: "install",
+                connect: { installation_proxy_connect_rsd(adapter, handshake, $0) },
+                cleanup: { installation_proxy_client_free($0) }
+            ) { instClient in
+                let options = plist_new_dict()
+                defer { plist_free(options) }
+                plist_dict_set_item(options, "CFBundleIdentifier", plist_new_string(bundleID))
+                plist_dict_set_item(options, "PackageType", plist_new_string("Developer"))
+
+                if let ffiError = installation_proxy_upgrade(instClient, remoteAppDir, options) {
+                    throw IdeviceBridge.consumeFFIError(ffiError, fallback: "Failed to install signed app", domain: "install")
                 }
             }
         }
@@ -760,6 +983,7 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
             idevice_error_free(ffiError)
             LocationSimulationState.cleanup()
         } else {
+            DeviceReadiness.markSimulationSucceeded()
             return LocationSimulationStatus.ok
         }
     }
@@ -841,6 +1065,7 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
         return LocationSimulationStatus.locationSet
     }
 
+    DeviceReadiness.markSimulationSucceeded()
     return LocationSimulationStatus.ok
 }
 

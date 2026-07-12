@@ -160,6 +160,7 @@ private func tunnelConnectionAlertMessage(for error: NSError) -> String {
             "Open LocalDevVPN and confirm the VPN is connected.",
             "Make sure LocalDevVPN is using the default \(DeviceConnectionContext.defaultTargetIPAddress) address.",
             "Reconnect Wi-Fi and LocalDevVPN, then try again.",
+            "No Wi-Fi? Turn on Airplane Mode, then connect LocalDevVPN (the loopback tunnel works with no network).",
             "If this keeps happening, select a fresh pairing file."
         ]
     } else if error.code == -18 || lowercasedMessage.contains("parse target ip") {
@@ -180,12 +181,12 @@ private func tunnelConnectionAlertMessage(for error: NSError) -> String {
         recoverySteps = [
             "Disconnect and reconnect LocalDevVPN.",
             "Confirm iOS shows the VPN indicator.",
-            "Try switching Wi-Fi off and on."
+            "On Wi-Fi, switch it off and on. No Wi-Fi? Turn on Airplane Mode, then connect LocalDevVPN — the loopback tunnel needs no network."
         ]
     } else {
         likelyCause = "The tunnel could not be created."
         recoverySteps = [
-            "Confirm Wi-Fi and LocalDevVPN are connected.",
+            "Confirm Wi-Fi and LocalDevVPN are connected — or, with no Wi-Fi, turn on Airplane Mode then connect LocalDevVPN.",
             "Wake and unlock the target device.",
             "Reconnect LocalDevVPN, then try again."
         ]

@@ -26,6 +26,8 @@ struct WalkModeView: View {
     @State private var knobOffset: CGSize = .zero
     @State private var isWalking = false
     @State private var moveTimer: Timer?
+    @State private var showPaywall = false
+    @State private var joyFraction: Double = 0
 
     @State private var showAlert = false
     @State private var alertTitle = ""
@@ -44,6 +46,7 @@ struct WalkModeView: View {
                 Text(alertMessage)
             }
             .onDisappear { stopTimer() }
+            .sheet(isPresented: $showPaywall) { PaywallView(onClose: { showPaywall = false }) }
             .onReceive(NotificationCenter.default.publisher(for: .stopSimulationRequested)) { _ in
                 localReset()
             }
@@ -164,6 +167,10 @@ struct WalkModeView: View {
             self.coordinate = nil
             return
         }
+        if !License.shared.isLicensed && !TrialManager.shared.canUse(.joystick) {
+            showPaywall = true
+            return
+        }
         isWalking = true
         SimulationSession.shared.started()
         send(coordinate)
@@ -200,6 +207,17 @@ struct WalkModeView: View {
         guard isWalking, var coord = coordinate else { return }
         let magnitude = min(hypot(knobOffset.width, knobOffset.height) / joystickRadius, 1)
         guard magnitude > 0.02 else { return }
+
+        // Charge free-trial joystick time only while actually moving. Cut off at the cap.
+        if !License.shared.isLicensed {
+            joyFraction += tickInterval
+            while joyFraction >= 1 { TrialManager.shared.addJoystickSeconds(1); joyFraction -= 1 }
+            if !TrialManager.shared.canUse(.joystick) {
+                stop()
+                showPaywall = true
+                return
+            }
+        }
 
         // Screen up (-y) is north; +x is east.
         let bearing = atan2(Double(knobOffset.width), Double(-knobOffset.height))

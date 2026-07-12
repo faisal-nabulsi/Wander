@@ -11,6 +11,7 @@
 		5FBB2DDF2FF64CDE0031F477 /* TunnelProv.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5FBB2DD52FF64CDE0031F477 /* TunnelProv.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		68D569BE2E1B415700A5BA36 /* CodeEditorView in Frameworks */ = {isa = PBXBuildFile; productRef = 68D569BD2E1B415700A5BA36 /* CodeEditorView */; };
 		68D569C02E1B415700A5BA36 /* LanguageSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 68D569BF2E1B415700A5BA36 /* LanguageSupport */; };
+		DFAA523A5AA5E15E1D06FAFB /* AltSign-Dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = 9D27F1765684FE95A41F6CB7 /* AltSign-Dynamic */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -97,11 +98,15 @@
 		};
 		DC6F1D4B2D94EADF0071B2B6 /* WanderTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = WanderTests;
 			sourceTree = "<group>";
 		};
 		DC6F1D552D94EADF0071B2B6 /* WanderUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = WanderUITests;
 			sourceTree = "<group>";
 		};
@@ -122,6 +127,7 @@
 			files = (
 				68D569C02E1B415700A5BA36 /* LanguageSupport in Frameworks */,
 				68D569BE2E1B415700A5BA36 /* CodeEditorView in Frameworks */,
+				DFAA523A5AA5E15E1D06FAFB /* AltSign-Dynamic in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -194,8 +200,6 @@
 				5FBB2DD82FF64CDE0031F477 /* TunnelProv */,
 			);
 			name = TunnelProv;
-			packageProductDependencies = (
-			);
 			productName = TunnelProv;
 			productReference = 5FBB2DD52FF64CDE0031F477 /* TunnelProv.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -221,6 +225,7 @@
 			packageProductDependencies = (
 				68D569BD2E1B415700A5BA36 /* CodeEditorView */,
 				68D569BF2E1B415700A5BA36 /* LanguageSupport */,
+				9D27F1765684FE95A41F6CB7 /* AltSign-Dynamic */,
 			);
 			productName = Wander;
 			productReference = DC6F1D372D94EADD0071B2B6 /* Wander.app */;
@@ -243,8 +248,6 @@
 				DC6F1D4B2D94EADF0071B2B6 /* WanderTests */,
 			);
 			name = WanderTests;
-			packageProductDependencies = (
-			);
 			productName = WanderTests;
 			productReference = DC6F1D482D94EADF0071B2B6 /* WanderTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -266,8 +269,6 @@
 				DC6F1D552D94EADF0071B2B6 /* WanderUITests */,
 			);
 			name = WanderUITests;
-			packageProductDependencies = (
-			);
 			productName = WanderUITests;
 			productReference = DC6F1D522D94EADF0071B2B6 /* WanderUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
@@ -312,6 +313,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				68D569BC2E1B415700A5BA36 /* XCRemoteSwiftPackageReference "CodeEditorView" */,
+				594357E3D25E096390949AE4 /* XCLocalSwiftPackageReference "AltSign" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DC6F1D382D94EADD0071B2B6 /* Products */;
@@ -861,6 +863,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		594357E3D25E096390949AE4 /* XCLocalSwiftPackageReference "AltSign" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Dependencies/AltSign;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		68D569BC2E1B415700A5BA36 /* XCRemoteSwiftPackageReference "CodeEditorView" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -882,6 +891,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 68D569BC2E1B415700A5BA36 /* XCRemoteSwiftPackageReference "CodeEditorView" */;
 			productName = LanguageSupport;
+		};
+		9D27F1765684FE95A41F6CB7 /* AltSign-Dynamic */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 594357E3D25E096390949AE4 /* XCLocalSwiftPackageReference "AltSign" */;
+			productName = "AltSign-Dynamic";
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

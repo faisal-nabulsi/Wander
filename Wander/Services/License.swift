@@ -5,7 +5,11 @@
 //  Offline license check. A license key is an Ed25519-signed token
 //  (`base64url(payload).base64url(signature)`) minted with the developer's private
 //  key. The app verifies it against the embedded public key — no server needed, and
-//  keys can't be forged without the private key. Used to unlock when RemoteGate locks.
+//  keys can't be forged without the private key.
+//
+//  The signed payload is JSON: {"e": email, "t": issuedAt, "p": plan, "exp": expiry?}.
+//  A key with no `exp` is a lifetime license; monthly/yearly keys carry an `exp` unix
+//  time and stop unlocking once it passes (checked offline against the device clock).
 //
 
 import Foundation
@@ -21,32 +25,75 @@ final class License: ObservableObject {
     private static let storeKey = "wander.license.token"
 
     @Published private(set) var isLicensed: Bool = false
+    @Published private(set) var plan: String? = nil
+    @Published private(set) var expiry: Date? = nil
 
     private init() {
-        if let token = UserDefaults.standard.string(forKey: Self.storeKey) {
-            isLicensed = Self.verify(token)
-        }
+        refresh()
     }
 
-    /// Store + activate a license key if its signature is valid.
+    /// Re-evaluate the stored key (catches a subscription that has since expired). The token
+    /// lives in the Keychain so a valid license survives deleting + reinstalling the app —
+    /// combined with the persistent device id, a licensed user never has to re-enter a code.
+    func refresh() {
+        guard let token = WanderKeychain.string(Self.storeKey) else {
+            isLicensed = false; plan = nil; expiry = nil
+            return
+        }
+        let result = Self.evaluate(token)
+        isLicensed = result.valid
+        plan = result.plan
+        expiry = result.expiry
+    }
+
+    /// Store + activate a license key if its signature is valid and it isn't expired.
     @discardableResult
     func redeem(_ raw: String) -> Bool {
         let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard Self.verify(token) else { return false }
-        UserDefaults.standard.set(token, forKey: Self.storeKey)
+        let result = Self.evaluate(token)
+        guard result.valid else { return false }
+        WanderKeychain.set(Self.storeKey, token)
         isLicensed = true
+        plan = result.plan
+        expiry = result.expiry
         return true
     }
 
-    static func verify(_ token: String) -> Bool {
+    static func verify(_ token: String) -> Bool { evaluate(token).valid }
+
+    struct Evaluation {
+        let valid: Bool
+        let plan: String?
+        let expiry: Date?
+    }
+
+    static func evaluate(_ token: String) -> Evaluation {
         let parts = token.split(separator: ".")
         guard parts.count == 2,
               let payload = b64urlDecode(String(parts[0])),
               let signature = b64urlDecode(String(parts[1])),
               let pkData = Data(base64Encoded: publicKeyB64),
-              let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: pkData)
-        else { return false }
-        return publicKey.isValidSignature(signature, for: payload)
+              let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: pkData),
+              publicKey.isValidSignature(signature, for: payload)
+        else { return Evaluation(valid: false, plan: nil, expiry: nil) }
+
+        var plan: String? = nil
+        var expiry: Date? = nil
+        if let obj = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] {
+            plan = obj["p"] as? String
+            if let exp = obj["exp"] as? Double { expiry = Date(timeIntervalSince1970: exp) }
+            // A server-issued key is bound to one device (`d`). If present, it must match
+            // THIS device — a key copied to another phone fails here even though the
+            // signature is valid. Keys without `d` (offline/legacy) unlock anywhere.
+            if let boundDevice = obj["d"] as? String, boundDevice != WanderDevice.id {
+                return Evaluation(valid: false, plan: plan, expiry: expiry)
+            }
+        }
+        // A subscription key stops unlocking once its expiry passes. No `exp` = lifetime.
+        if let expiry, Date() >= expiry {
+            return Evaluation(valid: false, plan: plan, expiry: expiry)
+        }
+        return Evaluation(valid: true, plan: plan, expiry: expiry)
     }
 
     private static func b64urlDecode(_ s: String) -> Data? {

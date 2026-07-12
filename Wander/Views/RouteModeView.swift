@@ -34,6 +34,11 @@ struct RouteModeView: View {
     @State private var waypoints: [RouteWaypoint] = []
     @State private var routeCoordinates: [CLLocationCoordinate2D] = []
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
+    // When true the camera keeps the moving pin on screen — but preserves YOUR zoom level and
+    // only recenters when the pin nears the edge. Tap the follow button to fully unlock it.
+    @State private var followCamera = true
+    @State private var visibleRegion: MKCoordinateRegion?
+    @State private var showPaywall = false
     @StateObject private var currentLocation = CurrentLocation()
     @State private var visibleCenter: CLLocationCoordinate2D?
     @State private var currentPosition: CLLocationCoordinate2D?
@@ -67,11 +72,14 @@ struct RouteModeView: View {
             .alert("Route", isPresented: Binding(get: { alertText != nil }, set: { if !$0 { alertText = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: { Text(alertText ?? "") }
-            .onDisappear { localReset() }
+            // Don't stop an active drive just because the user switched tabs — only reset
+            // when idle. The explicit Stop button / global stop still tears it down.
+            .onDisappear { if !SimulationSession.shared.isActive { localReset() } }
             .onReceive(NotificationCenter.default.publisher(for: .stopSimulationRequested)) { _ in
                 localReset()
             }
             .onAppear { currentLocation.request() }
+            .sheet(isPresented: $showPaywall) { PaywallView(onClose: { showPaywall = false }) }
             .onReceive(currentLocation.$coordinate.compactMap { $0 }) { c in
                 if waypoints.isEmpty && !isDriving {
                     cameraPosition = .region(MKCoordinateRegion(center: c, latitudinalMeters: 2500, longitudinalMeters: 2500))
@@ -102,11 +110,39 @@ struct RouteModeView: View {
         }
         .onMapCameraChange(frequency: .continuous) { context in
             visibleCenter = context.region.center
+            visibleRegion = context.region
         }
         .overlay(alignment: .center) {
             if !isDriving { MapCrosshair() }
         }
+        .overlay(alignment: .topTrailing) {
+            if isDriving { followButton }
+        }
         .ignoresSafeArea()
+    }
+
+    /// Toggles camera-follow during a drive. On → tracks the pin (fixed zoom). Off → the map
+    /// is yours to zoom out / pan; tap again to snap back and resume following.
+    private var followButton: some View {
+        Button {
+            followCamera.toggle()
+            if followCamera, let currentPosition {
+                let span = visibleRegion?.span ?? MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+                withAnimation {
+                    cameraPosition = .region(MKCoordinateRegion(center: currentPosition, span: span))
+                }
+            }
+        } label: {
+            Image(systemName: followCamera ? "location.fill" : "location.slash.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(followCamera ? .white : Wander.brand)
+                .frame(width: 44, height: 44)
+                .background(followCamera ? Wander.brand : Color(.systemBackground), in: Circle())
+                .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
+        }
+        .padding(.top, 110)
+        .padding(.trailing, 16)
+        .accessibilityLabel(followCamera ? "Stop following" : "Follow location")
     }
 
     private var controls: some View {
@@ -296,6 +332,16 @@ struct RouteModeView: View {
         }
     }
 
+    /// True when the coordinate sits well inside the visible map (within the middle ~60%),
+    /// so following can leave the camera alone and not fight the user's zoom/pan.
+    private func regionComfortablyContains(_ coord: CLLocationCoordinate2D) -> Bool {
+        guard let region = visibleRegion else { return false }
+        let latMargin = region.span.latitudeDelta * 0.3
+        let lonMargin = region.span.longitudeDelta * 0.3
+        return abs(coord.latitude - region.center.latitude) < latMargin
+            && abs(coord.longitude - region.center.longitude) < lonMargin
+    }
+
     private func region(fitting coords: [CLLocationCoordinate2D]) -> MKCoordinateRegion? {
         guard !coords.isEmpty else { return nil }
         let lats = coords.map(\.latitude), lons = coords.map(\.longitude)
@@ -389,6 +435,10 @@ struct RouteModeView: View {
             alertText = "Import a pairing file in Settings first."
             return
         }
+        if !License.shared.isLicensed && !TrialManager.shared.canUse(.route) {
+            showPaywall = true
+            return
+        }
 
         isComputing = true
         let samples: [RoutePlaybackSample]
@@ -420,8 +470,15 @@ struct RouteModeView: View {
 
         isDriving = true
         isPaused = false
+        followCamera = true   // each drive starts tracking the pin
         progress = 0
+        // Start the drive showing the whole route, not zoomed hard into the start pin.
+        if let region = region(fitting: routeCoordinates) {
+            withAnimation { cameraPosition = .region(region) }
+            visibleRegion = region
+        }
         SimulationSession.shared.started()
+        if !License.shared.isLicensed { TrialManager.shared.chargeRoute() }
 
         let totalPlanned = samples.reduce(0) { $0 + $1.delayFromPrevious }
         playbackTask = Task {
@@ -442,7 +499,12 @@ struct RouteModeView: View {
                 let outgoing = jitterEnabled ? LocationJitter.apply(sample.coordinate) : sample.coordinate
                 send(outgoing)
                 currentPosition = sample.coordinate
-                cameraPosition = .camera(MapCamera(centerCoordinate: sample.coordinate, distance: 1_500))
+                // Follow without hijacking zoom: only recenter (keeping the user's current span)
+                // when the pin drifts near the edge of what's on screen.
+                if followCamera, !regionComfortablyContains(sample.coordinate) {
+                    let span = visibleRegion?.span ?? MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+                    withAnimation { cameraPosition = .region(MKCoordinateRegion(center: sample.coordinate, span: span)) }
+                }
                 progress = Double(index + 1) / Double(total)
                 remainingSeconds = max(totalPlanned - elapsed, 0) / max(playbackRate, 0.1)
             }

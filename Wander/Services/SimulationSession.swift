@@ -15,19 +15,29 @@ extension Notification.Name {
 }
 
 @MainActor
-final class SimulationSession {
+final class SimulationSession: ObservableObject {
     static let shared = SimulationSession()
 
     private let reminderID = "wander.reminder.2h"
     private let reminderInterval: TimeInterval = 2 * 60 * 60   // 2 hours
 
-    private(set) var isActive = false
+    /// Whether a location simulation is currently running. Drives the "keep Wander open"
+    /// banner: iOS 18+ clears the spoof the moment the app/tunnel dies, so the user must
+    /// keep Wander foregrounded.
+    @Published private(set) var isActive = false
 
     /// Call when a mode begins simulating.
     func started() {
         isActive = true
         BackgroundLocationManager.shared.requestStart()
         scheduleReminderIfEnabled()
+    }
+
+    /// Call when a single mode stops only itself (e.g. Teleport's Clear). The global Stop
+    /// button uses stopAll(), which additionally broadcasts to every mode.
+    func markStopped() {
+        isActive = false
+        cancelReminder()
     }
 
     /// Global stop: clears the device location, tells every mode to reset, cancels the reminder.

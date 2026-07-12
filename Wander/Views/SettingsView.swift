@@ -22,6 +22,14 @@ struct SettingsView: View {
     @State private var isShowingPairingFilePicker = false
     @State private var pairingImportResult: (text: String, isError: Bool)?
     @State private var showSetupCheck = false
+    @State private var showLogin = false
+    @State private var twoFactorCode = ""
+    @ObservedObject private var trial = TrialManager.shared
+    @ObservedObject private var license = License.shared
+    @State private var showPaywall = false
+    @ObservedObject private var updater = WanderUpdater.shared
+    @ObservedObject private var wanderAccount = WanderAccount.shared
+    @State private var selfRefreshStatus: String?
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -50,6 +58,105 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    if license.isLicensed {
+                        Label("Wander Pro — active", systemImage: "checkmark.seal.fill")
+                            .foregroundStyle(.green)
+                        if let expiry = license.expiry {
+                            Text("Renews/expires \(expiry.formatted(date: .abbreviated, time: .omitted))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        trialRow("Teleports", trial.teleportsUsed, TrialManager.maxTeleports)
+                        trialRow("Joystick", trial.joystickSecondsUsed / 60, TrialManager.maxJoystickSeconds / 60, unit: " min")
+                        trialRow("Routes", trial.routesUsed, TrialManager.maxRoutes)
+                        Button {
+                            showPaywall = true
+                        } label: {
+                            Label("Get Wander Pro / enter license", systemImage: "sparkles")
+                        }
+                    }
+                } header: {
+                    Text("Wander Pro")
+                } footer: {
+                    Text(license.isLicensed
+                         ? "Thanks for supporting Wander — all limits are lifted."
+                         : "Free trial: 5 teleports, 30 minutes of joystick, and 3 routes. Unlock unlimited use with a license.")
+                }
+
+                Section {
+                    Button {
+                        showLogin = true
+                    } label: {
+                        Label(wanderAccount.isSignedIn ? "Apple ID — signed in ✓" : "Sign in to Apple ID", systemImage: "person.badge.key")
+                    }
+                    if !wanderAccount.status.isEmpty {
+                        Text(wanderAccount.status)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if wanderAccount.isSignedIn {
+                        Button(role: .destructive) {
+                            wanderAccount.signOut()
+                        } label: {
+                            Label("Sign out of Apple ID", systemImage: "person.badge.minus")
+                        }
+                    }
+                    Button {
+                        runSelfRefresh()
+                    } label: {
+                        Label("Run self-refresh (sign + install)", systemImage: "checkmark.seal")
+                    }
+                    if let s = selfRefreshStatus {
+                        Text(s)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                } header: {
+                    Text("Self-refresh")
+                } footer: {
+                    Text("Signs Wander with your Apple ID and reinstalls it over the tunnel — resets the 7-day clock with no computer. Your Apple ID stays signed in (stored securely in the Keychain); Apple may occasionally ask for a 2FA code again. The app closes itself when the refresh installs — just reopen it.")
+                }
+
+                Section {
+                    HStack {
+                        Text("Current version")
+                        Spacer()
+                        Text("\(updater.currentVersion) (\(updater.currentBuild))")
+                            .foregroundStyle(.secondary)
+                    }
+                    if let m = updater.available {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Update available — v\(m.version)", systemImage: "arrow.down.circle.fill")
+                                .foregroundStyle(Wander.brand)
+                            if let notes = m.notes, !notes.isEmpty {
+                                Text(notes).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Button {
+                            runUpdate()
+                        } label: {
+                            Label("Download & install update", systemImage: "square.and.arrow.down")
+                        }
+                        .disabled(updater.isBusy)
+                    } else {
+                        Button {
+                            Task { await updater.check() }
+                        } label: {
+                            Label("Check for updates", systemImage: "arrow.clockwise")
+                        }
+                        .disabled(updater.isBusy)
+                    }
+                    if !updater.status.isEmpty {
+                        Text(updater.status)
+                            .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    }
+                } header: {
+                    Text("Software Update")
+                } footer: {
+                    Text("Wander updates itself over the tunnel using your Apple ID — no computer. You'll need to be signed in (above) and connected. The app relaunches when the update installs.")
+                }
+
+                Section {
                     HStack {
                         Image(systemName: tunnel.status == .connected ? "checkmark.shield.fill" : "shield.slash")
                             .foregroundStyle(tunnel.status == .connected ? Color.green : Color.secondary)
@@ -70,10 +177,10 @@ struct SettingsView: View {
                     Text("Wander Tunnel")
                 } footer: {
                     if let e = tunnel.lastError {
-                        Text("Couldn't start the built-in tunnel (\(e)).\n\nThe built-in tunnel needs a paid Apple Developer account (Apple restricts Network Extensions on free accounts). On a free account, use the LocalDevVPN app instead — it works the same way.")
+                        Text("Couldn't start the built-in tunnel (\(e)).\n\niOS restricts VPNs to paid Apple accounts, so on a free install this can't activate — use the LocalDevVPN app instead. No Wi-Fi? Turn on Airplane Mode, then connect LocalDevVPN.")
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("Built-in on-device tunnel — replaces LocalDevVPN. Requires a paid Apple Developer account to activate; on a free account, use the LocalDevVPN app.")
+                        Text("Built-in on-device tunnel. iOS restricts VPNs to paid Apple accounts, so on a free install use the LocalDevVPN app instead — on Wi-Fi, or on cellular by turning on Airplane Mode first, then connecting it.")
                     }
                 }
 
@@ -162,7 +269,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Help")
                 } footer: {
-                    Text("The tunnel connects Wander to your device. On a free Apple ID, use the free LocalDevVPN app.")
+                    Text("The tunnel connects Wander to your device. Use the LocalDevVPN app — on Wi-Fi, or without Wi-Fi by turning on Airplane Mode first, then connecting LocalDevVPN.")
                 }
 
                 Section {
@@ -200,6 +307,87 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showSetupCheck) {
             SetupChecklistView()
+        }
+        .sheet(isPresented: $showLogin) {
+            WanderLoginView()
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(onClose: { showPaywall = false })
+        }
+        .alert("Two-Factor Code", isPresented: $wanderAccount.awaiting2FA) {
+            TextField("6-digit code", text: $twoFactorCode)
+                .keyboardType(.numberPad)
+            Button("Submit") {
+                wanderAccount.submitTwoFactorCode(twoFactorCode.trimmingCharacters(in: .whitespaces))
+                twoFactorCode = ""
+            }
+            Button("Cancel", role: .cancel) {
+                wanderAccount.submitTwoFactorCode(nil)
+                twoFactorCode = ""
+            }
+        } message: {
+            Text("Enter the 6-digit code Apple sent to your trusted device. No popup? Get it from Settings → your name → Sign-In & Security → Get Verification Code.")
+        }
+    }
+
+    private func runUpdate() {
+        Task {
+            guard wanderAccount.isSignedIn else {
+                updater.status = "Sign in to your Apple ID first (above)."
+                return
+            }
+            do {
+                try await updater.installUpdate()
+            } catch {
+                updater.status = "❌ \((error as NSError).localizedDescription)"
+            }
+        }
+    }
+
+    private func trialRow(_ label: String, _ used: Int, _ maximum: Int, unit: String = "") -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text("\(min(used, maximum))/\(maximum)\(unit)")
+                .foregroundStyle(.secondary).monospacedDigit()
+        }
+    }
+
+    private func runSelfRefresh() {
+        var lastStep = "starting"
+        selfRefreshStatus = "Starting…"
+        Task {
+            guard wanderAccount.isSignedIn else {
+                selfRefreshStatus = "Sign in to Apple ID first (button above)."
+                return
+            }
+            let workDir = URL.documentsDirectory.appendingPathComponent("refresh-work", isDirectory: true)
+            let srcApp = workDir.appendingPathComponent("Wander.app")
+            do {
+                // Copy our OWN installed bundle into a writable work dir — true self-refresh,
+                // no external file needed.
+                selfRefreshStatus = "Copying app bundle…"
+                try? FileManager.default.removeItem(at: workDir)
+                try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: Bundle.main.bundleURL, to: srcApp)
+                // Strip the inert TunnelProv.appex (paid-only NE) → simple single-app sign.
+                try? FileManager.default.removeItem(at: srcApp.appendingPathComponent("PlugIns"))
+
+                let bundleID = try await wanderAccount.resignAppBundle(
+                    at: srcApp,
+                    baseBundleID: "com.stik.stikdebug",
+                    progress: { s in lastStep = s; selfRefreshStatus = s }
+                )
+                lastStep = "installing"
+                selfRefreshStatus = "Installing signed app over the tunnel…"
+                try await Task.detached(priority: .userInitiated) {
+                    try JITEnableContext.shared.stageAndUpgradeAppBundle(atLocalPath: srcApp.path, bundleID: bundleID)
+                }.value
+                selfRefreshStatus = "✅ Self-refresh complete — signed + installed as \(bundleID)"
+            } catch {
+                let ns = error as NSError
+                selfRefreshStatus = "❌ [\(lastStep)] \(ns.localizedDescription) · \(ns.domain) #\(ns.code)"
+            }
         }
     }
 

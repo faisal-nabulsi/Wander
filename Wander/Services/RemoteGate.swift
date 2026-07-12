@@ -16,15 +16,20 @@ final class RemoteGate: ObservableObject {
 
     @Published private(set) var locked: Bool
     @Published private(set) var message: String
+    /// Base URL of the license Worker (bind-on-first-redeem). Set via config.json so it can
+    /// be pointed at your deployed Worker with no app rebuild. Empty = server codes disabled.
+    @Published private(set) var licenseServerURL: String
 
     private static let configURL = URL(string: "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/config.json")!
     private static let lockedKey = "wander.gate.locked"
     private static let msgKey = "wander.gate.message"
+    private static let licenseServerKey = "wander.gate.licenseServer"
 
     private init() {
         // Start from the last value we saw, so the lock survives offline launches.
         locked = UserDefaults.standard.bool(forKey: Self.lockedKey)
         message = UserDefaults.standard.string(forKey: Self.msgKey) ?? ""
+        licenseServerURL = UserDefaults.standard.string(forKey: Self.licenseServerKey) ?? ""
     }
 
     func refresh() {
@@ -35,8 +40,10 @@ final class RemoteGate: ObservableObject {
             DispatchQueue.main.async {
                 self.locked = cfg.locked
                 self.message = cfg.message ?? ""
+                self.licenseServerURL = cfg.licenseServer ?? ""
                 UserDefaults.standard.set(cfg.locked, forKey: Self.lockedKey)
                 UserDefaults.standard.set(self.message, forKey: Self.msgKey)
+                UserDefaults.standard.set(self.licenseServerURL, forKey: Self.licenseServerKey)
             }
         }.resume()
     }
@@ -44,5 +51,6 @@ final class RemoteGate: ObservableObject {
     private struct Config: Decodable {
         let locked: Bool
         let message: String?
+        let licenseServer: String?
     }
 }

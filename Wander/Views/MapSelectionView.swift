@@ -735,6 +735,7 @@ struct LocationSimulationView: View {
     @State private var routeSpeedPrefetchTask: Task<Void, Never>?
     @State private var routePlaybackTask: Task<Void, Never>?
     @State private var isBusy = false
+    @State private var showPaywall = false
     @State private var isLoadingRoute = false
     @State private var isPrefetchingRouteSpeeds = false
     @State private var isImportingCoordinates = false
@@ -990,6 +991,9 @@ struct LocationSimulationView: View {
             }
         }
         .onDisappear {
+            // Switching tabs shouldn't tear down a live spoof/route — keep it running and
+            // let the explicit Stop button (or global stop) end it. Only clean up when idle.
+            guard !SimulationSession.shared.isActive else { return }
             routeLoadTask?.cancel()
             routeLoadTask = nil
             routeSpeedPrefetchTask?.cancel()
@@ -1006,6 +1010,7 @@ struct LocationSimulationView: View {
             stopResendLoop()
             endBackgroundTask()
         }
+        .sheet(isPresented: $showPaywall) { PaywallView(onClose: { showPaywall = false }) }
         .onReceive(NotificationCenter.default.publisher(for: .teleportToRequested)) { note in
             guard let lat = note.userInfo?["lat"] as? Double,
                   let lng = note.userInfo?["lng"] as? Double else { return }
@@ -1286,6 +1291,10 @@ struct LocationSimulationView: View {
 
     private func simulate() {
         guard pairingExists, let coord = coordinate, !isBusy else { return }
+        if !License.shared.isLicensed && !TrialManager.shared.canUse(.teleport) {
+            showPaywall = true
+            return
+        }
         SavedPlacesStore.recordRecent(coord, name: "Pinned location")
         runLocationCommand(
             errorTitle: "Simulation Failed",
@@ -1297,7 +1306,8 @@ struct LocationSimulationView: View {
             routePlaybackCoordinate = nil
             beginBackgroundTask()
             startResendLoop(with: coord)
-            BackgroundLocationManager.shared.requestStart()
+            SimulationSession.shared.started()
+            if !License.shared.isLicensed { TrialManager.shared.chargeTeleport() }
         }
     }
 
@@ -1306,6 +1316,10 @@ struct LocationSimulationView: View {
               routePlan != nil,
               let firstCoordinate = routePlaybackSamples.first?.coordinate,
               !isBusy else {
+            return
+        }
+        if !License.shared.isLicensed && !TrialManager.shared.canUse(.route) {
+            showPaywall = true
             return
         }
         stopResendLoop()
@@ -1318,7 +1332,8 @@ struct LocationSimulationView: View {
             operation: { locationUpdateCode(for: firstCoordinate) }
         ) {
             beginBackgroundTask()
-            BackgroundLocationManager.shared.requestStart()
+            SimulationSession.shared.started()
+            if !License.shared.isLicensed { TrialManager.shared.chargeRoute() }
             simulatedCoordinate = nil
             routePlaybackCoordinate = firstCoordinate
             startRoutePlayback()
@@ -1362,6 +1377,7 @@ struct LocationSimulationView: View {
         ) {
             endBackgroundTask()
             BackgroundLocationManager.shared.requestStop()
+            SimulationSession.shared.markStopped()
         }
     }
 

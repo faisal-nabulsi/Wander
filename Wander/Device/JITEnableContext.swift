@@ -136,7 +136,48 @@ final class JITEnableContext {
         return pairingFile
     }
 
+    /// Bounded TCP reachability probe to the device tunnel endpoint (10.7.0.1:49152), so we can
+    /// fail fast when the VPN is down. `tunnel_create_rppairing` has NO timeout and would
+    /// otherwise hang, holding `tunnelConnecting` and blocking every later attempt — which is
+    /// why the setup checklist stayed stuck on X even after the VPN came back.
+    private func isTunnelEndpointReachable(timeoutSeconds: Double = 3) -> Bool {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+
+        let flags = fcntl(fd, F_GETFL, 0)
+        _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(49152).bigEndian
+        guard DeviceConnectionContext.targetIPAddress.withCString({ inet_pton(AF_INET, $0, &addr.sin_addr) }) == 1 else {
+            return false
+        }
+
+        let rc = withUnsafePointer(to: &addr) { p in
+            p.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.stride))
+            }
+        }
+        if rc == 0 { return true }                // connected immediately
+        if errno != EINPROGRESS { return false }  // immediate failure (no route, refused, …)
+
+        var pfd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        guard poll(&pfd, 1, Int32(max(timeoutSeconds, 0.1) * 1000)) > 0 else { return false }  // timeout
+
+        var soError: Int32 = 0
+        var len = socklen_t(MemoryLayout<Int32>.size)
+        guard getsockopt(fd, SOL_SOCKET, SO_ERROR, &soError, &len) == 0 else { return false }
+        return soError == 0
+    }
+
     private func createTunnel(hostname: String) throws -> TunnelHandles {
+        // Fail fast when the VPN/tunnel route is down (see isTunnelEndpointReachable) so the
+        // un-timeout-able native call below never hangs and wedges future attempts.
+        guard isTunnelEndpointReachable() else {
+            throw makeError("Can't reach the device tunnel — connect the VPN and try again.", code: -19)
+        }
         let pairingFile = try getPairingFile()
         defer { rp_pairing_file_free(pairingFile) }
 
@@ -240,6 +281,21 @@ final class JITEnableContext {
         if adapter == nil || handshake == nil {
             try startTunnel()
         }
+    }
+
+    /// Tear down the cached tunnel handles so the next `ensureTunnel()` builds a fresh tunnel.
+    /// Needed when a probe finds the tunnel dead (e.g. the VPN dropped): otherwise the handles
+    /// stay non-nil and `ensureTunnel()` keeps reusing the dead tunnel even after the VPN is
+    /// back. Safe — `simulate_location` builds its own tunnel and doesn't use these handles.
+    func invalidateTunnel() {
+        tunnelLock.lock()
+        defer { tunnelLock.unlock() }
+        guard !tunnelConnecting else { return }   // don't free mid-creation
+        if let handshake { rsd_handshake_free(handshake) }
+        if let adapter { adapter_free(adapter) }
+        adapter = nil
+        handshake = nil
+        lastTunnelError = nil
     }
 
     private func withFreshDebugTunnel<T>(

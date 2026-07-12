@@ -62,6 +62,9 @@ struct MainTabView: View {
 
     @ObservedObject private var gate = RemoteGate.shared
     @ObservedObject private var license = License.shared
+    @ObservedObject private var session = SimulationSession.shared
+    @State private var bannerVisible = false
+    @State private var bannerHideWork: DispatchWorkItem?
 
     var body: some View {
         ZStack {
@@ -100,6 +103,8 @@ struct MainTabView: View {
                 if phase == .active {
                     SimulationSession.shared.rescheduleIfActive()
                     gate.refresh()
+                    License.shared.refresh()   // re-check so an expired subscription re-locks
+                    if session.isActive { flashBanner() }
                 }
             }
             .tint(Color(red: 0.094, green: 0.373, blue: 0.647))   // Wander brand blue
@@ -141,6 +146,42 @@ struct MainTabView: View {
                         }
                 }
             }
+            .overlay(alignment: .top) { spoofingBanner }
+            .animation(.easeInOut(duration: 0.25), value: bannerVisible)
+            .onChange(of: session.isActive) { _, active in
+                if active { flashBanner() } else { withAnimation { bannerVisible = false } }
+            }
+        }
+    }
+
+    /// Show the "keep Wander open" pill briefly, then fade it out so it never sits on the
+    /// map controls. Re-flashed whenever spoofing starts or the app returns to the foreground.
+    private func flashBanner() {
+        bannerHideWork?.cancel()
+        withAnimation { bannerVisible = true }
+        let work = DispatchWorkItem { withAnimation { bannerVisible = false } }
+        bannerHideWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.5, execute: work)
+    }
+
+    @ViewBuilder private var spoofingBanner: some View {
+        if session.isActive && bannerVisible {
+            HStack(spacing: 8) {
+                Image(systemName: "location.fill")
+                    .font(.caption)
+                Text("Spoofing active — keep Wander open")
+                    .font(.caption.weight(.medium))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(Color(red: 0.094, green: 0.373, blue: 0.647), in: Capsule())
+            .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+            .padding(.horizontal, 24)
+            .padding(.top, 52)   // clear the inline nav bar; sits over the empty top of the map
+            .allowsHitTesting(false)
+            .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 

@@ -9,6 +9,8 @@ import SwiftUI
 struct WanderApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var shouldAttemptTunnelReconnect = false
+    // Transient (not persisted) so the welcome screen shows on every fresh launch.
+    @State private var showWelcome = true
 
     init() {
         AppBootstrapper.configure()
@@ -16,13 +18,21 @@ struct WanderApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainTabView()
-                .task {
-                    await downloadMissingDeveloperDiskImageFiles()
+            Group {
+                if showWelcome {
+                    WelcomeView { withAnimation { showWelcome = false } }
+                } else {
+                    MainTabView()
                 }
-                .onChange(of: scenePhase) { _, newPhase in
-                    handleScenePhaseChange(newPhase)
-                }
+            }
+            .task {
+                await MainActor.run { WanderAccount.shared.restoreSession() }
+                await WanderUpdater.shared.check()
+                await downloadMissingDeveloperDiskImageFiles()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                handleScenePhaseChange(newPhase)
+            }
         }
     }
 

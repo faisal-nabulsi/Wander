@@ -15,24 +15,66 @@ final class SetupChecker: ObservableObject {
 
     @Published private(set) var hasPairing = false
     @Published private(set) var mountState: MountCheckResult = .unreachable
+    @Published private(set) var developerMode: DeveloperModeState = .unknown
     @Published private(set) var isChecking = false
     @Published private(set) var hasRunOnce = false
 
     var reachable: Bool { mountState != .unreachable }
-    var mounted: Bool { mountState == .mounted }
+    // The image-mounter device count is unreliable for personalized DDIs on iOS 17+
+    // (returns 0 even when mounted), so also trust positive proof: a real simulation
+    // has succeeded and the tunnel is currently reachable.
+    var mounted: Bool { mountState == .mounted || (reachable && DeviceReadiness.ddiProven) }
+    // Developer Mode is queried directly from the device; if that query isn't available,
+    // fall back to inferring it from a mounted DDI (the DDI can't mount with it off).
+    var developerModeOK: Bool {
+        switch developerMode {
+        case .on: return true
+        case .off: return false
+        case .unknown: return mounted
+        }
+    }
     var allReady: Bool { hasPairing && mounted }
 
     func check() {
+        guard !isChecking else { return }
         isChecking = true
         hasPairing = FileManager.default.fileExists(atPath: PairingFileStore.prepareURL().path)
-        // getMountedDeviceCount() reaches over the tunnel — run it off the main actor.
-        Task.detached(priority: .userInitiated) {
-            let result = checkMountStatus()
-            await MainActor.run {
-                self.mountState = result
-                self.isChecking = false
-                self.hasRunOnce = true
+        // These reach over the tunnel and can hang when there's no VPN, so cap them with a
+        // timeout — the checklist must always resolve to a red X, never spin forever.
+        Task {
+            let (mount, devMode) = await Self.withTimeout(
+                seconds: 8,
+                fallback: (MountCheckResult.unreachable, DeveloperModeState.unknown)
+            ) {
+                await Task.detached(priority: .userInitiated) {
+                    (checkMountStatus(), checkDeveloperMode())
+                }.value
             }
+            self.mountState = mount
+            self.developerMode = devMode
+            self.isChecking = false
+            self.hasRunOnce = true
+        }
+    }
+
+    /// Run `operation`, but give up with `fallback` after `seconds` (the tunnel probes can
+    /// block indefinitely when there's no route to the device).
+    private static func withTimeout<T: Sendable>(
+        seconds: Double,
+        fallback: T,
+        _ operation: @escaping @Sendable () async -> T
+    ) async -> T {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask { await operation() }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return nil
+            }
+            defer { group.cancelAll() }
+            for await first in group {
+                return first ?? fallback
+            }
+            return fallback
         }
     }
 }
@@ -64,7 +106,7 @@ struct SetupChecklistView: View {
                             title: "Tunnel connected",
                             detail: checker.reachable
                                 ? "Your device is reachable."
-                                : "Open LocalDevVPN (or the Wander Tunnel) and connect.",
+                                : "Connect LocalDevVPN. On Wi-Fi it just works; no Wi-Fi? Turn on Airplane Mode first, then connect it.",
                             ok: checker.reachable,
                             checking: checker.isChecking
                         )
@@ -80,11 +122,11 @@ struct SetupChecklistView: View {
                         rowDivider
                         row(
                             title: "Developer Mode",
-                            detail: checker.mounted
+                            detail: checker.developerModeOK
                                 ? "On."
-                                : "Settings → Privacy & Security → Developer Mode → on, then restart.",
-                            ok: checker.mounted,          // if the DDI is mounted, Developer Mode is on
-                            checking: false
+                                : "Turn it on: Settings → Privacy & Security → Developer Mode → on, then restart.",
+                            ok: checker.developerModeOK,
+                            checking: checker.isChecking
                         )
                     }
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
