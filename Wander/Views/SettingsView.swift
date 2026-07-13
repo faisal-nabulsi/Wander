@@ -29,7 +29,7 @@ struct SettingsView: View {
     @State private var showPaywall = false
     @ObservedObject private var updater = WanderUpdater.shared
     @ObservedObject private var wanderAccount = WanderAccount.shared
-    @State private var selfRefreshStatus: String?
+    @ObservedObject private var selfRefresh = SelfRefreshService.shared
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -101,11 +101,12 @@ struct SettingsView: View {
                         }
                     }
                     Button {
-                        runSelfRefresh()
+                        Task { await selfRefresh.refresh() }
                     } label: {
                         Label("Run self-refresh (sign + install)", systemImage: "checkmark.seal")
                     }
-                    if let s = selfRefreshStatus {
+                    .disabled(selfRefresh.isRefreshing)
+                    if let s = selfRefresh.status {
                         Text(s)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -350,44 +351,6 @@ struct SettingsView: View {
             Spacer()
             Text("\(min(used, maximum))/\(maximum)\(unit)")
                 .foregroundStyle(.secondary).monospacedDigit()
-        }
-    }
-
-    private func runSelfRefresh() {
-        var lastStep = "starting"
-        selfRefreshStatus = "Starting…"
-        Task {
-            guard wanderAccount.isSignedIn else {
-                selfRefreshStatus = "Sign in to Apple ID first (button above)."
-                return
-            }
-            let workDir = URL.documentsDirectory.appendingPathComponent("refresh-work", isDirectory: true)
-            let srcApp = workDir.appendingPathComponent("Wander.app")
-            do {
-                // Copy our OWN installed bundle into a writable work dir — true self-refresh,
-                // no external file needed.
-                selfRefreshStatus = "Copying app bundle…"
-                try? FileManager.default.removeItem(at: workDir)
-                try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
-                try FileManager.default.copyItem(at: Bundle.main.bundleURL, to: srcApp)
-                // Strip the inert TunnelProv.appex (paid-only NE) → simple single-app sign.
-                try? FileManager.default.removeItem(at: srcApp.appendingPathComponent("PlugIns"))
-
-                let bundleID = try await wanderAccount.resignAppBundle(
-                    at: srcApp,
-                    baseBundleID: "com.stik.stikdebug",
-                    progress: { s in lastStep = s; selfRefreshStatus = s }
-                )
-                lastStep = "installing"
-                selfRefreshStatus = "Installing signed app over the tunnel…"
-                try await Task.detached(priority: .userInitiated) {
-                    try JITEnableContext.shared.stageAndUpgradeAppBundle(atLocalPath: srcApp.path, bundleID: bundleID)
-                }.value
-                selfRefreshStatus = "✅ Self-refresh complete — signed + installed as \(bundleID)"
-            } catch {
-                let ns = error as NSError
-                selfRefreshStatus = "❌ [\(lastStep)] \(ns.localizedDescription) · \(ns.domain) #\(ns.code)"
-            }
         }
     }
 

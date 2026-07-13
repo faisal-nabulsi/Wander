@@ -29,6 +29,9 @@ struct WanderApp: App {
                 await MainActor.run { WanderAccount.shared.restoreSession() }
                 await WanderUpdater.shared.check()
                 await downloadMissingDeveloperDiskImageFiles()
+                // Auto self-refresh when the sideload signature is near expiry (signed in +
+                // not already refreshing). Silently skips otherwise — see SelfRefreshService.
+                await SelfRefreshService.shared.autoRefreshIfNearExpiry()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 handleScenePhaseChange(newPhase)
