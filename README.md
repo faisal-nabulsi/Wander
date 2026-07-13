@@ -4,6 +4,8 @@
 
 Teleport with a tap, roam with an on‑screen joystick, or drive a real road route at realistic speed. 100% on‑device. A free, open‑source alternative to **iMyFone AnyTo** and **Tenorshare iAnyGo**.
 
+**🌐 Official site: [wanderspoofer.com](https://wanderspoofer.com)  ·  ⬇️ [Download](https://wanderspoofer.com/#download)  ·  💬 [Discord](https://discord.gg/gfHdsRXUVA)**
+
 <p align="center">
   <img src="docs/screenshots/teleport.png" width="30%" alt="Teleport — tap the map and go"/>
   &nbsp;
@@ -14,14 +16,16 @@ Teleport with a tap, roam with an on‑screen joystick, or drive a real road rou
 
 ## Get Wander
 
-Wander isn't on the App Store — you install it with **[SideStore](https://sidestore.io)**, a free app‑installer, using Wander's *source* (a link SideStore reads). Copy this:
+Wander isn't on the App Store — you install it in a few minutes with the free **Wander Installer** for Mac. No jailbreak, no paid developer account.
 
-```
-https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/apps.json
-```
+1. **[Download from wanderspoofer.com](https://wanderspoofer.com/#download)** — grab the **Wander Installer (Mac)**. *(Prefer the raw app? Download [`Wander.ipa`](https://github.com/faisal-nabulsi/Wander/releases/latest) and sideload it your own way.)*
+2. Plug in your iPhone, open the **Wander Installer**, sign in with your **free Apple ID**, and click **Install**. It signs and installs Wander onto your phone for you.
+3. Turn on **Developer Mode** and install the free **LocalDevVPN** tunnel (full steps below).
+4. Open Wander — it **refreshes itself over the air**, so you won't need the computer again.
 
-- 🆕 **Never sideloaded before?** Don't worry — follow the **[Full setup guide](#full-setup-guide)** below. It takes about 30 minutes once (you'll need a computer for setup); after that, daily use is just *turn on the VPN app → open Wander*.
-- ✅ **Already have SideStore?** In SideStore: **Sources → ➕ → paste the link → Add**, then install Wander. (Or download [`Wander.ipa`](https://github.com/faisal-nabulsi/Wander/releases/latest) and open it with SideStore.)
+👉 First time sideloading? Follow the **[Full setup guide](#full-setup-guide)** — about 10 minutes, once.
+
+> 💻 **Prefer to spoof straight from your computer?** **Wander Desktop** (Mac) does everything from your Mac — teleport, joystick, routes, no phone install needed. **[Download it here](https://wanderspoofer.com/#download).**
 
 ---
 
@@ -38,54 +42,37 @@ https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/apps.json
 
 ## Full setup guide
 
-*New to sideloading? Start here. First-time setup takes about **20–30 minutes** and needs a computer once. After that, everyday use is just: **turn on the VPN app → open Wander**. Do the steps in order — each one matters.*
+*First-time setup takes about **10 minutes** and needs a Mac once. After that, everyday use is just: **turn on the tunnel → open Wander**. Wander keeps itself refreshed, so you won't need the computer again. Do the steps in order — each one matters.*
 
 **What you need**
 - An iPhone on **iOS 17 or newer**, with a passcode set.
-- A **computer** (Mac, Windows, or Linux) — used once, for setup.
+- A **Mac** — used once, for setup. *(Windows support is on the way — [ask on Discord](https://discord.gg/gfHdsRXUVA).)*
 - A **free Apple ID** (your normal Apple account works fine).
 
-**The plain-English overview:** Wander isn't on the App Store, so you install it with a free tool called **SideStore**. You get SideStore onto your phone using a free *computer* app called **iloader**, which does the technical bits for you (including the "pairing file" — a trust certificate; you never touch it by hand). Then you switch on **Developer Mode**, add Wander, and keep a tiny VPN app running while you use it.
-
-### Step 1 — Get SideStore onto your iPhone (one time)
-1. On the iPhone, install **LocalDevVPN** from the App Store (free). This is the little "tunnel" SideStore and Wander need to talk to your phone. *(Windows PC only: also install Apple's **iTunes** so the PC recognizes your iPhone. Macs need nothing extra.)*
-2. On your computer, download **iloader** from **[iloader.app](https://iloader.app)** and install it.
-3. Plug the iPhone into the computer with a cable. On the iPhone, tap **Trust** and enter your passcode.
-4. Open iloader, sign in with your **free Apple ID**, and let it install **SideStore**. It creates the pairing file and signs everything automatically — just wait for it to finish.
-5. On the iPhone: **Settings → General → VPN & Device Management →** tap your Apple ID under *Developer App* **→ Trust**. Switch **LocalDevVPN** on, then open **SideStore**.
-
-> 💡 Ignore any old tutorial that mentions "WireGuard," "anisette," or Terminal commands — iloader replaced all of that.
+### Step 1 — Install Wander on your iPhone (one time)
+1. On the iPhone, install **LocalDevVPN** from the App Store (free). This is the secure "tunnel" Wander uses to talk to your phone.
+2. On your Mac, download the **[Wander Installer](https://wanderspoofer.com/#download)** and open it.
+3. Plug the iPhone into the Mac with a cable. On the iPhone, tap **Trust** and enter your passcode.
+4. In the Wander Installer, sign in with your **free Apple ID** and click **Install Wander**. It creates the pairing file, signs, and installs everything automatically — just wait for it to finish.
+5. On the iPhone: **Settings → General → VPN & Device Management →** tap your Apple ID under *Developer App* **→ Trust**.
 
 ### Step 2 — Turn on Developer Mode (one time)
-This option stays **hidden until SideStore is installed**, so do it now, after Step 1:
+This option stays **hidden until Wander is installed**, so do it now, after Step 1:
 1. **Settings → Privacy & Security →** scroll to the very **bottom → Developer Mode →** turn it **On**.
 2. Tap **Restart**.
 3. **After the phone reboots and you unlock it**, a second popup appears — tap **Turn On** and enter your passcode. *(People miss this second step and think it failed — without it, Developer Mode isn't actually on.)*
 
-### Step 3 — Add Wander and install it
-In **SideStore** on your iPhone:
-1. Copy this link:
-   ```
-   https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/apps.json
-   ```
-2. Open SideStore → **Sources** tab → tap **➕** (top-right) → paste the link → **Add**.
-3. Open the new **Wander** source → tap **Wander → Install** (make sure LocalDevVPN is on).
-
-*(Or skip the source: download [`Wander.ipa`](https://github.com/faisal-nabulsi/Wander/releases/latest) and open it with SideStore — but the source also gives you automatic updates.)*
-
-### Step 4 — Switch it on and go
+### Step 3 — Switch it on and go
 1. Open **LocalDevVPN → Connect** (keep it on whenever you use Wander).
-2. Open **Wander**. Its built-in **Setup checklist** shows a ✓ or ✗ for each requirement. When all four are green, pick a mode and set your location. 🎉
-   - **Pairing file not green?** In Wander: **Settings → Import pairing file** — or run `./tools/wander-pair.sh` from your computer with the phone plugged in.
+2. Open **Wander**. Its built-in **Setup checklist** shows a ✓ or ✗ for each requirement. When they're all green, pick a mode and set your location. 🎉
+   - **Pairing file not green?** In Wander: **Settings → Import pairing file** — or run `./tools/wander-pair.sh` from your Mac with the phone plugged in.
 
-### ⚠️ The 5 things people get wrong
-1. **It expires every 7 days** (a free-Apple-ID limit). Just open **SideStore** (with LocalDevVPN on) and tap **refresh** before the timer hits 0 — no computer needed. Forgot? Reinstall from Step 3.
-2. **LocalDevVPN must be ON** every time you install, update, or refresh — not only the first time.
+### ⚠️ The things people get wrong
+1. **A free Apple ID signature lasts 7 days.** Wander **refreshes itself** — just open it (with the tunnel on) before the timer runs out. No computer needed.
+2. **LocalDevVPN must be ON** every time you install, refresh, or spoof — not only the first time.
 3. A free Apple ID allows only **3 sideloaded apps** at once.
-4. **Installing the app and turning on Developer Mode are two separate things** — you need both.
+4. **Installing Wander and turning on Developer Mode are two separate things** — you need both.
 5. **Work- or school-managed iPhones** can block Developer Mode; use a personal phone.
-
-> **Have a paid Apple Developer account ($99/yr)?** You can skip LocalDevVPN entirely — turn on Wander's **built-in tunnel** in *Settings → Wander Tunnel*.
 
 ---
 
@@ -121,20 +108,21 @@ xcodebuild -project Wander.xcodeproj -scheme Wander -configuration Release \
 
 ## Troubleshooting
 
-- **"Tunnel connected" is red** → open LocalDevVPN (or the built‑in tunnel) and connect.
+- **"Tunnel connected" is red** → open LocalDevVPN and connect.
 - **"Developer Disk Image" won't mount** → make sure the tunnel is connected and Developer Mode is on, then Re‑check.
-- **Location won't set / pairing errors** → re‑import the pairing file (Settings → Import pairing file, or `./tools/wander-pair.sh`). Reinstalling the app clears the pairing; a SideStore *refresh* does not.
+- **Location won't set / pairing errors** → re‑import the pairing file (Settings → Import pairing file, or `./tools/wander-pair.sh`). Reinstalling the app clears the pairing.
 - **Location reverts after ~2 hours** → that's an iOS background limit; reopen Wander to resume.
 
 ---
 
 ## Contact
 
+- **Website:** [wanderspoofer.com](https://wanderspoofer.com)
+- **Discord:** [join the server](https://discord.gg/gfHdsRXUVA)
 - **Bugs / feature requests:** open an [issue](https://github.com/faisal-nabulsi/Wander/issues).
 - **Email:** faisalnab25@gmail.com
-- **Discord:** `naboosie`
 
-Wander is free. If it helps you, a donation link will be added here soon. ⭐ the repo to follow along.
+Wander is free and open‑source. ⭐ the repo to follow along.
 
 ---
 
