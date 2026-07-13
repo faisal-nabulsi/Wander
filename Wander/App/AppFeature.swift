@@ -16,6 +16,7 @@ enum AppFeature: String, CaseIterable, Identifiable {
     case location
     case walk
     case route
+    case pogo
     case places
     case settings
 
@@ -45,6 +46,8 @@ enum AppFeature: String, CaseIterable, Identifiable {
             return "Joystick"
         case .route:
             return "Route"
+        case .pogo:
+            return "PoGo"
         case .places:
             return "Places"
         case .settings:
@@ -74,6 +77,8 @@ enum AppFeature: String, CaseIterable, Identifiable {
             return "Move with a joystick"
         case .route:
             return "Drive a set path"
+        case .pogo:
+            return "Pokémon GO hotspots & cooldown"
         case .places:
             return "Saved & recent spots"
         case .settings:
@@ -112,6 +117,8 @@ enum AppFeature: String, CaseIterable, Identifiable {
             return Wander.Icon.joystick
         case .route:
             return Wander.Icon.route
+        case .pogo:
+            return "gamecontroller.fill"
         case .places:
             return "star.fill"
         case .settings:
@@ -142,6 +149,8 @@ enum AppFeature: String, CaseIterable, Identifiable {
             WalkModeView()
         case .route:
             RouteModeView()
+        case .pogo:
+            PoGoModeView()
         case .places:
             PlacesView()
         case .settings:
@@ -151,6 +160,6 @@ enum AppFeature: String, CaseIterable, Identifiable {
 }
 
 extension AppFeature {
-    static let mainTabs: [AppFeature] = [.location, .walk, .route, .places, .settings]
+    static let mainTabs: [AppFeature] = [.location, .walk, .route, .pogo, .places, .settings]
     static let toolList: [AppFeature] = [.scripts, .console, .deviceInfo, .profiles, .processes, .location]
 }

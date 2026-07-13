@@ -1,0 +1,56 @@
+{
+  "_note": "Curated Pokemon GO location packs for Wander PoGo Mode. These are well-known high-activity public spots (dense PokeStops/Gyms + spawns) — stable coordinates, not live nest data (nests rotate). Shared by iOS + desktop.",
+  "hotspots": [
+    { "name": "Santa Monica Pier",        "area": "Los Angeles, USA",   "cat": "Spawn hotspot", "lat": 34.0094,  "lng": -118.4973 },
+    { "name": "Central Park",              "area": "New York, USA",      "cat": "Spawn hotspot", "lat": 40.7829,  "lng": -73.9654 },
+    { "name": "Pier 39",                   "area": "San Francisco, USA", "cat": "Raid hub",      "lat": 37.8087,  "lng": -122.4098 },
+    { "name": "Millennium Park",           "area": "Chicago, USA",       "cat": "Raid hub",      "lat": 41.8826,  "lng": -87.6226 },
+    { "name": "Ala Moana Regional Park",   "area": "Honolulu, USA",      "cat": "Spawn hotspot", "lat": 21.2894,  "lng": -157.8464 },
+    { "name": "Shinjuku Gyoen",            "area": "Tokyo, Japan",       "cat": "Spawn hotspot", "lat": 35.6852,  "lng": 139.7100 },
+    { "name": "Ueno Park",                 "area": "Tokyo, Japan",       "cat": "Raid hub",      "lat": 35.7156,  "lng": 139.7745 },
+    { "name": "Da'an Forest Park",         "area": "Taipei, Taiwan",     "cat": "Spawn hotspot", "lat": 25.0263,  "lng": 121.5355 },
+    { "name": "Victoria Park",             "area": "Hong Kong",          "cat": "Raid hub",      "lat": 22.2820,  "lng": 114.1890 },
+    { "name": "Gardens by the Bay",        "area": "Singapore",          "cat": "Raid hub",      "lat": 1.2816,   "lng": 103.8636 },
+    { "name": "Hyde Park",                 "area": "London, UK",         "cat": "Spawn hotspot", "lat": 51.5073,  "lng": -0.1657 },
+    { "name": "Champ de Mars",             "area": "Paris, France",      "cat": "Raid hub",      "lat": 48.8556,  "lng": 2.2986 },
+    { "name": "Retiro Park",               "area": "Madrid, Spain",      "cat": "Spawn hotspot", "lat": 40.4152,  "lng": -3.6844 },
+    { "name": "Englischer Garten",         "area": "Munich, Germany",    "cat": "Spawn hotspot", "lat": 48.1642,  "lng": 11.6050 },
+    { "name": "Sydney Opera House",        "area": "Sydney, Australia",  "cat": "Raid hub",      "lat": -33.8568, "lng": 151.2153 },
+    { "name": "Bondi Beach",               "area": "Sydney, Australia",  "cat": "Spawn hotspot", "lat": -33.8908, "lng": 151.2743 },
+    { "name": "Ibirapuera Park",           "area": "Sao Paulo, Brazil",  "cat": "Spawn hotspot", "lat": -23.5874, "lng": -46.6576 },
+    { "name": "Marina Bay",                "area": "Singapore",          "cat": "Event spot",    "lat": 1.2834,   "lng": 103.8607 }
+  ],
+  "routes": [
+    {
+      "name": "Central Park loop",
+      "area": "New York, USA",
+      "cat": "Walk / spin route",
+      "speed_mps": 1.4,
+      "points": [
+        [40.7681, -73.9819], [40.7735, -73.9738], [40.7794, -73.9632],
+        [40.7859, -73.9581], [40.7967, -73.9494], [40.7967, -73.9582],
+        [40.7859, -73.9660], [40.7735, -73.9762], [40.7681, -73.9819]
+      ]
+    },
+    {
+      "name": "Santa Monica beachfront",
+      "area": "Los Angeles, USA",
+      "cat": "Walk / spin route",
+      "speed_mps": 1.6,
+      "points": [
+        [34.0094, -118.4973], [34.0130, -118.4960], [34.0180, -118.4948],
+        [34.0230, -118.4930], [34.0180, -118.4948], [34.0094, -118.4973]
+      ]
+    },
+    {
+      "name": "Ueno Park circuit",
+      "area": "Tokyo, Japan",
+      "cat": "Walk / spin route",
+      "speed_mps": 1.4,
+      "points": [
+        [35.7148, 139.7730], [35.7170, 139.7745], [35.7185, 139.7720],
+        [35.7175, 139.7695], [35.7150, 139.7700], [35.7148, 139.7730]
+      ]
+    }
+  ]
+}
