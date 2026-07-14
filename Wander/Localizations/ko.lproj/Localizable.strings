@@ -163,3 +163,31 @@
 "locationinfo.ip_tip.title" = "IP와 시간대 맞추기";
 "locationinfo.ip_tip.body" = "위치를 최대한 자연스럽게 보이게 하려면 IP 주소와 시간대를 위장한 GPS에 맞춰야 합니다. 일부 앱은 이를 서로 대조합니다. 목적지 지역으로 설정한 VPN을 사용하면 둘을 일치된 상태로 유지할 수 있습니다.";
 "locationinfo.ip_tip.link" = "IP 일치 방식 알아보기";
+
+/* Flight Planner (free) — English fallback pending translation */
+"flight.title" = "Flight Planner";
+"flight.open" = "Flight Planner";
+"flight.departure" = "Departure";
+"flight.arrival" = "Arrival";
+"flight.airports.header" = "Airports";
+"flight.schedule.header" = "Schedule";
+"flight.schedule.footer" = "Optional. Generate plausible flights across a window and pick one — or leave off to fly directly.";
+"flight.time_range" = "Time range";
+"flight.earliest" = "Earliest departure";
+"flight.latest" = "Latest departure";
+"flight.flights_count" = "%d flights";
+"flight.fly_it" = "Fly it";
+"flight.pick_departure" = "Pick Departure";
+"flight.pick_arrival" = "Pick Arrival";
+"flight.tap_to_pick" = "Tap to pick an airport";
+"flight.route_summary" = "%d km • ~%@";
+"flight.search_prompt" = "IATA code or name";
+"flight.no_data" = "Airport data unavailable";
+"flight.no_data.detail" = "The bundled airport list could not be loaded.";
+"flight.no_path" = "Couldn't build a flight path between those airports.";
+
+/* Location privacy toggles — English fallback pending translation */
+"settings.location.frozen" = "Hold perfectly still";
+"settings.location.frozen.footer" = "Turns off the natural drift so a held spot stays rock-steady — a deliberately parked, stationary look.";
+"settings.location.coarse" = "Approximate location";
+"settings.location.coarse.footer" = "Privacy: reports a spot within about 3–5 km of your target so you share a neighborhood, not the exact place. The offset stays the same for the whole session.";

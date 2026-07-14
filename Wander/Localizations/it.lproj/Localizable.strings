@@ -163,3 +163,31 @@
 "locationinfo.ip_tip.title" = "Fai corrispondere IP e fuso orario";
 "locationinfo.ip_tip.body" = "Per una posizione il più credibile possibile, il tuo indirizzo IP e il fuso orario dovrebbero corrispondere al GPS simulato. Alcune app li confrontano. Una VPN impostata sulla regione di destinazione li mantiene allineati.";
 "locationinfo.ip_tip.link" = "Come funziona la corrispondenza IP";
+
+/* Flight Planner (free) — English fallback pending translation */
+"flight.title" = "Flight Planner";
+"flight.open" = "Flight Planner";
+"flight.departure" = "Departure";
+"flight.arrival" = "Arrival";
+"flight.airports.header" = "Airports";
+"flight.schedule.header" = "Schedule";
+"flight.schedule.footer" = "Optional. Generate plausible flights across a window and pick one — or leave off to fly directly.";
+"flight.time_range" = "Time range";
+"flight.earliest" = "Earliest departure";
+"flight.latest" = "Latest departure";
+"flight.flights_count" = "%d flights";
+"flight.fly_it" = "Fly it";
+"flight.pick_departure" = "Pick Departure";
+"flight.pick_arrival" = "Pick Arrival";
+"flight.tap_to_pick" = "Tap to pick an airport";
+"flight.route_summary" = "%d km • ~%@";
+"flight.search_prompt" = "IATA code or name";
+"flight.no_data" = "Airport data unavailable";
+"flight.no_data.detail" = "The bundled airport list could not be loaded.";
+"flight.no_path" = "Couldn't build a flight path between those airports.";
+
+/* Location privacy toggles — English fallback pending translation */
+"settings.location.frozen" = "Hold perfectly still";
+"settings.location.frozen.footer" = "Turns off the natural drift so a held spot stays rock-steady — a deliberately parked, stationary look.";
+"settings.location.coarse" = "Approximate location";
+"settings.location.coarse.footer" = "Privacy: reports a spot within about 3–5 km of your target so you share a neighborhood, not the exact place. The offset stays the same for the whole session.";

@@ -187,6 +187,10 @@ struct RouteModeView: View {
     @State private var pendingRecordingCoords: [CLLocationCoordinate2D] = []
     @State private var pendingRecordingTimes: [Double] = []
 
+    // Flight Planner (free, no API): pick two airports (searchable by IATA/name), optionally
+    // generate plausible flights across a time range, then fly the great-circle PLANE route.
+    @State private var showFlightPlanner = false
+
     // AI "believable day" (Pro): the Worker generates a plausible day of stops we can replay/save.
     @State private var isGeneratingAI = false
     @State private var aiPlaces: [AIRoutinePlace] = []
@@ -224,6 +228,11 @@ struct RouteModeView: View {
             .sheet(isPresented: $showSaveRecordingSheet) { saveRecordingSheet }
             .sheet(isPresented: $showSavedRoutes) { savedRoutesSheet }
             .sheet(isPresented: $showAIRoutine) { aiRoutineSheet }
+            .sheet(isPresented: $showFlightPlanner) {
+                FlightPlannerView { departure, arrival in
+                    flyAirports(from: departure, to: arrival)
+                }
+            }
             .onReceive(currentLocation.$coordinate.compactMap { $0 }) { c in
                 if waypoints.isEmpty && !isDriving {
                     cameraPosition = .region(MKCoordinateRegion(center: c, latitudinalMeters: 2500, longitudinalMeters: 2500))
@@ -366,6 +375,19 @@ struct RouteModeView: View {
                     Text(hint)
                         .font(.caption).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                // PLANE mode gets a friendlier airport-based endpoint picker: choose a
+                // departure + arrival airport (searchable by IATA/name) and fly the same
+                // great-circle plane route from those two coordinates.
+                if transportMode == .plane {
+                    Button { showFlightPlanner = true } label: {
+                        Label(L("flight.open", fallback: "Flight Planner"), systemImage: "airplane.departure")
+                            .frame(maxWidth: .infinity).frame(height: 30)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .tint(Wander.brand)
                 }
 
                 Toggle(isOn: Binding(
@@ -951,7 +973,9 @@ struct RouteModeView: View {
                     }
                     if Task.isCancelled { break }
                     elapsed += sample.delayFromPrevious
-                    let outgoing = jitterEnabled ? LocationJitter.apply(sample.coordinate) : sample.coordinate
+                    // "Hold perfectly still" disables jitter; otherwise honor the jitter toggle.
+                    let frozen = UserDefaults.standard.bool(forKey: LocationPrivacyKeys.frozenHold)
+                    let outgoing = (!frozen && jitterEnabled) ? LocationJitter.apply(sample.coordinate) : sample.coordinate
                     send(outgoing)
                     currentPosition = sample.coordinate
                     // Follow without hijacking zoom: only recenter (keeping the user's current span)
@@ -983,6 +1007,8 @@ struct RouteModeView: View {
 
     private func send(_ coord: CLLocationCoordinate2D) {
         guard let path = pairingFilePath() else { return }
+        // "Approximate location": stable per-session ~3–5 km offset. No-op when off.
+        let coord = CoarseLocation.apply(coord)
         LocationSimulationCommandQueue.shared.async {
             _ = simulate_location(DeviceConnectionContext.targetIPAddress, coord.latitude, coord.longitude, path)
         }
@@ -1274,6 +1300,31 @@ struct RouteModeView: View {
             await computeRoute()
             guard routeCoordinates.count > 1 else {
                 alertText = "Couldn't build a drivable path for this saved route."
+                return
+            }
+            await startDrive()
+        }
+    }
+
+    // MARK: - Flight Planner (free)
+
+    /// Fly the great-circle PLANE route between two chosen airports. This is just a nicer
+    /// airport-based way to set the two endpoints of the existing plane mode: it forces
+    /// PLANE transport, drops the airport coordinates as the two waypoints, builds the
+    /// same great-circle path, and starts playback (~850 km/h, no altitude on iOS).
+    private func flyAirports(from departure: Airport, to arrival: Airport) {
+        showFlightPlanner = false
+        transportMode = .plane
+        waypoints = [
+            RouteWaypoint(coordinate: departure.coordinate),
+            RouteWaypoint(coordinate: arrival.coordinate)
+        ]
+        routeCoordinates = []
+        routeExpectedTime = 0
+        Task {
+            await computeRoute()
+            guard routeCoordinates.count > 1 else {
+                alertText = L("flight.no_path", fallback: "Couldn't build a flight path between those airports.")
                 return
             }
             await startDrive()

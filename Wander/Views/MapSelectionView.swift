@@ -1789,7 +1789,12 @@ struct LocationSimulationView: View {
         resendTimer?.invalidate()
         resendTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { _ in
             guard let simulatedCoordinate else { return }
-            let target = UserDefaults.standard.bool(forKey: "jitterEnabled")
+            // "Hold perfectly still" (frozen hold) disables the breathing/idle jitter so a
+            // held location is rock-steady. Otherwise the existing jitter behavior applies.
+            let frozen = UserDefaults.standard.bool(forKey: LocationPrivacyKeys.frozenHold)
+            // Coarse offset is applied centrally in locationUpdateCode(for:), so we only
+            // decide jitter here.
+            let target = (!frozen && UserDefaults.standard.bool(forKey: "jitterEnabled"))
                 ? LocationJitter.apply(simulatedCoordinate)
                 : simulatedCoordinate
             LocationSimulationCommandQueue.shared.async {
@@ -2046,7 +2051,11 @@ struct LocationSimulationView: View {
     }
 
     private func locationUpdateCode(for coordinate: CLLocationCoordinate2D) -> Int32 {
-        simulate_location(deviceIP, coordinate.latitude, coordinate.longitude, pairingFilePath)
+        // "Approximate location" (privacy): shift every injected fix by a stable
+        // per-session offset (~3–5 km) so the reported spot shares a neighborhood, not
+        // the exact target. No-op when the toggle is off.
+        let coordinate = CoarseLocation.apply(coordinate)
+        return simulate_location(deviceIP, coordinate.latitude, coordinate.longitude, pairingFilePath)
     }
 }
 

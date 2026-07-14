@@ -211,9 +211,13 @@ final class ScheduleManager: ObservableObject {
     /// MapSelectionView), honoring the user's jitter preference.
     private func resend(_ coordinate: CLLocationCoordinate2D, path: String? = nil) {
         guard let path = path ?? pairingFilePath() else { return }
-        let target = UserDefaults.standard.bool(forKey: "jitterEnabled")
+        // "Hold perfectly still" disables jitter; "Approximate location" shifts by a stable
+        // per-session offset. Both no-op when their toggles are off.
+        let frozen = UserDefaults.standard.bool(forKey: LocationPrivacyKeys.frozenHold)
+        let jittered = (!frozen && UserDefaults.standard.bool(forKey: "jitterEnabled"))
             ? LocationJitter.apply(coordinate)
             : coordinate
+        let target = CoarseLocation.apply(jittered)
         LocationSimulationCommandQueue.shared.async {
             _ = simulate_location(DeviceConnectionContext.targetIPAddress, target.latitude, target.longitude, path)
         }

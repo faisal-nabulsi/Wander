@@ -21,6 +21,8 @@ struct SettingsView: View {
     @AppStorage("jitterEnabled") private var jitterEnabled = false
     @AppStorage("jitterRadius") private var jitterRadius = 1.5
     @AppStorage("smoothLongJumps") private var smoothLongJumps = false
+    @AppStorage(LocationPrivacyKeys.frozenHold) private var frozenHold = false
+    @AppStorage(LocationPrivacyKeys.approximateLocation) private var approximateLocation = false
     @AppStorage("appearance") private var appearanceRaw = AppearanceMode.system.rawValue
     @AppStorage(SavedPlacesSync.enabledKey) private var syncPlacesEnabled = false
     @StateObject private var tunnel = WanderTunnel.shared
@@ -253,6 +255,26 @@ struct SettingsView: View {
                     if smoothLongJumps {
                         Text(localized: "settings.location.smooth_jumps.footer",
                              fallback: "A big teleport glides to the new spot over a few seconds instead of jumping instantly, so apps that flag an impossible jump (dating apps, Life360) see a fast but continuous move. Short jumps stay instant.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    Toggle(isOn: $frozenHold) {
+                        Label(L("settings.location.frozen", fallback: "Hold perfectly still"), systemImage: "pause.circle")
+                    }
+                    if frozenHold {
+                        Text(localized: "settings.location.frozen.footer",
+                             fallback: "Turns off the natural drift so a held spot stays rock-steady — a deliberately parked, stationary look.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    Toggle(isOn: $approximateLocation) {
+                        Label(L("settings.location.coarse", fallback: "Approximate location"), systemImage: "location.circle")
+                    }
+                    if approximateLocation {
+                        Text(localized: "settings.location.coarse.footer",
+                             fallback: "Privacy: reports a spot within about 3–5 km of your target so you share a neighborhood, not the exact place. The offset stays the same for the whole session.")
                             .font(.caption).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
