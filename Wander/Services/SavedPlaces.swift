@@ -72,6 +72,11 @@ final class SavedPlacesStore: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.recentsKey)
     }
 
+    /// The recent teleports, most-recent first (for read-only use such as GPX export).
+    static func exportRecents() -> [LocationBookmark] {
+        decode(key: recentsKey)
+    }
+
     private static func decode(key: String) -> [LocationBookmark] {
         guard let data = UserDefaults.standard.data(forKey: key),
               let decoded = try? JSONDecoder().decode([LocationBookmark].self, from: data) else { return [] }

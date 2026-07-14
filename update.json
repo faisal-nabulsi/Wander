@@ -1,6 +1,6 @@
 {
-  "build": 9,
+  "build": 10,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Loop route — walk any route on repeat, hands-free (Pro)"
+  "notes": "Teleport undo, Plus Codes search, GPX export, and a PoGo cooldown-safety lock"
 }

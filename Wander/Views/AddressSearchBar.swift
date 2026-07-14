@@ -42,6 +42,10 @@ final class AddressSearchCompleter: NSObject, ObservableObject, MKLocalSearchCom
 
 struct AddressSearchBar: View {
     var placeholder: String = "Search address or place"
+    /// Reference point used to recover *short* Plus Codes (e.g. "9G8F+6X").
+    /// Full Plus Codes and plain coordinates don't need it. Typically the
+    /// current map center.
+    var mapCenter: CLLocationCoordinate2D? = nil
     var onPick: (CLLocationCoordinate2D, String) -> Void
 
     @StateObject private var completer = AddressSearchCompleter()
@@ -76,16 +80,16 @@ struct AddressSearchBar: View {
                 }
             }
 
-            if let coord = parsedCoordinate {
+            if let target = parsedTarget {
                 Button {
-                    onPick(coord, "Coordinates")
+                    onPick(target.coordinate, target.name)
                     query = ""
                     completer.update("")
                     focused = false
                 } label: {
                     HStack {
-                        Image(systemName: "scope").foregroundStyle(.secondary)
-                        Text(String(format: "Go to  %.5f, %.5f", coord.latitude, coord.longitude))
+                        Image(systemName: target.symbol).foregroundStyle(.secondary)
+                        Text(String(format: "Go to  %.5f, %.5f", target.coordinate.latitude, target.coordinate.longitude))
                             .font(.subheadline)
                         Spacer()
                     }
@@ -121,6 +125,27 @@ struct AddressSearchBar: View {
         }
     }
 
+    private struct ResolvedTarget {
+        let coordinate: CLLocationCoordinate2D
+        let name: String
+        let symbol: String
+    }
+
+    /// If the query is a plain "lat, lng" pair or a Plus Code, resolve it to a
+    /// coordinate so the user can jump directly. Otherwise nil (fall through to
+    /// the normal place search).
+    private var parsedTarget: ResolvedTarget? {
+        // Plus Codes first — a full code contains a '+' and OLC alphabet only,
+        // so it won't collide with "lat,lng".
+        if let plus = parsedPlusCode {
+            return plus
+        }
+        if let coord = parsedCoordinate {
+            return ResolvedTarget(coordinate: coord, name: "Coordinates", symbol: "scope")
+        }
+        return nil
+    }
+
     /// If the query is a plain "lat, lng" pair, return it (so users can type exact coordinates).
     private var parsedCoordinate: CLLocationCoordinate2D? {
         let parts = query.split(whereSeparator: { $0 == "," || $0 == " " }).filter { !$0.isEmpty }
@@ -128,6 +153,15 @@ struct AddressSearchBar: View {
         guard parts.count == 2, nums.count == 2,
               (-90.0...90.0).contains(nums[0]), (-180.0...180.0).contains(nums[1]) else { return nil }
         return CLLocationCoordinate2D(latitude: nums[0], longitude: nums[1])
+    }
+
+    /// If the query is a Plus Code (full, or short recovered against the map
+    /// center), resolve it to a coordinate.
+    private var parsedPlusCode: ResolvedTarget? {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.contains("+"), PlusCode.isValid(trimmed.uppercased()) else { return nil }
+        guard let coord = PlusCode.coordinate(from: trimmed, reference: mapCenter) else { return nil }
+        return ResolvedTarget(coordinate: coord, name: "Plus Code", symbol: "plus.magnifyingglass")
     }
 
     private func resolve(_ completion: MKLocalSearchCompletion) {

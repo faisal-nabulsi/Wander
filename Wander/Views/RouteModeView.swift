@@ -44,6 +44,7 @@ struct RouteModeView: View {
     @State private var currentPosition: CLLocationCoordinate2D?
 
     @State private var speedMode: RouteSpeedMode = .realistic
+    @State private var loopRoute = false   // Pro: re-run the route from the start when it finishes
     @State private var manualSpeedMps: Double = 50_000.0 / 3_600.0   // default 50 km/h
     @State private var routeExpectedTime: TimeInterval = 0            // real-world ETA from MKDirections
     @AppStorage("useMph") private var useMph = false
@@ -207,6 +208,22 @@ struct RouteModeView: View {
                             .font(.caption).monospacedDigit().frame(width: 70, alignment: .trailing)
                     }
                 }
+
+                Toggle(isOn: Binding(
+                    get: { loopRoute },
+                    set: { newValue in
+                        // Pro feature: free/trial users see the toggle but hitting it opens the upsell.
+                        if newValue && !License.shared.isLicensed {
+                            showPaywall = true
+                            return
+                        }
+                        loopRoute = newValue
+                    }
+                )) {
+                    Label("Loop route", systemImage: "repeat")
+                        .font(.subheadline)
+                }
+                .tint(Wander.brand)
 
                 HStack(spacing: 10) {
                     Button { Task { await computeRoute() } } label: {
@@ -481,33 +498,38 @@ struct RouteModeView: View {
         if !License.shared.isLicensed { TrialManager.shared.chargeRoute() }
 
         let totalPlanned = samples.reduce(0) { $0 + $1.delayFromPrevious }
+        let shouldLoop = loopRoute
         playbackTask = Task {
-            var elapsed = 0.0
             let total = samples.count
-            for (index, sample) in samples.enumerated() {
-                if Task.isCancelled { break }
-                while isPaused && !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 200_000_000)
+            // One full pass over the route. When looping, we re-run it from the
+            // first sample and keep going until the user stops (task cancelled).
+            repeat {
+                var elapsed = 0.0
+                for (index, sample) in samples.enumerated() {
+                    if Task.isCancelled { break }
+                    while isPaused && !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: 200_000_000)
+                    }
+                    if Task.isCancelled { break }
+                    if sample.delayFromPrevious > 0 {
+                        let scaled = sample.delayFromPrevious / max(playbackRate, 0.1)
+                        try? await Task.sleep(nanoseconds: UInt64(scaled * 1_000_000_000))
+                    }
+                    if Task.isCancelled { break }
+                    elapsed += sample.delayFromPrevious
+                    let outgoing = jitterEnabled ? LocationJitter.apply(sample.coordinate) : sample.coordinate
+                    send(outgoing)
+                    currentPosition = sample.coordinate
+                    // Follow without hijacking zoom: only recenter (keeping the user's current span)
+                    // when the pin drifts near the edge of what's on screen.
+                    if followCamera, !regionComfortablyContains(sample.coordinate) {
+                        let span = visibleRegion?.span ?? MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+                        withAnimation { cameraPosition = .region(MKCoordinateRegion(center: sample.coordinate, span: span)) }
+                    }
+                    progress = Double(index + 1) / Double(total)
+                    remainingSeconds = max(totalPlanned - elapsed, 0) / max(playbackRate, 0.1)
                 }
-                if Task.isCancelled { break }
-                if sample.delayFromPrevious > 0 {
-                    let scaled = sample.delayFromPrevious / max(playbackRate, 0.1)
-                    try? await Task.sleep(nanoseconds: UInt64(scaled * 1_000_000_000))
-                }
-                if Task.isCancelled { break }
-                elapsed += sample.delayFromPrevious
-                let outgoing = jitterEnabled ? LocationJitter.apply(sample.coordinate) : sample.coordinate
-                send(outgoing)
-                currentPosition = sample.coordinate
-                // Follow without hijacking zoom: only recenter (keeping the user's current span)
-                // when the pin drifts near the edge of what's on screen.
-                if followCamera, !regionComfortablyContains(sample.coordinate) {
-                    let span = visibleRegion?.span ?? MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
-                    withAnimation { cameraPosition = .region(MKCoordinateRegion(center: sample.coordinate, span: span)) }
-                }
-                progress = Double(index + 1) / Double(total)
-                remainingSeconds = max(totalPlanned - elapsed, 0) / max(playbackRate, 0.1)
-            }
+            } while shouldLoop && !Task.isCancelled
             if !Task.isCancelled { isDriving = false }
         }
     }

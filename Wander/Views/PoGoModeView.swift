@@ -118,6 +118,9 @@ struct PoGoModeView: View {
     @State private var alertTitle = ""
     @State private var alertMessage = ""
 
+    // When ON, teleports are blocked (not just warned) while a cooldown is active.
+    @AppStorage("pogoBlockUntilCooldownEnds") private var blockUntilCooldownEnds = false
+
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private var pairingFileURL: URL { PairingFileStore.prepareURL() }
@@ -145,6 +148,20 @@ struct PoGoModeView: View {
                 }
 
                 cooldownSection
+
+                Section {
+                    Toggle(isOn: $blockUntilCooldownEnds) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Block until cooldown ends")
+                            Text("Prevent teleporting while a cooldown is active, instead of just warning.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .tint(Wander.brand)
+                } header: {
+                    Text("Cooldown safety")
+                }
 
                 if !pairingExists {
                     Section {
@@ -306,6 +323,21 @@ struct PoGoModeView: View {
             present(title: "Pairing File Required",
                     message: "Import a pairing file in Settings before teleporting.")
             return
+        }
+
+        // Optional hard block: if enabled, refuse to teleport while a cooldown
+        // is still counting down (rather than only warning).
+        if blockUntilCooldownEnds {
+            // Keep `now` fresh so the check is accurate even if the ticker is idle.
+            now = Date()
+            let remaining = remainingSeconds
+            if remaining > 0 {
+                present(
+                    title: "Cooldown Active",
+                    message: "Wait \(timeString(remaining)) before teleporting again. Turn off \"Block until cooldown ends\" to override."
+                )
+                return
+            }
         }
 
         // Compute the PoGo cooldown from the previous spoofed coordinate.

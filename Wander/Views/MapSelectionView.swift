@@ -427,7 +427,16 @@ private enum CoordinateImportParser {
     }
 
     static func parseInline(_ text: String) -> [CLLocationCoordinate2D] {
-        sanitized(parseTextCoordinates(from: text))
+        // A pasted full Plus Code (e.g. "8FVC9G8F+6X") resolves standalone.
+        // Short codes need a reference and are handled by the search bar, so
+        // they fall through here unchanged.
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.contains("+"),
+           PlusCode.isFullCode(trimmed.uppercased()),
+           let coordinate = PlusCode.coordinate(from: trimmed, reference: nil) {
+            return [coordinate]
+        }
+        return sanitized(parseTextCoordinates(from: text))
     }
 
     private static func decodedText(from data: Data) -> String? {
@@ -756,6 +765,14 @@ struct LocationSimulationView: View {
     @State private var simulatedCoordinate: CLLocationCoordinate2D?
     @State private var routeRequestID = UUID()
 
+    // Undo: the pin location immediately before the most recent move/teleport,
+    // so the user can revert one step.
+    @State private var previousCoordinate: CLLocationCoordinate2D?
+
+    // GPX export.
+    @State private var showGPXExporter = false
+    @State private var gpxDocument = GPXDocument(text: "")
+
     private static let routeDurationFormatter: DateComponentsFormatter = {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.hour, .minute]
@@ -901,7 +918,10 @@ struct LocationSimulationView: View {
                 WanderCard {
                     VStack(spacing: 12) {
                         if !hasRouteContext {
-                            AddressSearchBar(placeholder: "Search or paste coordinates") { coord, _ in
+                            AddressSearchBar(
+                                placeholder: "Search, coordinates, or Plus Code",
+                                mapCenter: visibleCenter
+                            ) { coord, _ in
                                 applySelection(coord)
                             }
                         }
@@ -950,6 +970,14 @@ struct LocationSimulationView: View {
                 }
                 .disabled(isBusy || isRouteRunning || isImportingCoordinates)
                 .accessibilityLabel("Import Coordinates")
+
+                Button {
+                    prepareGPXExport()
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .disabled(isBusy || isImportingCoordinates || !canExportGPX)
+                .accessibilityLabel("Export GPX")
             }
         }
         .alert(alertTitle, isPresented: $showAlert) {
@@ -994,6 +1022,18 @@ struct LocationSimulationView: View {
             allowsMultipleSelection: false
         ) { result in
             importCoordinates(result)
+        }
+        .fileExporter(
+            isPresented: $showGPXExporter,
+            document: gpxDocument,
+            contentType: UTType(filenameExtension: "gpx", conformingTo: .xml) ?? .xml,
+            defaultFilename: "wander-\(Self.gpxTimestamp())"
+        ) { result in
+            if case .failure(let error) = result {
+                alertTitle = "Export Failed"
+                alertMessage = error.localizedDescription
+                showAlert = true
+            }
         }
         .onAppear {
             loadBookmarks()
@@ -1212,6 +1252,21 @@ struct LocationSimulationView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .disabled(isRouteRunning)
+
+                // Undo the last move/teleport, reverting to the previous pin.
+                // Only shown once there's something to revert to.
+                if previousCoordinate != nil {
+                    Button {
+                        revertToPrevious()
+                    } label: {
+                        Image(systemName: "arrow.uturn.backward")
+                            .frame(width: 34, height: 30)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .disabled(hasActiveSimulation || isBusy || isRouteRunning)
+                    .accessibilityLabel("Undo move")
+                }
 
                 // Re-position the pin to the crosshair (map center). Disabled while
                 // a simulation is live — Stop first, then move.
@@ -1455,8 +1510,75 @@ struct LocationSimulationView: View {
         if hasRouteContext {
             resetRouteSelection()
         }
+        // Remember where the pin was so the user can undo this move. Skip if it
+        // isn't actually changing (avoids a no-op undo).
+        if let current = self.coordinate,
+           CoordinateSnapshot(current) != CoordinateSnapshot(coordinate) {
+            previousCoordinate = current
+        }
         self.coordinate = coordinate
         locationInfo.refresh(lat: coordinate.latitude, lng: coordinate.longitude)
+    }
+
+    // MARK: - GPX export
+
+    /// The route points available to export (empty if there's no route).
+    private var exportableRoute: [CLLocationCoordinate2D] {
+        if !routePlaybackSamples.isEmpty {
+            return routePlaybackSamples.map { $0.coordinate }
+        }
+        var endpoints: [CLLocationCoordinate2D] = []
+        if let start = routeStartCoordinate { endpoints.append(start) }
+        if let end = routeEndCoordinate { endpoints.append(end) }
+        return endpoints.count >= 2 ? endpoints : []
+    }
+
+    /// Waypoints to export when there's no route: the current pin, plus saved
+    /// and recent places.
+    private var exportableWaypoints: [(name: String, coordinate: CLLocationCoordinate2D)] {
+        var result: [(String, CLLocationCoordinate2D)] = []
+        if let coordinate {
+            result.append(("Current pin", coordinate))
+        }
+        for bookmark in bookmarks {
+            result.append((bookmark.name, bookmark.coordinate))
+        }
+        for recent in SavedPlacesStore.exportRecents() {
+            result.append((recent.name, recent.coordinate))
+        }
+        return result
+    }
+
+    /// Whether there's anything at all to export.
+    private var canExportGPX: Bool {
+        !exportableRoute.isEmpty || !exportableWaypoints.isEmpty
+    }
+
+    private func prepareGPXExport() {
+        let route = exportableRoute
+        if route.count >= 2 {
+            gpxDocument = GPXDocument(text: GPXBuilder.makeGPX(route: route))
+        } else {
+            gpxDocument = GPXDocument(text: GPXBuilder.makeGPX(waypoints: exportableWaypoints))
+        }
+        showGPXExporter = true
+    }
+
+    private static func gpxTimestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: Date())
+    }
+
+    /// Revert the pin to the location immediately before the last move.
+    private func revertToPrevious() {
+        guard !isRouteRunning, let target = previousCoordinate else { return }
+        if hasRouteContext {
+            resetRouteSelection()
+        }
+        previousCoordinate = nil
+        self.coordinate = target
+        locationInfo.refresh(lat: target.latitude, lng: target.longitude)
     }
 
     private func resetRouteSelection() {
