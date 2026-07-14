@@ -1,6 +1,6 @@
 {
-  "build": 24,
+  "build": 25,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Smooth long jumps: big teleports glide over a few seconds so apps can't flag an impossible instant jump. Plus one-tap Reverse route, and weather-aware pacing (routes slow for rain/snow)."
+  "notes": "Geofence triggers: auto-revert to real GPS when you actually arrive somewhere (set a place + radius, arrival or departure)."
 }

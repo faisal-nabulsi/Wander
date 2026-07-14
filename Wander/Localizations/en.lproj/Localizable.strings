@@ -174,3 +174,35 @@
 "route.reverse" = "Reverse";
 "route.weather_pace" = "Weather-aware pace";
 "route.weather_pace.footer" = "Slows the drive in rain or snow at the destination — checked once when the route starts.";
+
+/* Geofence triggers — auto-stop spoofing when you really arrive/leave */
+"geofence.title" = "Geofences";
+"geofence.section.header" = "Geofence triggers";
+"geofence.settings.subtitle" = "Auto-stop spoofing when you really arrive";
+"geofence.add" = "Add geofence";
+"geofence.section.your" = "Your geofences";
+"geofence.empty.title" = "No geofences yet";
+"geofence.empty.body" = "Add a geofence to auto-stop spoofing and return to real GPS when you actually arrive somewhere — like home.";
+"geofence.cap.footer" = "iOS monitors up to 20 geofences at once. %d of 20 active.";
+"geofence.trigger.arrival" = "On arrival";
+"geofence.trigger.departure" = "On departure";
+"geofence.action.stop" = "Stop spoofing (real GPS)";
+"geofence.notification.body" = "Back on real GPS — you arrived at %@";
+"geofence.auth.always" = "Always allowed — geofences fire even when Wander is closed.";
+"geofence.auth.wheninuse" = "While-in-use only — geofences fire only while Wander is open and active.";
+"geofence.auth.upgrade" = "Allow Always for background triggers";
+"geofence.auth.denied" = "Location access is off. Enable it in Settings so geofences can fire.";
+"geofence.auth.request" = "Allow location access";
+"geofence.auth.footer" = "Geofences use iOS region monitoring. Background triggers require Always authorization; with While-in-use, a geofence only fires when Wander is foreground.";
+"geofence.new.title" = "New Geofence";
+"geofence.use_current" = "Use my current real location";
+"geofence.pick.header" = "Location";
+"geofence.pick.footer" = "Pan the map so the crosshair sits on the real place, or use your current location.";
+"geofence.name.placeholder" = "Name (e.g. Home)";
+"geofence.radius" = "Radius";
+"geofence.details.header" = "Details";
+"geofence.trigger" = "Trigger";
+"geofence.action" = "Action";
+"geofence.behavior.header" = "When it fires";
+"geofence.behavior.footer" = "Wander reverts to your real GPS (same as the panic button) and notifies you.";
+"geofence.default_name" = "Geofence";
