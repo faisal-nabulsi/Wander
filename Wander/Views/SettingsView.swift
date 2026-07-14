@@ -8,6 +8,8 @@ import UIKit
 
 private enum SettingsLinks {
     static let localDevVPN = URL(string: "https://apps.apple.com/us/app/localdevvpn/id6755608044")!
+    static let githubRepo = URL(string: "https://github.com/faisal-nabulsi/Wander")!
+    static let discordInvite = URL(string: "https://discord.gg/gfHdsRXUVA")!
 }
 
 struct SettingsView: View {
@@ -296,6 +298,20 @@ struct SettingsView: View {
                     }
                 } footer: {
                     Text("Only needed if pairing didn't set up automatically — import this device's pairing file by hand.")
+                }
+
+                Section {
+                    Link(destination: SettingsLinks.githubRepo) {
+                        Label("⭐ Star Wander on GitHub", systemImage: "star.fill")
+                    }
+                    Link(destination: SettingsLinks.discordInvite) {
+                        Label("💬 Join our Discord", systemImage: "bubble.left.and.bubble.right.fill")
+                            .foregroundStyle(Color(red: 0x58 / 255, green: 0x65 / 255, blue: 0xF2 / 255))
+                    }
+                } header: {
+                    Text("Community")
+                } footer: {
+                    Text("Wander is open source. Star the repo on GitHub to help others find it, and join our Discord to share tips and get help.")
                 }
 
                 Section {

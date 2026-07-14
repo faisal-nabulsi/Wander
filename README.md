@@ -29,6 +29,18 @@ Teleport with a tap, roam with a live on-screen joystick, or drive a real road r
 
 <br/>
 
+<a href="https://github.com/faisal-nabulsi/Wander"><img src="https://img.shields.io/badge/⭐_Star_on_GitHub-Wander-181717?style=for-the-badge&logo=github&logoColor=white" alt="Star Wander on GitHub"/></a>
+
+**⭐ [Star Wander on GitHub](https://github.com/faisal-nabulsi/Wander) — it's free, takes one click, and helps more people find a free alternative to the paid spoofers.**
+
+<br/>
+
+[![Join our Discord](https://img.shields.io/badge/💬_Join_the_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/gfHdsRXUVA)
+
+**💬 [Join the Wander Discord](https://discord.gg/gfHdsRXUVA) — setup help, release updates, and feature requests. Stuck on install? Ask here and get unstuck fast.**
+
+<br/>
+
 <img src="https://wanderspoofer.com/og-image.png" width="80%" alt="Wander — teleport, joystick, and route modes on iPhone"/>
 
 </div>
@@ -84,8 +96,13 @@ The site walks you through the whole thing with the free **Wander Installer** an
 
 ## 💬 Community & support
 
+[![Join our Discord](https://img.shields.io/badge/💬_Join_the_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/gfHdsRXUVA)
+
+**[Join the Wander Discord →](https://discord.gg/gfHdsRXUVA)** for setup help, release updates, and feature requests. It's the fastest way to get unstuck during install and to hear about new builds first.
+
 - 🌐 **Website & downloads:** [wanderspoofer.com](https://wanderspoofer.com)
 - 💬 **Discord:** [join the server](https://discord.gg/gfHdsRXUVA) — setup help, updates, and requests.
+- ⭐ **Star the repo:** [give Wander a star](https://github.com/faisal-nabulsi/Wander) — it's the easiest way to support the project.
 - 🐛 **Bugs / feature requests:** open an [issue](https://github.com/faisal-nabulsi/Wander/issues).
 
 ---
