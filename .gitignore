@@ -24,6 +24,9 @@ SELLING_PLAN.md
 buildlog.txt
 assets/
 *.ipa
+*.bak
+## old license-worker experiment (superseded by the separate wander-payments-worker repo; has node_modules)
+workers/
 ## NEVER commit license signing keys
 *.key
 *-private.key

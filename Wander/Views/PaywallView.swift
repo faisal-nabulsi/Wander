@@ -32,6 +32,7 @@ struct PaywallView: View {
     @State private var showError = false
     @State private var errorText = ""
     @State private var busy = false
+    @State private var showAccountSignIn = false
 
     private var isTrial: Bool { onClose != nil }
 
@@ -180,8 +181,27 @@ struct PaywallView: View {
             .foregroundStyle(Wander.brand)
             .controlSize(.large)
             .disabled(busy)
+
+            // OPTIONAL account path: unlock by signing into a Wander account that already
+            // holds Pro (bought on wanderspoofer.com or via Android). Additive — the license
+            // key above still works exactly as before.
+            Button {
+                showAccountSignIn = true
+            } label: {
+                Text("Already bought on wanderspoofer.com? Sign in")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .underline()
+            }
+            .padding(.top, 2)
         }
         .padding(.horizontal, 28)
+        .sheet(isPresented: $showAccountSignIn) {
+            WanderAccountSignInView(onSuccess: {
+                // Account is now Pro → License recomputed. Dismiss the paywall if it's dismissable.
+                onClose?()
+            })
+        }
     }
 }
 

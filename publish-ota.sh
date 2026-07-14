@@ -53,5 +53,5 @@ JSON
 
 echo
 echo "== IPA + manifest ready (build $BUILD). Ship it by pushing BOTH repos: =="
-echo "  cd ~/Developer/StikDebug-fork && git add update.json Wander.xcodeproj/project.pbxproj && git commit -m \"OTA build $BUILD: $NOTES\" && git push"
+echo "  cd ~/Developer/wander-ios && git add update.json Wander.xcodeproj/project.pbxproj && git commit -m \"OTA build $BUILD: $NOTES\" && git push"
 echo "  cd ~/Developer/wander-site/github-pages && git add downloads/Wander.ipa && git commit -m \"OTA payload build $BUILD\" && git push"

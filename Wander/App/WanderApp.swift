@@ -27,6 +27,10 @@ struct WanderApp: App {
             }
             .task {
                 await MainActor.run { WanderAccount.shared.restoreSession() }
+                // Restore the OPTIONAL Wander-account Pro state (Firebase). Touching the
+                // singleton loads the cached isPro from the Keychain and kicks off a background
+                // entitlement re-check; folds into License.isLicensed so the gates honor it.
+                await MainActor.run { _ = WanderProAccount.shared }
                 await WanderUpdater.shared.check()
                 await downloadMissingDeveloperDiskImageFiles()
                 // Auto self-refresh when the sideload signature is near expiry (signed in +

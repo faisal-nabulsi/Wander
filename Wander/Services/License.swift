@@ -35,15 +35,22 @@ final class License: ObservableObject {
     /// Re-evaluate the stored key (catches a subscription that has since expired). The token
     /// lives in the Keychain so a valid license survives deleting + reinstalling the app —
     /// combined with the persistent device id, a licensed user never has to re-enter a code.
+    ///
+    /// Pro is ADDITIVE: the app is licensed if the offline key is valid OR the signed-in
+    /// Wander account is Pro (WanderProAccount). Either path alone unlocks; neither weakens
+    /// the other. WanderProAccount calls this whenever its `isPro` flips so the gates recompute.
     func refresh() {
-        guard let token = WanderKeychain.string(Self.storeKey) else {
-            isLicensed = false; plan = nil; expiry = nil
-            return
+        let keyResult: Evaluation
+        if let token = WanderKeychain.string(Self.storeKey) {
+            keyResult = Self.evaluate(token)
+        } else {
+            keyResult = Evaluation(valid: false, plan: nil, expiry: nil)
         }
-        let result = Self.evaluate(token)
-        isLicensed = result.valid
-        plan = result.plan
-        expiry = result.expiry
+        // Effective Pro = offline key valid OR account is Pro.
+        isLicensed = keyResult.valid || WanderProAccount.shared.isPro
+        // plan/expiry describe the offline key only (an account carries no local expiry).
+        plan = keyResult.plan
+        expiry = keyResult.expiry
     }
 
     /// Store + activate a license key if its signature is valid and it isn't expired.
@@ -53,9 +60,8 @@ final class License: ObservableObject {
         let result = Self.evaluate(token)
         guard result.valid else { return false }
         WanderKeychain.set(Self.storeKey, token)
-        isLicensed = true
-        plan = result.plan
-        expiry = result.expiry
+        // Recompute through the OR so account-Pro state is preserved/merged.
+        refresh()
         return true
     }
 
