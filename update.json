@@ -1,6 +1,6 @@
 {
-  "build": 5,
+  "build": 7,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Auto-install updates on launch; hardened auto cert-renewal"
+  "notes": "Live local time & weather at your spoofed location"
 }
