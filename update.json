@@ -1,6 +1,6 @@
 {
-  "build": 7,
+  "build": 8,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Live local time & weather at your spoofed location"
+  "notes": "Street View — preview the real street before you teleport (Pro)"
 }
