@@ -1,6 +1,6 @@
 {
-  "build": 3,
+  "build": 4,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "what's new in this version"
+  "notes": "Account sign-in to unlock Pro; removed license-key entry (buy at wanderspoofer.com)"
 }
