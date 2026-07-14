@@ -6,17 +6,16 @@
 
 # Wander
 
-### Set your iPhone's location to anywhere on Earth — free, open-source, no jailbreak.
+### Set your iPhone's location to anywhere on Earth — no jailbreak.
 
-Teleport with a tap, roam with a live on-screen joystick, or drive a real road route at realistic speed. The free alternative to paid apps like **iMyFone AnyTo** and **Tenorshare iAnyGo**.
+Teleport with a tap, roam with a live on-screen joystick, or drive a realistic multi-stop route. Cross-platform for iPhone, Android, Mac &amp; Windows, with a real free trial — the affordable alternative to paid apps like **iMyFone AnyTo** and **Tenorshare iAnyGo**.
 
 <br/>
 
 [![Website](https://img.shields.io/badge/🌐_Website-wanderspoofer.com-4C8BF5?style=for-the-badge)](https://wanderspoofer.com)
-[![Download](https://img.shields.io/badge/⬇️_Download-Free-22C55E?style=for-the-badge)](https://wanderspoofer.com/#download)
+[![Download](https://img.shields.io/badge/⬇️_Download-Free_trial-22C55E?style=for-the-badge)](https://wanderspoofer.com/#download)
 [![Discord](https://img.shields.io/badge/💬_Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/gfHdsRXUVA)
 
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-iOS_·_Android_·_macOS_·_Windows-lightgrey?style=flat-square)
 [![GitHub stars](https://img.shields.io/github/stars/faisal-nabulsi/Wander?style=flat-square&label=Stars)](https://github.com/faisal-nabulsi/Wander/stargazers)
 [![No jailbreak](https://img.shields.io/badge/jailbreak-not_required-success?style=flat-square)](https://wanderspoofer.com)
@@ -31,7 +30,7 @@ Teleport with a tap, roam with a live on-screen joystick, or drive a real road r
 
 <a href="https://github.com/faisal-nabulsi/Wander"><img src="https://img.shields.io/badge/⭐_Star_on_GitHub-Wander-181717?style=for-the-badge&logo=github&logoColor=white" alt="Star Wander on GitHub"/></a>
 
-**⭐ [Star Wander on GitHub](https://github.com/faisal-nabulsi/Wander) — it's free, takes one click, and helps more people find a free alternative to the paid spoofers.**
+**⭐ [Star Wander on GitHub](https://github.com/faisal-nabulsi/Wander) — it's free, takes one click, and helps more people find an affordable alternative to the paid spoofers.**
 
 <br/>
 
@@ -49,12 +48,31 @@ Teleport with a tap, roam with a live on-screen joystick, or drive a real road r
 
 ## ✨ Features
 
-- 📍 **Teleport** — search an address or drop a pin and set your location instantly.
-- 🕹️ **Joystick** — a live on-screen stick that walks, runs, or drives your location in real time.
-- 🛣️ **Routes** — multi-stop trips that follow the real road with realistic **speed & ETA** (paces to the real arrival time, slows for turns).
-- 🎮 **PoGo jump-teleport** — long-distance hops with a built-in **cooldown timer** so you play it safe.
-- 📂 **GPX import** — bring your own tracks and replay them.
-- 🌫️ **Realistic GPS jitter** — subtle random drift so a fixed spot never looks robotic.
+**Move anywhere**
+- 📍 **One-tap Teleport** — search an address, paste coordinates or a Plus Code, drop a pin, or spin a 3D globe and tap to land.
+- 🕹️ **Live Joystick** — an on-screen stick that walks, runs, bikes or drives your location in real time.
+- 🛣️ **Multi-stop Routes** — chain stops into one trip with snap-to-roads, realistic **speed & ETA**, humanized motion, and auto-loop.
+- 🎮 **PoGo Mode** — jump-teleport with a **cooldown timer**, block-until-cooldown lock, and presets for Pokémon GO, Monster Hunter Now, Pikmin Bloom & Ingress.
+
+**See before you go**
+- 👀 **Street View preview** and **satellite / hybrid** map views to land in exactly the right spot.
+- 🕒 **Local time & weather** at the spoofed spot, with a time-zone-mismatch heads-up.
+
+**Find & organize**
+- 🔎 **Smart search** plus **AI natural-language teleport** — "take me to Times Square."
+- ⭐ **Favorites** in folders with tags & notes, **teleport history** with undo, and **save-loops**.
+
+**Plan & automate**
+- ⏺️ **Record & replay** a real route, or queue a **timed itinerary** ("stay 1hr, then route to there").
+- 🧠 **AI "believable day"** generator (prompt or surprise-me) and a read-only **raids / eggs / events** board.
+
+**Your data**
+- 📂 **GPX import & export**, full **backup / restore**, and multi-device **sync** of saved places.
+- 🌐 **9-language localization** — Spanish, French, German, Portuguese, Italian, Japanese, Korean, Chinese, Russian.
+
+**Comfort & safety**
+- 🆘 **Panic button** for an instant snap back to real GPS, plus **Dark Mode**.
+- 📱 **Quick Settings tile & home-screen widget** for one-tap teleport, and **offline maps** _(Android)_.
 - 📶 **Works on cellular** — no Wi-Fi required.
 - 🔓 **No jailbreak** — runs on a normal, up-to-date iPhone.
 - 🔄 **Over-the-air self-updates** — set it up once; it refreshes itself, no computer needed again.
@@ -67,13 +85,15 @@ Start with a **free trial**. **Wander Pro** unlocks the movement modes (joystick
 
 | | **Wander** | iMyFone AnyTo | Tenorshare iAnyGo |
 |---|:---:|:---:|:---:|
-| **Price** | ✅ **Free** | 💰 Paid | 💰 Paid |
-| **Open source** | ✅ AGPL-3.0 | ❌ | ❌ |
+| **Real free trial** | ✅ | ⚠️ | ⚠️ |
+| **Price** | ✅ **$80 lifetime** | 💰 ~$120/yr | 💰 ~$120/yr |
 | **No jailbreak** | ✅ | ✅ | ✅ |
 | **Teleport** | ✅ | ✅ | ✅ |
 | **Live joystick** | ✅ | ✅ | ✅ |
 | **Multi-stop routes** | ✅ | ✅ | ✅ |
-| **GPX import** | ✅ | ⚠️ | ⚠️ |
+| **PoGo mode + cooldown** | ✅ | ⚠️ | ⚠️ |
+| **AI natural-language teleport** | ✅ | ❌ | ❌ |
+| **GPX import & export** | ✅ | ⚠️ | ⚠️ |
 | **Works on cellular (no Wi-Fi)** | ✅ | ⚠️ | ⚠️ |
 | **iOS · Android · macOS · Windows** | ✅ | ⚠️ | ⚠️ |
 | **Over-the-air self-updates** | ✅ | ❌ | ❌ |
@@ -109,34 +129,13 @@ The site walks you through the whole thing with the free **Wander Installer** an
 
 ## 🤔 Why Wander?
 
-The other location spoofers work, but they lock movement modes behind a subscription and ship closed-source binaries. Wander is **free and open under AGPL-3.0**: teleport, joystick, and routes on iPhone, Android, Mac, and Windows — no jailbreak, no monthly bill. You can read every line, build it yourself, and see exactly what runs on your phone.
-
----
-
-## 🛠️ Build from source
-
-```bash
-git clone https://github.com/faisal-nabulsi/Wander.git
-cd Wander
-open Wander.xcodeproj
-```
-
-Build the **Wander** scheme in Xcode 16+. For an unsigned IPA:
-
-```bash
-xcodebuild -project Wander.xcodeproj -scheme Wander -configuration Release \
-  -sdk iphoneos -destination 'generic/platform=iOS' \
-  CODE_SIGNING_ALLOWED=NO build
-# then wrap the built .app in a Payload/ folder and zip it to Wander.ipa
-```
+The other location spoofers work, but they lock movement modes behind a yearly subscription and give you a token trial. Wander gives you a **real free trial** and one honest **$80 lifetime** license that unlocks every platform — teleport, joystick, routes, PoGo Mode and more on iPhone, Android, Mac, and Windows, with no jailbreak and no monthly bill.
 
 ---
 
 ## 📜 Credits & License
 
-Wander is an AGPL-3.0 fork of [StikDebug](https://github.com/StephenDev0/StikDebug) and is powered by jkcoxson's [`idevice`](https://github.com/jkcoxson/idevice) library — huge thanks to those projects.
-
-Licensed under the **GNU AGPL-3.0**. See [LICENSE](LICENSE). If you distribute a modified version, you must make your source available under the same license.
+Wander is powered by jkcoxson's [`idevice`](https://github.com/jkcoxson/idevice) library and builds on the [StikDebug](https://github.com/StephenDev0/StikDebug) project — huge thanks to those projects.
 
 *Use responsibly and legally. Spoofing your location may violate the Terms of Service of some apps and games.*
 
