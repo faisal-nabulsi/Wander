@@ -17,6 +17,7 @@ enum AppFeature: String, CaseIterable, Identifiable {
     case walk
     case route
     case itinerary
+    case schedule
     case pogo
     case places
     case settings
@@ -49,6 +50,8 @@ enum AppFeature: String, CaseIterable, Identifiable {
             return L("tab.route", fallback: "Route")
         case .itinerary:
             return L("tab.itinerary", fallback: "Itinerary")
+        case .schedule:
+            return L("tab.schedule", fallback: "Schedule")
         case .pogo:
             return L("tab.pogo", fallback: "PoGo")
         case .places:
@@ -82,6 +85,8 @@ enum AppFeature: String, CaseIterable, Identifiable {
             return "Drive a set path"
         case .itinerary:
             return "Timed schedule of stops (Pro)"
+        case .schedule:
+            return "Be at a place during set hours"
         case .pogo:
             return "Pokémon GO hotspots & cooldown"
         case .places:
@@ -124,6 +129,8 @@ enum AppFeature: String, CaseIterable, Identifiable {
             return Wander.Icon.route
         case .itinerary:
             return "calendar.day.timeline.left"
+        case .schedule:
+            return "calendar.badge.clock"
         case .pogo:
             return "gamecontroller.fill"
         case .places:
@@ -158,6 +165,8 @@ enum AppFeature: String, CaseIterable, Identifiable {
             RouteModeView()
         case .itinerary:
             ItineraryQueueView()
+        case .schedule:
+            ScheduleView()
         case .pogo:
             PoGoModeView()
         case .places:
@@ -170,5 +179,5 @@ enum AppFeature: String, CaseIterable, Identifiable {
 
 extension AppFeature {
     static let mainTabs: [AppFeature] = [.location, .walk, .route, .pogo, .places, .settings]
-    static let toolList: [AppFeature] = [.itinerary, .scripts, .console, .deviceInfo, .profiles, .processes, .location]
+    static let toolList: [AppFeature] = [.schedule, .itinerary, .scripts, .console, .deviceInfo, .profiles, .processes, .location]
 }

@@ -1,6 +1,6 @@
 {
-  "build": 25,
+  "build": 26,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Geofence triggers: auto-revert to real GPS when you actually arrive somewhere (set a place + radius, arrival or departure)."
+  "notes": "Scheduling — set Wander to be at a place during set hours (auto start/stop). Runs while Wander stays open in the background; a reminder fires if it's force-quit."
 }

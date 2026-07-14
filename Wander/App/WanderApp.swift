@@ -42,6 +42,9 @@ struct WanderApp: App {
             // that reads through L(...) picks up the new bundle immediately.
             .id(localization.currentLanguage)
             .task {
+                // Arm the in-app scheduler: turns on the keep-alive if any schedule is armed,
+                // (re)schedules start-time notifications, and evaluates the current window.
+                await MainActor.run { ScheduleManager.shared.startup() }
                 await MainActor.run { WanderAccount.shared.restoreSession() }
                 // Restore the OPTIONAL Wander-account Pro state (Firebase). Touching the
                 // singleton loads the cached isPro from the Keychain and kicks off a background
@@ -71,6 +74,9 @@ struct WanderApp: App {
         case .background:
             shouldAttemptTunnelReconnect = true
         case .active:
+            // Re-evaluate schedules the moment we return to the foreground so any window we
+            // crossed while suspended is corrected immediately.
+            ScheduleManager.shared.handleForeground()
             if shouldAttemptTunnelReconnect {
                 shouldAttemptTunnelReconnect = false
                 startTunnelInBackground(showErrorUI: false)
