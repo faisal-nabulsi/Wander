@@ -26,11 +26,16 @@ struct PlacesView: View {
     @State private var filter: PlacesFilter = .all
     @State private var editingPlace: LocationBookmark?
     @State private var showGlobe = false
+    @State private var searchText = ""
+
+    /// True while the user is typing a search query.
+    private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     var body: some View {
         NavigationStack {
             List {
-                if !store.recents.isEmpty {
+                // While searching, focus purely on matching saved places — hide recents/quick picks.
+                if !isSearching && !store.recents.isEmpty {
                     Section {
                         ForEach(store.recents) { place in
                             placeRow(place.name, coordText(place.coordinate), symbol: "clock.arrow.circlepath") {
@@ -42,18 +47,22 @@ struct PlacesView: View {
 
                 savedSections
 
-                Section {
-                    ForEach(QuickPlaces.all) { place in
-                        placeRow(place.name, place.subtitle, symbol: place.symbol) {
-                            teleport(to: place.coordinate, name: place.name)
+                if !isSearching {
+                    Section {
+                        ForEach(QuickPlaces.all) { place in
+                            placeRow(place.name, place.subtitle, symbol: place.symbol) {
+                                teleport(to: place.coordinate, name: place.name)
+                            }
                         }
+                    } header: {
+                        Text(localized: "places.quick_picks", fallback: "Quick picks")
+                    } footer: {
+                        Text(localized: "places.quick_picks_hint", fallback: "Tap any place to jump there and start simulating.")
                     }
-                } header: {
-                    Text(localized: "places.quick_picks", fallback: "Quick picks")
-                } footer: {
-                    Text(localized: "places.quick_picks_hint", fallback: "Tap any place to jump there and start simulating.")
                 }
             }
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic),
+                        prompt: L("places.search", fallback: "Search saved places"))
             .navigationTitle(L("places.title", fallback: "Places"))
             .toolbar {
                 if !allFolders.isEmpty || !allTags.isEmpty {
@@ -94,15 +103,29 @@ struct PlacesView: View {
 
     // MARK: - Saved (organized) sections
 
-    /// Places matching the active filter.
+    /// Saved places matching the free-text search (name, notes, folder, or tags),
+    /// case- and diacritic-insensitive. Empty query = all saved places.
+    private var searchedSaved: [LocationBookmark] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return store.saved }
+        func has(_ s: String?) -> Bool {
+            guard let s, !s.isEmpty else { return false }
+            return s.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
+        return store.saved.filter { place in
+            has(place.name) || has(place.notes) || has(place.folder) || place.tags.contains { has($0) }
+        }
+    }
+
+    /// Places matching the active filter (search narrows within the folder/tag filter).
     private var filteredSaved: [LocationBookmark] {
         switch filter {
         case .all:
-            return store.saved
+            return searchedSaved
         case .folder(let f):
-            return store.saved.filter { ($0.folder ?? "") == f }
+            return searchedSaved.filter { ($0.folder ?? "") == f }
         case .tag(let t):
-            return store.saved.filter { $0.tags.contains(t) }
+            return searchedSaved.filter { $0.tags.contains(t) }
         }
     }
 
@@ -115,11 +138,19 @@ struct PlacesView: View {
                     .foregroundStyle(.secondary)
             } header: { Text(localized: "places.saved", fallback: "Saved") }
         } else if case .all = filter {
-            // Group by folder when no specific filter is applied.
-            ForEach(groupedByFolder, id: \.title) { group in
+            if isSearching && searchedSaved.isEmpty {
                 Section {
-                    savedRows(group.places)
-                } header: { Text(group.title) }
+                    Text(localized: "places.no_match", fallback: "No saved places match your search.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } header: { Text(localized: "places.saved", fallback: "Saved") }
+            } else {
+                // Group by folder when no specific filter is applied.
+                ForEach(groupedByFolder, id: \.title) { group in
+                    Section {
+                        savedRows(group.places)
+                    } header: { Text(group.title) }
+                }
             }
         } else {
             Section {
@@ -195,13 +226,15 @@ struct PlacesView: View {
     private struct SavedGroup { let title: String; let places: [LocationBookmark] }
 
     /// Saved places grouped by folder, with un-foldered places last under "Ungrouped".
+    /// Respects the active search query.
     private var groupedByFolder: [SavedGroup] {
-        let withFolder = Dictionary(grouping: store.saved.filter { !($0.folder ?? "").isEmpty },
+        let base = searchedSaved
+        let withFolder = Dictionary(grouping: base.filter { !($0.folder ?? "").isEmpty },
                                     by: { $0.folder ?? "" })
         var groups = withFolder
             .map { SavedGroup(title: $0.key, places: $0.value) }
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        let ungrouped = store.saved.filter { ($0.folder ?? "").isEmpty }
+        let ungrouped = base.filter { ($0.folder ?? "").isEmpty }
         if !ungrouped.isEmpty {
             groups.append(SavedGroup(title: groups.isEmpty ? "Saved" : "Ungrouped", places: ungrouped))
         }

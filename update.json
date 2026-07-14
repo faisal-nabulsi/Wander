@@ -1,6 +1,6 @@
 {
-  "build": 21,
+  "build": 22,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Anti-detection tips: a heads-up when your device time zone doesn't match your spoofed location, plus a VPN/IP alignment tip so apps that cross-check can't flag you."
+  "notes": "Search your saved places — a search bar on the Places tab filters your favorites by name, notes, folder, or tags as you type."
 }
