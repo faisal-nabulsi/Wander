@@ -728,6 +728,7 @@ struct LocationSimulationView: View {
     @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var visibleCenter: CLLocationCoordinate2D?
     @StateObject private var currentLocation = CurrentLocation()
+    @StateObject private var locationInfo = LocationInfoService()
 
     @State private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @State private var resendTimer: Timer?
@@ -744,6 +745,7 @@ struct LocationSimulationView: View {
     @State private var alertMessage = ""
 
     @State private var showCoordinateImporter = false
+    @State private var showStreetView = false
     @State private var showRouteSearch = false
     @State private var routeStartSelection: RouteSearchSelection?
     @State private var routeEndSelection: RouteSearchSelection?
@@ -917,6 +919,13 @@ struct LocationSimulationView: View {
                     }
                 }
             }
+
+            VStack(spacing: 0) {
+                LocationInfoCard(service: locationInfo)
+                    .padding(.top, 8)
+                Spacer(minLength: 0)
+            }
+            .animation(.easeInOut(duration: 0.25), value: locationInfo.info)
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -974,6 +983,11 @@ struct LocationSimulationView: View {
                 refreshRoute()
             }
         }
+        .sheet(isPresented: $showStreetView) {
+            if let coordinate {
+                StreetViewSheet(coordinate: coordinate)
+            }
+        }
         .fileImporter(
             isPresented: $showCoordinateImporter,
             allowedContentTypes: CoordinateImportParser.supportedContentTypes,
@@ -1009,6 +1023,7 @@ struct LocationSimulationView: View {
             cancelRoutePlayback(resetMarker: true)
             stopResendLoop()
             endBackgroundTask()
+            locationInfo.clear()
         }
         .sheet(isPresented: $showPaywall) { PaywallView(onClose: { showPaywall = false }) }
         .onReceive(NotificationCenter.default.publisher(for: .teleportToRequested)) { note in
@@ -1211,6 +1226,18 @@ struct LocationSimulationView: View {
                 .disabled(hasActiveSimulation || isBusy)
             }
 
+            // Street View — Pro-only (it hits the paid Google Maps API) and only when a key is configured.
+            if WanderMapsConfig.hasGoogleMapsKey && License.shared.isLicensed {
+                Button {
+                    showStreetView = true
+                } label: {
+                    Label("Street View", systemImage: "binoculars.fill")
+                        .frame(maxWidth: .infinity).frame(height: 30)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+            }
+
             HStack(spacing: 10) {
                 Button(action: clear) {
                     Label("Stop", systemImage: Wander.Icon.stop)
@@ -1296,6 +1323,7 @@ struct LocationSimulationView: View {
             return
         }
         SavedPlacesStore.recordRecent(coord, name: "Pinned location")
+        locationInfo.refresh(lat: coord.latitude, lng: coord.longitude)
         runLocationCommand(
             errorTitle: "Simulation Failed",
             errorMessage: { code in
@@ -1336,6 +1364,7 @@ struct LocationSimulationView: View {
             if !License.shared.isLicensed { TrialManager.shared.chargeRoute() }
             simulatedCoordinate = nil
             routePlaybackCoordinate = firstCoordinate
+            locationInfo.refresh(lat: firstCoordinate.latitude, lng: firstCoordinate.longitude)
             startRoutePlayback()
         }
     }
@@ -1370,6 +1399,7 @@ struct LocationSimulationView: View {
         routeSpeedPrefetchTask = nil
         cancelRoutePlayback(resetMarker: true)
         stopResendLoop()
+        locationInfo.clear()
         runLocationCommand(
             errorTitle: "Clear Failed",
             errorMessage: { code in "Could not clear simulated location (error \(code))." },
@@ -1426,6 +1456,7 @@ struct LocationSimulationView: View {
             resetRouteSelection()
         }
         self.coordinate = coordinate
+        locationInfo.refresh(lat: coordinate.latitude, lng: coordinate.longitude)
     }
 
     private func resetRouteSelection() {

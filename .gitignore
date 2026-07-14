@@ -27,6 +27,8 @@ assets/
 *.bak
 ## old license-worker experiment (superseded by the separate wander-payments-worker repo; has node_modules)
 workers/
+## NEVER commit the Google Maps API key (bundled at build time; see config.example.json)
+Wander/Resources/config.json
 ## NEVER commit license signing keys
 *.key
 *-private.key
