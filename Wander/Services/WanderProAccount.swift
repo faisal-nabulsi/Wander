@@ -285,6 +285,29 @@ final class WanderProAccount: ObservableObject {
         }
     }
 
+    // MARK: - Authenticated Worker access (for Pro features like AI routine)
+
+    /// Return a usable Firebase idToken for the signed-in user, minting a fresh one from the
+    /// refresh token if we don't currently hold one. Returns nil if not signed in / can't refresh.
+    ///
+    /// This is the ONLY way callers obtain the idToken to hand to Wander's Worker (e.g. the
+    /// /ai/routine endpoint sends it in the JSON body, exactly like the trial endpoints do).
+    /// It reuses the same token machinery as the entitlement read; the raw token is never cached
+    /// by callers — they request a fresh one per call.
+    func currentIdToken() async -> String? {
+        if idToken == nil {
+            guard await refreshIfNeeded() else { return nil }
+        }
+        return idToken
+    }
+
+    /// Mint a fresh idToken (used to retry a Worker call that came back 401 — the short-lived
+    /// token likely expired mid-session). Returns the new token, or nil if the refresh failed.
+    func refreshedIdToken() async -> String? {
+        guard await refreshIfNeeded() else { return nil }
+        return idToken
+    }
+
     // MARK: - Sign out
 
     func signOut() {

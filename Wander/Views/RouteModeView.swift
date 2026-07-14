@@ -67,6 +67,11 @@ struct RouteModeView: View {
     @State private var newRouteName = ""
     @State private var showSavedRoutes = false
 
+    // AI "believable day" (Pro): the Worker generates a plausible day of stops we can replay/save.
+    @State private var isGeneratingAI = false
+    @State private var aiPlaces: [AIRoutinePlace] = []
+    @State private var showAIRoutine = false
+
     private var manualMetersPerSecond: Double { max(manualSpeedMps, 1) }
 
     var body: some View {
@@ -89,6 +94,7 @@ struct RouteModeView: View {
             .sheet(isPresented: $showPaywall) { PaywallView(onClose: { showPaywall = false }) }
             .sheet(isPresented: $showSaveRouteSheet) { saveRouteSheet }
             .sheet(isPresented: $showSavedRoutes) { savedRoutesSheet }
+            .sheet(isPresented: $showAIRoutine) { aiRoutineSheet }
             .onReceive(currentLocation.$coordinate.compactMap { $0 }) { c in
                 if waypoints.isEmpty && !isDriving {
                     cameraPosition = .region(MKCoordinateRegion(center: c, latitudinalMeters: 2500, longitudinalMeters: 2500))
@@ -234,6 +240,8 @@ struct RouteModeView: View {
                 .tint(Wander.brand)
 
                 saveLoopControls
+
+                aiRoutineControls
 
                 HStack(spacing: 10) {
                     Button { Task { await computeRoute() } } label: {
@@ -691,6 +699,181 @@ struct RouteModeView: View {
                 return
             }
             await startDrive()
+        }
+    }
+
+    // MARK: - AI "believable day" (Pro)
+
+    /// Entry point for the AI day generator. Pro-gated exactly like the other Pro controls:
+    /// free/trial users see the button but tapping opens the paywall. On Pro, it POSTs the
+    /// current map center (or device location) to the Worker and shows the returned stops.
+    @ViewBuilder private var aiRoutineControls: some View {
+        Button {
+            generateAIRoutine()
+        } label: {
+            HStack(spacing: 8) {
+                if isGeneratingAI {
+                    ProgressView().controlSize(.small)
+                    Text("Generating a believable day…")
+                } else {
+                    Image(systemName: "sparkles")
+                    Text("Generate a believable day (AI)")
+                    if !License.shared.isLicensed {
+                        Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .font(.subheadline.weight(.medium))
+            .frame(maxWidth: .infinity).frame(height: 30)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .tint(Wander.brand)
+        .disabled(isGeneratingAI)
+    }
+
+    /// Resolve the request location (current map center, falling back to the device location),
+    /// then call the Worker. Non-Pro users are sent to the paywall before any network call.
+    private func generateAIRoutine() {
+        if !License.shared.isLicensed { showPaywall = true; return }
+        guard let origin = visibleCenter ?? currentLocation.coordinate else {
+            alertText = "Pan the map to where you want the day to start, then try again."
+            return
+        }
+        isGeneratingAI = true
+        Task {
+            let result = await WanderAIRoutine.generate(at: origin)
+            isGeneratingAI = false
+            switch result {
+            case .success(let places):
+                aiPlaces = places
+                showAIRoutine = true
+            case .proRequired:
+                showPaywall = true
+            case .dailyLimit(let message):
+                alertText = message
+            case .notConfigured(let message):
+                alertText = message
+            case .failed(let message):
+                alertText = message
+            }
+        }
+    }
+
+    /// The generated day: a labeled list with arrive/depart times, plus Replay (drops the stops
+    /// as a drivable multi-stop route) and Save (into the same Saved Routes store).
+    private var aiRoutineSheet: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(Array(aiPlaces.enumerated()), id: \.element.id) { index, place in
+                        HStack(spacing: 12) {
+                            Image(systemName: kindIcon(place.kind))
+                                .font(.title3)
+                                .foregroundStyle(Wander.brand)
+                                .frame(width: 28)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(index + 1). \(place.label)")
+                                    .font(.body).foregroundStyle(.primary)
+                                if let kind = place.kind, !kind.isEmpty {
+                                    Text(kind.capitalized).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            if let timeLabel = timeLabel(place) {
+                                Text(timeLabel)
+                                    .font(.caption).monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.trailing)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("\(aiPlaces.count) stops")
+                } footer: {
+                    Text("Replay drives these stops as a route. Save keeps them in Saved Routes.")
+                }
+            }
+            .navigationTitle("Your AI Day")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { showAIRoutine = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        replayAIRoutine()
+                    } label: {
+                        Label("Replay", systemImage: Wander.Icon.play)
+                    }
+                    .disabled(aiPlaces.count < 2)
+                }
+                ToolbarItem(placement: .bottomBar) {
+                    Button {
+                        saveAIRoutine()
+                    } label: {
+                        Label("Save to routes", systemImage: "square.and.arrow.down")
+                    }
+                    .disabled(aiPlaces.count < 2)
+                }
+            }
+        }
+    }
+
+    /// Drop the AI stops in as waypoints and reuse the existing route playback (compute the road
+    /// path, then drive). Same Pro/trial gating as any other drive happens inside startDrive().
+    private func replayAIRoutine() {
+        let coords = aiPlaces.map(\.coordinate)
+        guard coords.count >= 2 else {
+            alertText = "This day needs at least two stops to drive."
+            return
+        }
+        showAIRoutine = false
+        waypoints = coords.map { RouteWaypoint(coordinate: $0) }
+        routeCoordinates = []
+        Task {
+            await computeRoute()
+            guard routeCoordinates.count > 1 else {
+                alertText = "Couldn't build a drivable path for this day."
+                return
+            }
+            await startDrive()
+        }
+    }
+
+    /// Persist the AI stops into the same Saved Routes store the manual builder uses.
+    private func saveAIRoutine() {
+        let coords = aiPlaces.map(\.coordinate)
+        guard coords.count >= 2 else {
+            alertText = "This day needs at least two stops to save."
+            return
+        }
+        savedRoutes.add(name: "AI day", coordinates: coords)
+        showAIRoutine = false
+    }
+
+    /// Combine arrive/depart into a compact right-aligned label, if the server sent either.
+    private func timeLabel(_ place: AIRoutinePlace) -> String? {
+        switch (place.arrive, place.depart) {
+        case let (arrive?, depart?): return "\(arrive)\n\(depart)"
+        case let (arrive?, nil): return arrive
+        case let (nil, depart?): return depart
+        default: return nil
+        }
+    }
+
+    /// A best-effort SF Symbol for a place kind (purely cosmetic; unknown kinds get a pin).
+    private func kindIcon(_ kind: String?) -> String {
+        switch kind?.lowercased() {
+        case "cafe", "coffee": return "cup.and.saucer.fill"
+        case "restaurant", "food", "lunch", "dinner": return "fork.knife"
+        case "park", "outdoors": return "leaf.fill"
+        case "gym", "fitness": return "figure.run"
+        case "shop", "shopping", "store": return "bag.fill"
+        case "home": return "house.fill"
+        case "work", "office": return "briefcase.fill"
+        case "bar", "nightlife": return "wineglass.fill"
+        default: return "mappin.circle.fill"
         }
     }
 }
