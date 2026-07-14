@@ -1,6 +1,6 @@
 {
-  "build": 13,
+  "build": 14,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Generate a believable day (AI, Pro): create a natural home-work-gym routine you can replay"
+  "notes": "Record a real route and replay it later (Pro), plus back up and restore all your saved places & routes"
 }

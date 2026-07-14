@@ -67,6 +67,15 @@ struct RouteModeView: View {
     @State private var newRouteName = ""
     @State private var showSavedRoutes = false
 
+    // Record-a-real-route (Pro): capture the device's REAL GPS while physically moving,
+    // then replay later. Recording the real provider only makes sense when NOT spoofing.
+    @StateObject private var recorder = RouteRecorder()
+    @ObservedObject private var simSession = SimulationSession.shared
+    @State private var showSaveRecordingSheet = false
+    @State private var newRecordingName = ""
+    @State private var pendingRecordingCoords: [CLLocationCoordinate2D] = []
+    @State private var pendingRecordingTimes: [Double] = []
+
     // AI "believable day" (Pro): the Worker generates a plausible day of stops we can replay/save.
     @State private var isGeneratingAI = false
     @State private var aiPlaces: [AIRoutinePlace] = []
@@ -90,9 +99,15 @@ struct RouteModeView: View {
             .onReceive(NotificationCenter.default.publisher(for: .stopSimulationRequested)) { _ in
                 localReset()
             }
+            // Reload the routes store when a backup restore (or any writer) changes it, so a
+            // later save can't persist a stale in-memory array and clobber restored routes.
+            .onReceive(NotificationCenter.default.publisher(for: .savedRoutesDidChange)) { _ in
+                savedRoutes.reload()
+            }
             .onAppear { currentLocation.request() }
             .sheet(isPresented: $showPaywall) { PaywallView(onClose: { showPaywall = false }) }
             .sheet(isPresented: $showSaveRouteSheet) { saveRouteSheet }
+            .sheet(isPresented: $showSaveRecordingSheet) { saveRecordingSheet }
             .sheet(isPresented: $showSavedRoutes) { savedRoutesSheet }
             .sheet(isPresented: $showAIRoutine) { aiRoutineSheet }
             .onReceive(currentLocation.$coordinate.compactMap { $0 }) { c in
@@ -240,6 +255,8 @@ struct RouteModeView: View {
                 .tint(Wander.brand)
 
                 saveLoopControls
+
+                recordControls
 
                 aiRoutineControls
 
@@ -464,8 +481,12 @@ struct RouteModeView: View {
         return FileManager.default.fileExists(atPath: url.path) ? url.path : nil
     }
 
-    private func startDrive() async {
-        guard routeCoordinates.count > 1 else { return }
+    /// Drive the route. Pass `prebuiltSamples` to play an already-timed track (a recorded
+    /// route replayed at its real pace) — this bypasses speed-mode sample building and the
+    /// road-following coordinates entirely.
+    private func startDrive(prebuiltSamples: [RoutePlaybackSample]? = nil) async {
+        let usingPrebuilt = prebuiltSamples != nil
+        guard usingPrebuilt || routeCoordinates.count > 1 else { return }
         guard pairingFilePath() != nil else {
             alertText = "Import a pairing file in Settings first."
             return
@@ -477,24 +498,28 @@ struct RouteModeView: View {
 
         isComputing = true
         let samples: [RoutePlaybackSample]
-        switch speedMode {
-        case .realistic:
-            samples = buildRealisticSamples(
-                routeCoordinates,
-                totalDuration: routeExpectedTime,
-                fallbackSpeed: manualMetersPerSecond
-            )
-        case .speedLimit:
-            samples = await prefetchRoutePlaybackSamples(
-                displayCoordinates: routeCoordinates,
-                fallbackSpeedMetersPerSecond: manualMetersPerSecond
-            )
-        case .manual:
-            samples = buildPlaybackSamples(
-                from: routeCoordinates,
-                speedWays: [],
-                fallbackSpeedMetersPerSecond: manualMetersPerSecond
-            )
+        if let prebuiltSamples {
+            samples = prebuiltSamples
+        } else {
+            switch speedMode {
+            case .realistic:
+                samples = buildRealisticSamples(
+                    routeCoordinates,
+                    totalDuration: routeExpectedTime,
+                    fallbackSpeed: manualMetersPerSecond
+                )
+            case .speedLimit:
+                samples = await prefetchRoutePlaybackSamples(
+                    displayCoordinates: routeCoordinates,
+                    fallbackSpeedMetersPerSecond: manualMetersPerSecond
+                )
+            case .manual:
+                samples = buildPlaybackSamples(
+                    from: routeCoordinates,
+                    speedWays: [],
+                    fallbackSpeedMetersPerSecond: manualMetersPerSecond
+                )
+            }
         }
         isComputing = false
 
@@ -508,7 +533,8 @@ struct RouteModeView: View {
         followCamera = true   // each drive starts tracking the pin
         progress = 0
         // Start the drive showing the whole route, not zoomed hard into the start pin.
-        if let region = region(fitting: routeCoordinates) {
+        let fitCoords = usingPrebuilt ? samples.map(\.coordinate) : routeCoordinates
+        if let region = region(fitting: fitCoords) {
             withAnimation { cameraPosition = .region(region) }
             visibleRegion = region
         }
@@ -570,6 +596,148 @@ struct RouteModeView: View {
         LocationSimulationCommandQueue.shared.async {
             _ = simulate_location(DeviceConnectionContext.targetIPAddress, coord.latitude, coord.longitude, path)
         }
+    }
+
+    // MARK: - Record a real route (Pro)
+
+    /// True when a location spoof/simulation is currently active. Recording the REAL GPS
+    /// while spoofing is meaningless (the OS location is the spoofed one), so we disable it.
+    private var spoofActive: Bool { simSession.isActive }
+
+    /// Record / Stop-and-save controls. Pro-gated (free/trial users get the paywall on tap),
+    /// and DISABLED while a spoof is active with a clear "stop spoofing to record" hint.
+    @ViewBuilder private var recordControls: some View {
+        VStack(spacing: 6) {
+            if recorder.isRecording {
+                Button(role: .destructive) { finishRecording() } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "stop.circle.fill")
+                        Text("Stop & save recording")
+                        Spacer()
+                        Text("\(recorder.fixCount) pts")
+                            .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity).frame(height: 30)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .controlSize(.large)
+
+                Text("Recording your REAL location — \(recordedDistanceLabel). Move along your real route, then stop to save it.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Button { beginRecording() } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "record.circle")
+                        Text("Record a real route")
+                        if !License.shared.isLicensed {
+                            Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity).frame(height: 30)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(Wander.brand)
+                .disabled(spoofActive)
+
+                if spoofActive {
+                    Text("Stop spoofing to record your real route — recording captures your device's real GPS, not the simulated location.")
+                        .font(.caption).foregroundStyle(.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text("Captures your device's real GPS + timing while you physically move, so you can replay a believable commute later.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private var recordedDistanceLabel: String {
+        let m = recorder.distanceMeters
+        if useMph {
+            let miles = m / 1609.34
+            return miles < 0.1 ? String(format: "%.0f ft", m * 3.28084) : String(format: "%.2f mi", miles)
+        } else {
+            return m < 1000 ? String(format: "%.0f m", m) : String(format: "%.2f km", m / 1000)
+        }
+    }
+
+    /// Start recording real GPS. Pro-gated; blocked while spoofing.
+    private func beginRecording() {
+        if !License.shared.isLicensed { showPaywall = true; return }
+        guard !spoofActive else {
+            alertText = "Stop the active simulation before recording — recording needs your real location."
+            return
+        }
+        recorder.requestAuthorization()
+        guard recorder.isAuthorized else {
+            alertText = "Allow location access to record your real route (Settings → Wander → Location)."
+            return
+        }
+        recorder.start()
+    }
+
+    /// Stop recording, stash the captured track, and prompt for a name to save it.
+    private func finishRecording() {
+        let fixes = recorder.stop()
+        guard fixes.count >= 2 else {
+            alertText = "That recording was too short to save — no usable GPS points were captured."
+            return
+        }
+        pendingRecordingCoords = fixes.map(\.coordinate)
+        pendingRecordingTimes = fixes.map { $0.timestamp.timeIntervalSince1970 }
+        newRecordingName = defaultRecordingName()
+        showSaveRecordingSheet = true
+    }
+
+    private func defaultRecordingName() -> String {
+        let df = DateFormatter()
+        df.dateFormat = "MMM d, h:mm a"
+        return "Commute \(df.string(from: Date()))"
+    }
+
+    private var saveRecordingSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Recording name", text: $newRecordingName)
+                        .textInputAutocapitalization(.words)
+                } header: {
+                    Text("Name")
+                } footer: {
+                    Text("Saves \(pendingRecordingCoords.count) captured GPS points with their real timing. Replay it later from Saved routes to reproduce the pace.")
+                }
+            }
+            .navigationTitle("Save Recording")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Discard", role: .destructive) {
+                        pendingRecordingCoords = []
+                        pendingRecordingTimes = []
+                        showSaveRecordingSheet = false
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        savedRoutes.addRecorded(
+                            name: newRecordingName,
+                            coordinates: pendingRecordingCoords,
+                            timestamps: pendingRecordingTimes
+                        )
+                        pendingRecordingCoords = []
+                        pendingRecordingTimes = []
+                        showSaveRecordingSheet = false
+                    }
+                }
+            }
+        }
+        .presentationDetents([.height(240)])
     }
 
     // MARK: - Save-loop builder (Pro)
@@ -649,16 +817,19 @@ struct RouteModeView: View {
                             runSavedRoute(route)
                         } label: {
                             HStack(spacing: 12) {
-                                Image(systemName: "point.topleft.down.to.point.bottomright.curvepath.fill")
+                                Image(systemName: route.isRecorded ? "record.circle.fill" : "point.topleft.down.to.point.bottomright.curvepath.fill")
                                     .font(.title3)
-                                    .foregroundStyle(Wander.brand)
+                                    .foregroundStyle(route.isRecorded ? .red : Wander.brand)
                                     .frame(width: 28)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(route.name).font(.body).foregroundStyle(.primary)
-                                    Text("\(route.pointCount) points").font(.caption).foregroundStyle(.secondary)
+                                    Text(route.isRecorded
+                                         ? "Recorded • \(route.pointCount) points"
+                                         : "\(route.pointCount) points")
+                                        .font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                Label("Run", systemImage: Wander.Icon.play)
+                                Label(route.isRecorded ? "Replay" : "Run", systemImage: Wander.Icon.play)
                                     .labelStyle(.titleAndIcon)
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(Wander.brand)
@@ -690,6 +861,23 @@ struct RouteModeView: View {
             return
         }
         showSavedRoutes = false
+
+        // Recorded real-GPS route: replay the captured track at its real pace, preserving
+        // the recorded timing. We drive the dense GPS trail directly (no re-routing) and
+        // show it as the on-map polyline so the pin follows the recording exactly.
+        if route.isRecorded, let times = route.timestamps {
+            let samples = buildRecordedPlaybackSamples(coordinates: coords, timestamps: times)
+            guard samples.count > 1 else {
+                alertText = "This recording doesn't have enough usable points to replay."
+                return
+            }
+            waypoints = []
+            routeCoordinates = coords
+            Task { await startDrive(prebuiltSamples: samples) }
+            return
+        }
+
+        // Builder route: route between the saved waypoints, then drive as usual.
         waypoints = coords.map { RouteWaypoint(coordinate: $0) }
         routeCoordinates = []
         Task {
