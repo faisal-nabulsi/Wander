@@ -58,6 +58,18 @@
 "route.save_recording_title" = "記録を保存";
 "route.record_real_route" = "実際のルートを記録";
 "route.name" = "名前";
+"route.mode" = "モード";
+"route.mode.drive" = "車";
+"route.mode.walk" = "徒歩";
+"route.mode.cycle" = "自転車";
+"route.mode.transit" = "公共交通";
+"route.mode.boat" = "船";
+"route.mode.plane" = "飛行機";
+"route.mode.transit_hint" = "道路ルートを公共交通の速度でたどり、バスや電車のように短い停車を挟みます。";
+"route.mode.boat_hint" = "道路を使わず、地点間を直線で船の速度で進みます。";
+"route.mode.plane_hint" = "最初の地点から最後の地点まで大圏ルートを飛行速度で飛びます。iOSでは高度をシミュレートできないため、ルートと速度のみが適用されます。";
+"route.stops" = "経由地";
+"route.reorder_hint" = "ドラッグして経由地を並べ替えると、ルートが新しい順序に従います。";
 
 /* Places screen */
 "places.title" = "場所";
@@ -144,3 +156,10 @@
 
 /* Language picker option */
 "language.system" = "システムのデフォルト";
+
+/* 位置情報カード — 検出回避のアドバイス（タイムゾーン + IP/VPN の一致） */
+"locationinfo.tz_advisory" = "デバイスのタイムゾーンは今も %@ になっています。一部のアプリは GPS と照合するため、設定 › 一般 › 日付と時刻 で合わせることをおすすめします。";
+"locationinfo.tz_advisory.dismiss" = "タイムゾーンのヒントを閉じる";
+"locationinfo.ip_tip.title" = "IP とタイムゾーンを合わせる";
+"locationinfo.ip_tip.body" = "位置情報をより自然に見せるには、IP アドレスとタイムゾーンを偽装した GPS に合わせるのが理想です。一部のアプリはこれらを相互に照合します。目的地の地域に設定した VPN を使うと、両方を一致させたままにできます。";
+"locationinfo.ip_tip.link" = "IP の一致の仕組み";

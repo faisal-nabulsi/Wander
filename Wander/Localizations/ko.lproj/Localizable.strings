@@ -58,6 +58,18 @@
 "route.save_recording_title" = "기록 저장";
 "route.record_real_route" = "실제 경로 기록";
 "route.name" = "이름";
+"route.mode" = "모드";
+"route.mode.drive" = "자동차";
+"route.mode.walk" = "도보";
+"route.mode.cycle" = "자전거";
+"route.mode.transit" = "대중교통";
+"route.mode.boat" = "보트";
+"route.mode.plane" = "비행기";
+"route.mode.transit_hint" = "도로 경로를 대중교통 속도로 따라가며 버스나 기차처럼 짧게 정차합니다.";
+"route.mode.boat_hint" = "도로 없이 지점 사이를 보트 속도로 직선으로 이동합니다.";
+"route.mode.plane_hint" = "첫 지점에서 마지막 지점까지 대권 경로를 비행 속도로 이동합니다. iOS에서는 고도를 시뮬레이션할 수 없으므로 경로와 속도만 적용됩니다.";
+"route.stops" = "경유지";
+"route.reorder_hint" = "드래그하여 경유지를 재정렬하면 경로가 새 순서를 따릅니다.";
 
 /* Places screen */
 "places.title" = "장소";
@@ -144,3 +156,10 @@
 
 /* Language picker option */
 "language.system" = "시스템 기본값";
+
+/* 위치 정보 카드 — 탐지 회피 안내 (시간대 + IP/VPN 일치) */
+"locationinfo.tz_advisory" = "기기의 시간대가 여전히 %@(으)로 설정되어 있습니다. 일부 앱은 이를 GPS와 비교하므로 설정 › 일반 › 날짜 및 시간에서 맞춰 주는 것이 좋습니다.";
+"locationinfo.tz_advisory.dismiss" = "시간대 팁 닫기";
+"locationinfo.ip_tip.title" = "IP와 시간대 맞추기";
+"locationinfo.ip_tip.body" = "위치를 최대한 자연스럽게 보이게 하려면 IP 주소와 시간대를 위장한 GPS에 맞춰야 합니다. 일부 앱은 이를 서로 대조합니다. 목적지 지역으로 설정한 VPN을 사용하면 둘을 일치된 상태로 유지할 수 있습니다.";
+"locationinfo.ip_tip.link" = "IP 일치 방식 알아보기";

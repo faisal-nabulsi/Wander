@@ -58,6 +58,18 @@
 "route.save_recording_title" = "Enregistrer l'enregistrement";
 "route.record_real_route" = "Enregistrer un itinéraire réel";
 "route.name" = "Nom";
+"route.mode" = "Mode";
+"route.mode.drive" = "Voiture";
+"route.mode.walk" = "À pied";
+"route.mode.cycle" = "Vélo";
+"route.mode.transit" = "Transports";
+"route.mode.boat" = "Bateau";
+"route.mode.plane" = "Avion";
+"route.mode.transit_hint" = "Suit l’itinéraire routier à la vitesse des transports avec de brefs arrêts, comme un bus ou un train.";
+"route.mode.boat_hint" = "Navigue en ligne droite entre les points à la vitesse d’un bateau, sans routes.";
+"route.mode.plane_hint" = "Vole selon un grand cercle du premier au dernier point à la vitesse d’un avion. L’altitude ne peut pas être simulée sur iOS, seuls l’itinéraire et la vitesse s’appliquent.";
+"route.stops" = "Arrêts";
+"route.reorder_hint" = "Faites glisser pour réorganiser vos arrêts : l’itinéraire suit le nouvel ordre.";
 
 /* Places screen */
 "places.title" = "Lieux";
@@ -144,3 +156,10 @@
 
 /* Language picker option */
 "language.system" = "Réglage du système";
+
+/* Carte d'infos de localisation — conseils anti-détection (fuseau horaire + correspondance IP/VPN) */
+"locationinfo.tz_advisory" = "Le fuseau horaire de votre appareil affiche toujours %@. Certaines apps le comparent à votre GPS — pensez à le faire correspondre dans Réglages › Général › Date et heure.";
+"locationinfo.tz_advisory.dismiss" = "Ignorer le conseil sur le fuseau horaire";
+"locationinfo.ip_tip.title" = "Faites correspondre votre IP et votre fuseau horaire";
+"locationinfo.ip_tip.body" = "Pour une localisation des plus crédibles, votre adresse IP et votre fuseau horaire doivent correspondre à votre GPS simulé. Certaines apps les recoupent. Un VPN réglé sur la région de destination les garde alignés.";
+"locationinfo.ip_tip.link" = "Comment fonctionne la correspondance d'IP";

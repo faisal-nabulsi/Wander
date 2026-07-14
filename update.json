@@ -1,6 +1,6 @@
 {
-  "build": 22,
+  "build": 23,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Search your saved places — a search bar on the Places tab filters your favorites by name, notes, folder, or tags as you type."
+  "notes": "Route transport modes — pick driving, walking, cycling, public transport, boat, or plane for any route (each routes differently), and drag your stops to reorder the trip. Plane flies a great-circle path (altitude is Android-only). Plus more complete translations."
 }

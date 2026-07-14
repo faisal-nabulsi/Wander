@@ -58,6 +58,18 @@
 "route.save_recording_title" = "保存录制";
 "route.record_real_route" = "录制真实路线";
 "route.name" = "名称";
+"route.mode" = "模式";
+"route.mode.drive" = "驾车";
+"route.mode.walk" = "步行";
+"route.mode.cycle" = "骑行";
+"route.mode.transit" = "公共交通";
+"route.mode.boat" = "船";
+"route.mode.plane" = "飞机";
+"route.mode.transit_hint" = "以公共交通速度沿道路路线行驶，并像公交或火车一样短暂停靠。";
+"route.mode.boat_hint" = "以船速在各点之间走直线，不走道路。";
+"route.mode.plane_hint" = "以飞行速度沿大圆航线从第一个点飞到最后一个点。iOS 无法模拟高度，因此仅应用航线和速度。";
+"route.stops" = "停靠点";
+"route.reorder_hint" = "拖动以重新排序停靠点——路线将按新顺序行进。";
 
 /* Places screen */
 "places.title" = "地点";
@@ -144,3 +156,10 @@
 
 /* Language picker option */
 "language.system" = "系统默认";
+
+/* 位置信息卡片 — 反检测提示（时区 + IP/VPN 匹配） */
+"locationinfo.tz_advisory" = "你设备的时区仍显示为 %@。有些应用会将它与你的 GPS 进行比对 — 建议在“设置 › 通用 › 日期与时间”中将其保持一致。";
+"locationinfo.tz_advisory.dismiss" = "关闭时区提示";
+"locationinfo.ip_tip.title" = "匹配你的 IP 与时区";
+"locationinfo.ip_tip.body" = "为了让位置最为可信，你的 IP 地址和时区应与模拟的 GPS 保持一致。有些应用会交叉核对它们。将 VPN 设置到目标地区可让两者保持一致。";
+"locationinfo.ip_tip.link" = "IP 匹配的工作原理";

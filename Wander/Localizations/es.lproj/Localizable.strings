@@ -58,6 +58,18 @@
 "route.save_recording_title" = "Guardar grabación";
 "route.record_real_route" = "Grabar una ruta real";
 "route.name" = "Nombre";
+"route.mode" = "Modo";
+"route.mode.drive" = "Conducir";
+"route.mode.walk" = "Caminar";
+"route.mode.cycle" = "Bicicleta";
+"route.mode.transit" = "Transporte";
+"route.mode.boat" = "Barco";
+"route.mode.plane" = "Avión";
+"route.mode.transit_hint" = "Sigue la ruta por carretera a velocidad de transporte con breves paradas, como un autobús o un tren.";
+"route.mode.boat_hint" = "Navega en línea recta entre puntos a velocidad de barco, sin carreteras.";
+"route.mode.plane_hint" = "Vuela una ruta de círculo máximo del primer al último punto a velocidad de vuelo. La altitud no se puede simular en iOS, así que solo se aplican la ruta y la velocidad.";
+"route.stops" = "Paradas";
+"route.reorder_hint" = "Arrastra para reordenar tus paradas: la ruta sigue el nuevo orden.";
 
 /* Places screen */
 "places.title" = "Lugares";
@@ -144,3 +156,10 @@
 
 /* Language picker option */
 "language.system" = "Predeterminado del sistema";
+
+/* Tarjeta de información de ubicación — avisos antidetección (zona horaria + coincidencia de IP/VPN) */
+"locationinfo.tz_advisory" = "La zona horaria de tu dispositivo sigue marcando %@. Algunas apps la comparan con tu GPS — te conviene ajustarla en Ajustes › General › Fecha y hora.";
+"locationinfo.tz_advisory.dismiss" = "Descartar consejo de zona horaria";
+"locationinfo.ip_tip.title" = "Haz coincidir tu IP y zona horaria";
+"locationinfo.ip_tip.body" = "Para que tu ubicación sea lo más creíble posible, tu dirección IP y tu zona horaria deberían coincidir con tu GPS simulado. Algunas apps las contrastan. Una VPN configurada en la región de destino las mantiene alineadas.";
+"locationinfo.ip_tip.link" = "Cómo funciona la coincidencia de IP";

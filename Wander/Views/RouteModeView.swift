@@ -30,6 +30,112 @@ private enum RouteSpeedMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// How the PATH between waypoints is generated + how fast the pin moves along it —
+/// like choosing driving / transit / walking in Google Maps.
+///
+/// DRIVE/WALK/CYCLE/TRANSIT snap to roads via MKDirections; BOAT/PLANE bypass roads
+/// and fly a great-circle track. `cruiseSpeedMps` paces the playback sampler for the
+/// mode; `usesRoadRouting` decides whether MKDirections is consulted at all.
+private enum RouteTransportMode: String, CaseIterable, Identifiable {
+    case drive
+    case walk
+    case cycle
+    case transit
+    case boat
+    case plane
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .drive:   return L("route.mode.drive", fallback: "Drive")
+        case .walk:    return L("route.mode.walk", fallback: "Walk")
+        case .cycle:   return L("route.mode.cycle", fallback: "Cycle")
+        case .transit: return L("route.mode.transit", fallback: "Transit")
+        case .boat:    return L("route.mode.boat", fallback: "Boat")
+        case .plane:   return L("route.mode.plane", fallback: "Plane")
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .drive:   return "car.fill"
+        case .walk:    return "figure.walk"
+        case .cycle:   return "bicycle"
+        case .transit: return "tram.fill"
+        case .boat:    return "ferry.fill"
+        case .plane:   return "airplane"
+        }
+    }
+
+    /// Whether the coordinate list comes from the road-routing engine (MKDirections).
+    /// BOAT/PLANE generate great-circle coordinates instead.
+    var usesRoadRouting: Bool {
+        switch self {
+        case .drive, .walk, .cycle, .transit: return true
+        case .boat, .plane: return false
+        }
+    }
+
+    /// MKDirections transport type for the road-routing modes. Walk uses walking
+    /// directions; everything else routes as a car (cycle/transit ride the road network).
+    var mapKitTransportType: MKDirectionsTransportType {
+        self == .walk ? .walking : .automobile
+    }
+
+    /// Cruise speed in m/s used to pace playback. Road modes still honor the real ETA
+    /// when available; this is the fallback / the pace for the great-circle modes.
+    var cruiseSpeedMps: Double {
+        switch self {
+        case .drive:   return 50_000.0 / 3_600.0   // ~50 km/h
+        case .walk:    return 5_000.0 / 3_600.0     // ~5 km/h
+        case .cycle:   return 18_000.0 / 3_600.0    // ~18 km/h
+        case .transit: return 40_000.0 / 3_600.0    // ~40 km/h
+        case .boat:    return 35_000.0 / 3_600.0    // ~35 km/h
+        case .plane:   return 850_000.0 / 3_600.0   // ~850 km/h
+        }
+    }
+
+    /// TRANSIT inserts brief dwell pauses to mimic station/bus stops.
+    var insertsDwellStops: Bool { self == .transit }
+}
+
+/// Spherical (great-circle) interpolation between two coordinates, used by BOAT/PLANE
+/// which do NOT snap to roads. Returns `steps + 1` points from `a` to `b` inclusive,
+/// following the shortest path over the sphere so long lines curve correctly.
+private func greatCirclePath(from a: CLLocationCoordinate2D,
+                             to b: CLLocationCoordinate2D,
+                             steps: Int) -> [CLLocationCoordinate2D] {
+    let n = max(steps, 1)
+    let lat1 = a.latitude * .pi / 180, lon1 = a.longitude * .pi / 180
+    let lat2 = b.latitude * .pi / 180, lon2 = b.longitude * .pi / 180
+
+    // Angular distance between the two points (haversine).
+    let dLat = lat2 - lat1, dLon = lon2 - lon1
+    let h = sin(dLat / 2) * sin(dLat / 2)
+        + cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2)
+    let delta = 2 * asin(min(1, sqrt(h)))
+
+    // Coincident points (or numerically tiny separation): just return the endpoints.
+    guard delta > 1e-9 else { return [a, b] }
+
+    var out: [CLLocationCoordinate2D] = []
+    out.reserveCapacity(n + 1)
+    for i in 0...n {
+        let f = Double(i) / Double(n)
+        let sinDelta = sin(delta)
+        let A = sin((1 - f) * delta) / sinDelta
+        let B = sin(f * delta) / sinDelta
+        let x = A * cos(lat1) * cos(lon1) + B * cos(lat2) * cos(lon2)
+        let y = A * cos(lat1) * sin(lon1) + B * cos(lat2) * sin(lon2)
+        let z = A * sin(lat1) + B * sin(lat2)
+        let lat = atan2(z, sqrt(x * x + y * y))
+        let lon = atan2(y, x)
+        out.append(CLLocationCoordinate2D(latitude: lat * 180 / .pi, longitude: lon * 180 / .pi))
+    }
+    return out
+}
+
 struct RouteModeView: View {
     @State private var waypoints: [RouteWaypoint] = []
     @State private var routeCoordinates: [CLLocationCoordinate2D] = []
@@ -44,6 +150,7 @@ struct RouteModeView: View {
     @State private var currentPosition: CLLocationCoordinate2D?
 
     @State private var speedMode: RouteSpeedMode = .realistic
+    @State private var transportMode: RouteTransportMode = .drive   // path-generation + speed (Google-Maps style)
     @State private var loopRoute = false   // Pro: re-run the route from the start when it finishes
     @State private var manualSpeedMps: Double = 50_000.0 / 3_600.0   // default 50 km/h
     @State private var routeExpectedTime: TimeInterval = 0            // real-world ETA from MKDirections
@@ -213,6 +320,15 @@ struct RouteModeView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
+                reorderableStopsList
+
+                modePicker
+
+                // The realistic/speed-limit/manual pacing picker only applies to the
+                // road-following DRIVE/WALK modes. The other modes run at their own cruise
+                // speed, so we show a short explanation instead of the speed controls.
+                if transportMode == .drive || transportMode == .walk {
+
                 Picker("Speed", selection: $speedMode) {
                     ForEach(RouteSpeedMode.allCases) { Text($0.title).tag($0) }
                 }
@@ -239,6 +355,13 @@ struct RouteModeView: View {
                         Text("\(Int(SpeedFormat.fromMps(manualSpeedMps, useMph: useMph))) \(SpeedFormat.unitLabel(useMph: useMph))")
                             .font(.caption).monospacedDigit().frame(width: 70, alignment: .trailing)
                     }
+                }
+
+                } else if let hint = modeHint {
+                    // CYCLE/TRANSIT/BOAT/PLANE explanation (great-circle + no-altitude note for PLANE).
+                    Text(hint)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 Toggle(isOn: Binding(
@@ -343,6 +466,100 @@ struct RouteModeView: View {
         routeCoordinates = []
     }
 
+    // MARK: - Transport mode UI
+
+    /// Google-Maps-style transport picker: DRIVE / WALK / CYCLE / TRANSIT / BOAT / PLANE.
+    /// Changing the mode invalidates the previewed path (it must be regenerated for the
+    /// new mode's routing engine + speed).
+    private var modePicker: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(localized: "route.mode", fallback: "Mode")
+                .font(.caption).foregroundStyle(.secondary)
+            Picker("Mode", selection: $transportMode) {
+                ForEach(RouteTransportMode.allCases) { mode in
+                    Label(mode.title, systemImage: mode.icon).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: transportMode) { _, _ in
+                // The old path was built for a different engine/speed — clear it so the
+                // user re-previews (or a saved run re-computes) for the new mode.
+                routeCoordinates = []
+                routeExpectedTime = 0
+            }
+        }
+    }
+
+    /// Explanation shown under the picker for the non-DRIVE/WALK modes (DRIVE/WALK show
+    /// the existing pacing controls instead). PLANE includes the iOS no-altitude note.
+    private var modeHint: String? {
+        switch transportMode {
+        case .drive, .walk: return nil
+        case .cycle:   return nil
+        case .transit: return L("route.mode.transit_hint", fallback: "Follows the road route at transit speed with brief stops, like a bus or train.")
+        case .boat:    return L("route.mode.boat_hint", fallback: "Sails a straight line between points at boat speed — no roads.")
+        case .plane:   return L("route.mode.plane_hint", fallback: "Flies a great-circle path from the first to the last point at flight speed. Altitude can't be simulated on iOS, so only the path and speed are applied.")
+        }
+    }
+
+    // MARK: - Reorderable stops
+
+    /// The stops list, drag-to-reorder like Google Maps. Reordering mutates `waypoints`
+    /// and clears the previewed path so playback re-routes to follow the new order.
+    @ViewBuilder private var reorderableStopsList: some View {
+        if waypoints.count >= 2 {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(localized: "route.stops", fallback: "Stops")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    EditButton()
+                        .font(.caption)
+                }
+                List {
+                    ForEach(Array(waypoints.enumerated()), id: \.element.id) { index, wp in
+                        HStack(spacing: 10) {
+                            Image(systemName: index == 0 ? "flag.fill"
+                                  : (index == waypoints.count - 1 ? "flag.checkered" : "\(min(index, 50)).circle.fill"))
+                                .foregroundStyle(index == 0 ? .green : (index == waypoints.count - 1 ? .red : .orange))
+                            Text(stopRowLabel(index: index, coordinate: wp.coordinate))
+                                .font(.subheadline)
+                                .lineLimit(1)
+                        }
+                    }
+                    .onMove(perform: moveWaypoints)
+                    .onDelete(perform: deleteWaypoints)
+                }
+                .listStyle(.plain)
+                .frame(height: min(CGFloat(waypoints.count) * 44 + 8, 200))
+                .scrollContentBackground(.hidden)
+
+                Text(localized: "route.reorder_hint",
+                     fallback: "Drag to reorder your stops — the route follows the new order.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func stopRowLabel(index: Int, coordinate: CLLocationCoordinate2D) -> String {
+        let name = waypointLabel(index)
+        return String(format: "%@  (%.4f, %.4f)", name, coordinate.latitude, coordinate.longitude)
+    }
+
+    /// Reorder waypoints, then invalidate the previewed path so the next preview/drive
+    /// re-routes to follow the new order.
+    private func moveWaypoints(from source: IndexSet, to destination: Int) {
+        waypoints.move(fromOffsets: source, toOffset: destination)
+        routeCoordinates = []
+        routeExpectedTime = 0
+    }
+
+    private func deleteWaypoints(at offsets: IndexSet) {
+        waypoints.remove(atOffsets: offsets)
+        routeCoordinates = []
+        routeExpectedTime = 0
+    }
+
     private func clearAll() {
         waypoints = []
         routeCoordinates = []
@@ -362,13 +579,25 @@ struct RouteModeView: View {
         isComputing = true
         defer { isComputing = false }
 
+        // BOAT/PLANE bypass road snapping entirely and build a great-circle track.
+        if !transportMode.usesRoadRouting {
+            let coords = greatCircleCoordinates()
+            routeCoordinates = coords
+            // Great-circle modes have no MKDirections ETA; pace by their cruise speed.
+            routeExpectedTime = 0
+            if let region = region(fitting: coords) {
+                cameraPosition = .region(region)
+            }
+            return
+        }
+
         var coords: [CLLocationCoordinate2D] = []
         var totalTime: TimeInterval = 0
         for (a, b) in zip(waypoints, waypoints.dropFirst()) {
             let request = MKDirections.Request()
             request.source = MKMapItem(placemark: MKPlacemark(coordinate: a.coordinate))
             request.destination = MKMapItem(placemark: MKPlacemark(coordinate: b.coordinate))
-            request.transportType = speedMode == .manual && manualSpeedMps * 3.6 <= 12 ? .walking : .automobile
+            request.transportType = transportMode.mapKitTransportType
 
             if let response = try? await MKDirections(request: request).calculate(),
                let route = response.routes.first {
@@ -381,9 +610,39 @@ struct RouteModeView: View {
         }
 
         routeCoordinates = coords
-        routeExpectedTime = totalTime
+        // DRIVE/WALK follow the real ETA (existing behavior). CYCLE/TRANSIT re-pace to
+        // their own cruise speed, so drop MKDirections' car ETA for them.
+        routeExpectedTime = (transportMode == .drive || transportMode == .walk) ? totalTime : 0
         if let region = region(fitting: coords) {
             cameraPosition = .region(region)
+        }
+    }
+
+    /// Great-circle coordinate list for BOAT/PLANE (no road snapping).
+    /// BOAT interpolates between every consecutive waypoint; PLANE flies straight from
+    /// the first waypoint to the last. Point density scales with distance for a smooth line.
+    private func greatCircleCoordinates() -> [CLLocationCoordinate2D] {
+        func stepsFor(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Int {
+            let meters = CLLocation(latitude: a.latitude, longitude: a.longitude)
+                .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
+            // ~1 point per 2 km, clamped so short hops still get a handful and long
+            // hauls stay smooth without exploding the sample count.
+            return min(max(Int(meters / 2000), 8), 800)
+        }
+
+        switch transportMode {
+        case .plane:
+            guard let first = waypoints.first?.coordinate,
+                  let last = waypoints.last?.coordinate else { return [] }
+            return greatCirclePath(from: first, to: last, steps: stepsFor(first, last))
+        default: // .boat (and any future non-road mode)
+            var coords: [CLLocationCoordinate2D] = []
+            for (a, b) in zip(waypoints, waypoints.dropFirst()) {
+                let seg = greatCirclePath(from: a.coordinate, to: b.coordinate, steps: stepsFor(a.coordinate, b.coordinate))
+                // Avoid duplicating the shared vertex between consecutive segments.
+                coords.append(contentsOf: coords.isEmpty ? seg : Array(seg.dropFirst()))
+            }
+            return coords
         }
     }
 
@@ -477,6 +736,43 @@ struct RouteModeView: View {
         return atan2(y, x) * 180 / .pi
     }
 
+    /// Total meters along an ordered coordinate list.
+    private func routeDistance(_ coords: [CLLocationCoordinate2D]) -> Double {
+        guard coords.count > 1 else { return 0 }
+        var total = 0.0
+        for i in 0..<(coords.count - 1) {
+            total += CLLocation(latitude: coords[i].latitude, longitude: coords[i].longitude)
+                .distance(from: CLLocation(latitude: coords[i + 1].latitude, longitude: coords[i + 1].longitude))
+        }
+        return total
+    }
+
+    /// TRANSIT: insert brief dwell pauses (a few seconds) roughly every 60–90s of travel,
+    /// mimicking station/bus stops. Walks the already-timed samples and, each time the
+    /// accumulated travel time crosses a randomized interval, stretches that sample's delay
+    /// by a short dwell. No transit API needed — this just re-times the road samples.
+    private func insertTransitDwells(_ samples: [RoutePlaybackSample]) -> [RoutePlaybackSample] {
+        guard samples.count > 2 else { return samples }
+        var out: [RoutePlaybackSample] = []
+        out.reserveCapacity(samples.count)
+        var sinceLastStop = 0.0
+        var nextStopAt = Double.random(in: 60...90)
+        for (i, s) in samples.enumerated() {
+            sinceLastStop += s.delayFromPrevious
+            // Don't dwell on the very first or very last sample.
+            if sinceLastStop >= nextStopAt, i > 0, i < samples.count - 1 {
+                let dwell = Double.random(in: 3...6)
+                out.append(RoutePlaybackSample(coordinate: s.coordinate,
+                                               delayFromPrevious: s.delayFromPrevious + dwell))
+                sinceLastStop = 0
+                nextStopAt = Double.random(in: 60...90)
+            } else {
+                out.append(s)
+            }
+        }
+        return out
+    }
+
     // MARK: - Playback
 
     private func pairingFilePath() -> String? {
@@ -503,7 +799,8 @@ struct RouteModeView: View {
         let samples: [RoutePlaybackSample]
         if let prebuiltSamples {
             samples = prebuiltSamples
-        } else {
+        } else if transportMode == .drive || transportMode == .walk {
+            // DRIVE/WALK behave exactly as today: the speed-mode picker chooses the pacing.
             switch speedMode {
             case .realistic:
                 samples = buildRealisticSamples(
@@ -523,6 +820,20 @@ struct RouteModeView: View {
                     fallbackSpeedMetersPerSecond: manualMetersPerSecond
                 )
             }
+        } else {
+            // CYCLE/TRANSIT/BOAT/PLANE: pace along the coordinate list at the mode's
+            // cruise speed (great-circle modes have no ETA). TRANSIT adds dwell pauses.
+            var built = buildRealisticSamples(
+                routeCoordinates,
+                totalDuration: routeCoordinates.count > 1
+                    ? routeDistance(routeCoordinates) / transportMode.cruiseSpeedMps
+                    : 0,
+                fallbackSpeed: transportMode.cruiseSpeedMps
+            )
+            if transportMode.insertsDwellStops {
+                built = insertTransitDwells(built)
+            }
+            samples = built
         }
         isComputing = false
 

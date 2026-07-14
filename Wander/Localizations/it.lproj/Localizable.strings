@@ -58,6 +58,18 @@
 "route.save_recording_title" = "Salva registrazione";
 "route.record_real_route" = "Registra un percorso reale";
 "route.name" = "Nome";
+"route.mode" = "Modalità";
+"route.mode.drive" = "Auto";
+"route.mode.walk" = "A piedi";
+"route.mode.cycle" = "Bici";
+"route.mode.transit" = "Trasporti";
+"route.mode.boat" = "Barca";
+"route.mode.plane" = "Aereo";
+"route.mode.transit_hint" = "Segue il percorso stradale a velocità di trasporto con brevi fermate, come un autobus o un treno.";
+"route.mode.boat_hint" = "Naviga in linea retta tra i punti a velocità di barca, senza strade.";
+"route.mode.plane_hint" = "Vola lungo un cerchio massimo dal primo all’ultimo punto a velocità di volo. L’altitudine non può essere simulata su iOS, quindi si applicano solo percorso e velocità.";
+"route.stops" = "Tappe";
+"route.reorder_hint" = "Trascina per riordinare le tappe: il percorso segue il nuovo ordine.";
 
 /* Places screen */
 "places.title" = "Luoghi";
@@ -144,3 +156,10 @@
 
 /* Language picker option */
 "language.system" = "Impostazione di sistema";
+
+/* Scheda info posizione — avvisi anti-rilevamento (fuso orario + corrispondenza IP/VPN) */
+"locationinfo.tz_advisory" = "Il fuso orario del tuo dispositivo indica ancora %@. Alcune app lo confrontano con il tuo GPS — conviene farlo corrispondere in Impostazioni › Generali › Data e ora.";
+"locationinfo.tz_advisory.dismiss" = "Ignora il suggerimento sul fuso orario";
+"locationinfo.ip_tip.title" = "Fai corrispondere IP e fuso orario";
+"locationinfo.ip_tip.body" = "Per una posizione il più credibile possibile, il tuo indirizzo IP e il fuso orario dovrebbero corrispondere al GPS simulato. Alcune app li confrontano. Una VPN impostata sulla regione di destinazione li mantiene allineati.";
+"locationinfo.ip_tip.link" = "Come funziona la corrispondenza IP";

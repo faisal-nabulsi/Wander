@@ -60,6 +60,18 @@
 "route.save_recording_title" = "Save Recording";
 "route.record_real_route" = "Record a real route";
 "route.name" = "Name";
+"route.mode" = "Mode";
+"route.mode.drive" = "Drive";
+"route.mode.walk" = "Walk";
+"route.mode.cycle" = "Cycle";
+"route.mode.transit" = "Transit";
+"route.mode.boat" = "Boat";
+"route.mode.plane" = "Plane";
+"route.mode.transit_hint" = "Follows the road route at transit speed with brief stops, like a bus or train.";
+"route.mode.boat_hint" = "Sails a straight line between points at boat speed — no roads.";
+"route.mode.plane_hint" = "Flies a great-circle path from the first to the last point at flight speed. Altitude can't be simulated on iOS, so only the path and speed are applied.";
+"route.stops" = "Stops";
+"route.reorder_hint" = "Drag to reorder your stops — the route follows the new order.";
 
 /* Places screen */
 "places.title" = "Places";

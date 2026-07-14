@@ -58,6 +58,18 @@
 "route.save_recording_title" = "Aufnahme speichern";
 "route.record_real_route" = "Echte Route aufnehmen";
 "route.name" = "Name";
+"route.mode" = "Modus";
+"route.mode.drive" = "Auto";
+"route.mode.walk" = "Zu Fuß";
+"route.mode.cycle" = "Fahrrad";
+"route.mode.transit" = "ÖPNV";
+"route.mode.boat" = "Boot";
+"route.mode.plane" = "Flugzeug";
+"route.mode.transit_hint" = "Folgt der Straßenroute mit ÖPNV-Geschwindigkeit und kurzen Halten, wie Bus oder Bahn.";
+"route.mode.boat_hint" = "Fährt eine gerade Linie zwischen den Punkten mit Bootsgeschwindigkeit – ohne Straßen.";
+"route.mode.plane_hint" = "Fliegt eine Großkreisroute vom ersten zum letzten Punkt mit Fluggeschwindigkeit. Die Höhe kann auf iOS nicht simuliert werden, daher gelten nur Route und Geschwindigkeit.";
+"route.stops" = "Stopps";
+"route.reorder_hint" = "Ziehen, um die Stopps neu zu ordnen – die Route folgt der neuen Reihenfolge.";
 
 /* Places screen */
 "places.title" = "Orte";
@@ -144,3 +156,10 @@
 
 /* Language picker option */
 "language.system" = "Systemstandard";
+
+/* Standortinfo-Karte — Hinweise zur Erkennungsvermeidung (Zeitzone + IP-/VPN-Abgleich) */
+"locationinfo.tz_advisory" = "Die Zeitzone deines Geräts steht weiterhin auf %@. Manche Apps vergleichen sie mit deinem GPS — passe sie am besten unter Einstellungen › Allgemein › Datum & Uhrzeit an.";
+"locationinfo.tz_advisory.dismiss" = "Zeitzonen-Hinweis ausblenden";
+"locationinfo.ip_tip.title" = "IP und Zeitzone abgleichen";
+"locationinfo.ip_tip.body" = "Für einen möglichst glaubwürdigen Standort sollten deine IP-Adresse und Zeitzone mit deinem simulierten GPS übereinstimmen. Manche Apps prüfen das gegen. Ein VPN in der Zielregion hält beides im Einklang.";
+"locationinfo.ip_tip.link" = "So funktioniert der IP-Abgleich";
