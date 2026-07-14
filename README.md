@@ -76,6 +76,8 @@ Wander isn't on the App Store, but installing it is quick and needs **no jailbre
 
 The site walks you through the whole thing with the free **Wander Installer** and always has the latest build. Prefer to grab the raw app? [`Wander.ipa`](https://github.com/faisal-nabulsi/Wander/releases/latest) is on the Releases page.
 
+> ⚠️ **First launch — trust the developer.** The first time you tap Wander, iPhone shows **"Untrusted Developer"** and won't open it (normal for any sideloaded app). Fix it once: **Settings → General → VPN & Device Management** → tap your **Apple ID email** under *Developer App* → **Trust**. Then enable **Settings → Privacy & Security → Developer Mode** when prompted (it only appears after Wander is installed). Wander opens normally from then on.
+
 > 💻 **Prefer to spoof straight from your computer?** **Wander Desktop** (Mac & Windows) teleports, joysticks, and drives routes right from your desktop — [download it at wanderspoofer.com](https://wanderspoofer.com/#download).
 
 ---
