@@ -17,6 +17,8 @@ extension WanderAccount {
         case notSignedIn
         case noTeam
         case noPrivateKey
+        case twoFactorTimedOut
+        case sessionExpired
         case step(String)
 
         var errorDescription: String? {
@@ -24,17 +26,21 @@ extension WanderAccount {
             case .notSignedIn: return "Not signed in to an Apple ID."
             case .noTeam: return "No development team found on this Apple ID."
             case .noPrivateKey: return "Certificate came back without a usable private key."
+            case .twoFactorTimedOut: return "Two-factor code wasn't entered in time."
+            case .sessionExpired: return "Apple sign-in expired — sign in again."
             case .step(let s): return s
             }
         }
     }
 
     /// Full re-sign of a .app bundle in place. Returns the resigned bundle id on success.
-    func resignAppBundle(at appURL: URL, baseBundleID: String, progress: @MainActor @escaping (String) -> Void) async throws -> String {
+    /// `interactive` is forwarded to `ensureAuthenticated`: an automatic (launch-time) refresh
+    /// passes `false` so a 2FA prompt can't hang unattended (see `WanderAccount`).
+    func resignAppBundle(at appURL: URL, baseBundleID: String, interactive: Bool = true, progress: @MainActor @escaping (String) -> Void) async throws -> String {
         // Establish a live Apple session on demand (reuses a cached token, or re-auths —
         // prompting 2FA only if Apple insists). This is why "signed in" can be offline.
         await progress("Signing in to Apple…")
-        let (account, session) = try await ensureAuthenticated()
+        let (account, session) = try await ensureAuthenticated(interactive: interactive)
 
         await progress("Fetching team…")
         let team = try await fetchFirstTeam(account: account, session: session)

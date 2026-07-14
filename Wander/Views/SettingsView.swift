@@ -84,6 +84,12 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    if selfRefresh.needsReSignIn {
+                        Label("Apple sign-in expired — sign in again so Wander can keep refreshing.",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.orange)
+                    }
                     Button {
                         showLogin = true
                     } label: {
@@ -127,8 +133,11 @@ struct SettingsView: View {
                     }
                     if let m = updater.available {
                         VStack(alignment: .leading, spacing: 4) {
-                            Label("Update available — v\(m.version)", systemImage: "arrow.down.circle.fill")
+                            Label(updater.needsUserAction ? "Update ready — tap to install"
+                                                          : "Update available — v\(m.version)",
+                                  systemImage: "arrow.down.circle.fill")
                                 .foregroundStyle(Wander.brand)
+                                .font(updater.needsUserAction ? .body.weight(.semibold) : .body)
                             if let notes = m.notes, !notes.isEmpty {
                                 Text(notes).font(.caption).foregroundStyle(.secondary)
                             }
@@ -136,7 +145,8 @@ struct SettingsView: View {
                         Button {
                             runUpdate()
                         } label: {
-                            Label("Download & install update", systemImage: "square.and.arrow.down")
+                            Label(updater.needsUserAction ? "Install update now" : "Download & install update",
+                                  systemImage: "square.and.arrow.down")
                         }
                         .disabled(updater.isBusy)
                     } else {

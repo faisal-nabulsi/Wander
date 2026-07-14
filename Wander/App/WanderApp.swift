@@ -32,6 +32,10 @@ struct WanderApp: App {
                 // entitlement re-check; folds into License.isLicensed so the gates honor it.
                 await MainActor.run { _ = WanderProAccount.shared }
                 await WanderUpdater.shared.check()
+                // Auto-install a newer build the moment it's found — same pipeline as the
+                // manual Settings button, no tap. Fires at most once per launch; falls back to
+                // an in-app "Update ready — tap to install" prompt if it can't run unattended.
+                await WanderUpdater.shared.autoInstallIfAvailable()
                 await downloadMissingDeveloperDiskImageFiles()
                 // Auto self-refresh when the sideload signature is near expiry (signed in +
                 // not already refreshing). Silently skips otherwise — see SelfRefreshService.

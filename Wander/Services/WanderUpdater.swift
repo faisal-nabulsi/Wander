@@ -28,6 +28,15 @@ final class WanderUpdater: ObservableObject {
     @Published private(set) var isBusy = false
     @Published var status: String = ""
 
+    /// Set when an update is available but couldn't be auto-installed unattended (needs a
+    /// signed-in Apple ID / connected tunnel, or the silent attempt hit something that needs
+    /// the user). Drives an in-app "Update ready — tap to install" prompt; the manual Settings
+    /// button stays as the fallback action. Cleared once an install succeeds.
+    @Published private(set) var needsUserAction = false
+
+    /// Guards auto-install to at most once per launch, so a failed/declined attempt can't loop.
+    private var didAutoInstallThisLaunch = false
+
     private static let manifestURL = URL(string: "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/update.json")!
 
     var currentBuild: Int {
@@ -50,7 +59,10 @@ final class WanderUpdater: ObservableObject {
 
     /// Download the new version's IPA, re-sign it with the user's Apple ID, and self-install
     /// it over the tunnel. The app is killed + replaced by the new build (same as self-refresh).
-    func installUpdate() async throws {
+    ///
+    /// `interactive` is forwarded to auth: the manual Settings button (default `true`) waits on
+    /// a 2FA prompt indefinitely; the launch auto-install passes `false` so 2FA can't hang.
+    func installUpdate(interactive: Bool = true) async throws {
         guard let m = available else { throw UpdateError.step("No update available.") }
         guard let url = URL(string: m.payloadURL) else { throw UpdateError.step("The update URL is invalid.") }
         isBusy = true
@@ -78,6 +90,7 @@ final class WanderUpdater: ObservableObject {
         let bundleID = try await WanderAccount.shared.resignAppBundle(
             at: appURL,
             baseBundleID: "com.stik.stikdebug",
+            interactive: interactive,
             progress: { [weak self] s in self?.status = s }
         )
 
@@ -86,6 +99,59 @@ final class WanderUpdater: ObservableObject {
             try JITEnableContext.shared.stageAndUpgradeAppBundle(atLocalPath: appURL.path, bundleID: bundleID)
         }.value
         status = "✅ Update installed — Wander will relaunch."
+        needsUserAction = false
+    }
+
+    // MARK: - Auto-install (launch hook)
+
+    /// Called once on launch after `check()`. When a newer build is published, install it
+    /// automatically over the SAME pipeline the Settings button uses — no tap required.
+    ///
+    /// Fires at most once per launch (`didAutoInstallThisLaunch`) and only when an update is
+    /// actually available; the build-number check in `check()` prevents re-installing the
+    /// same build in a loop. If the prerequisites for an unattended install aren't met (not
+    /// signed in, tunnel not connected) or the silent attempt needs the user (2FA timeout,
+    /// expired session) / an unavailable resource, it falls back to a prominent in-app
+    /// "Update ready — tap to install" prompt instead of doing nothing. The manual Settings
+    /// button remains as the fallback either way.
+    func autoInstallIfAvailable() async {
+        guard !didAutoInstallThisLaunch else { return }
+        guard available != nil else { return }        // build check already ruled out no-op updates
+        guard !isBusy else { return }
+        didAutoInstallThisLaunch = true
+
+        // Prerequisites for an unattended install mirror self-refresh: signed in + tunnel up.
+        guard WanderAccount.shared.isSignedIn else {
+            promptUserToInstall("Update ready — sign in to your Apple ID, then tap to install.")
+            return
+        }
+        guard WanderTunnel.shared.status == .connected else {
+            promptUserToInstall("Update ready — connect the tunnel, then tap to install.")
+            return
+        }
+
+        status = "Updating Wander…"
+        do {
+            // Reuse the exact manual install path — no duplicated logic. Auth runs in
+            // non-interactive mode so a 2FA prompt can't hang the launch; if it needs the
+            // user we fall through to the prompt below.
+            try await installUpdate(interactive: false)
+        } catch WanderAccount.SignError.twoFactorTimedOut {
+            promptUserToInstall("Update ready — tap to install (Apple needs a 2FA code).")
+        } catch WanderAccount.SignError.sessionExpired, WanderAccount.SignError.notSignedIn {
+            promptUserToInstall("Update ready — sign in to your Apple ID again, then tap to install.")
+        } catch {
+            // Any other failure (transient network/tunnel/Apple hiccup, unavailable resource):
+            // surface the prompt so the update is one tap away rather than silently lost.
+            promptUserToInstall("Update ready — tap to install.")
+            status = "Auto-update didn't finish (\((error as NSError).localizedDescription)). Tap to install."
+        }
+    }
+
+    /// Flip on the in-app "Update ready — tap to install" prompt with a short reason.
+    private func promptUserToInstall(_ reason: String) {
+        needsUserAction = true
+        status = reason
     }
 
     enum UpdateError: LocalizedError {
