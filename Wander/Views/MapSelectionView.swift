@@ -807,6 +807,7 @@ struct LocationSimulationView: View {
 
     @State private var showCoordinateImporter = false
     @State private var showStreetView = false
+    @State private var showOfflineMaps = false
     @State private var showRouteSearch = false
     @State private var routeStartSelection: RouteSearchSelection?
     @State private var routeEndSelection: RouteSearchSelection?
@@ -1100,6 +1101,15 @@ struct LocationSimulationView: View {
                 }
                 .disabled(isBusy || isImportingCoordinates || !canExportGPX)
                 .accessibilityLabel("Export GPX")
+
+                // Offline Maps — a free, self-contained OSM tile-cache screen (parity with
+                // Android). Doesn't affect the online map above; just opens its own sheet.
+                Button {
+                    showOfflineMaps = true
+                } label: {
+                    Image(systemName: "map.circle")
+                }
+                .accessibilityLabel(L("offline.maps.open", fallback: "Offline Maps"))
             }
         }
         .alert(alertTitle, isPresented: $showAlert) {
@@ -1137,6 +1147,9 @@ struct LocationSimulationView: View {
             if let coordinate {
                 StreetViewSheet(coordinate: coordinate)
             }
+        }
+        .sheet(isPresented: $showOfflineMaps) {
+            OfflineMapsSheet()
         }
         .fileImporter(
             isPresented: $showCoordinateImporter,

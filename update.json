@@ -1,6 +1,6 @@
 {
-  "build": 19,
+  "build": 20,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Cleaner offline experience: calm messages instead of broken screens, a subtle offline indicator, and teleport/joystick/routes keep working with no connection"
+  "notes": "Offline maps — download a map area over Wi-Fi, then pan/zoom and teleport with no connection (OpenStreetMap tiles, cached on device). Tap the map-circle button in the toolbar."
 }

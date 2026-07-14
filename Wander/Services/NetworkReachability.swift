@@ -21,12 +21,18 @@ final class NetworkReachability: ObservableObject {
     /// "Offline" hint during the brief moment before the first path update arrives.
     @Published private(set) var isOnline: Bool = true
 
+    /// A nonisolated, thread-safe mirror of `isOnline` for callers that run off the main actor
+    /// (e.g. `WanderTileOverlay.loadTile`, invoked on a background tile-loading queue) and can't
+    /// hop to the main actor synchronously. Kept in sync from the same path-update handler.
+    nonisolated(unsafe) private(set) static var isOnlineSnapshot: Bool = true
+
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.wander.reachability")
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
             let online = path.status == .satisfied
+            NetworkReachability.isOnlineSnapshot = online
             Task { @MainActor in
                 guard let self else { return }
                 if self.isOnline != online { self.isOnline = online }
