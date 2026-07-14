@@ -20,6 +20,7 @@ struct SettingsView: View {
     @AppStorage("useMph") private var useMph = false
     @AppStorage("jitterEnabled") private var jitterEnabled = false
     @AppStorage("jitterRadius") private var jitterRadius = 1.5
+    @AppStorage("smoothLongJumps") private var smoothLongJumps = false
     @AppStorage("appearance") private var appearanceRaw = AppearanceMode.system.rawValue
     @AppStorage(SavedPlacesSync.enabledKey) private var syncPlacesEnabled = false
     @StateObject private var tunnel = WanderTunnel.shared
@@ -244,6 +245,16 @@ struct SettingsView: View {
                             Text(String(format: "%.1f m", jitterRadius))
                                 .font(.caption).monospacedDigit().frame(width: 52, alignment: .trailing)
                         }
+                    }
+
+                    Toggle(isOn: $smoothLongJumps) {
+                        Label(L("settings.location.smooth_jumps", fallback: "Smooth long jumps"), systemImage: "arrow.up.right.circle")
+                    }
+                    if smoothLongJumps {
+                        Text(localized: "settings.location.smooth_jumps.footer",
+                             fallback: "A big teleport glides to the new spot over a few seconds instead of jumping instantly, so apps that flag an impossible jump (dating apps, Life360) see a fast but continuous move. Short jumps stay instant.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 } header: {
                     Text(localized: "settings.location.header", fallback: "Location")

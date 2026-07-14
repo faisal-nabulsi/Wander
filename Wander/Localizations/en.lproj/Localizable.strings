@@ -165,3 +165,12 @@
 "locationinfo.ip_tip.title" = "Match your IP & time zone";
 "locationinfo.ip_tip.body" = "For the most believable location, your IP address and time zone should match your spoofed GPS. Some apps cross-check them. A VPN set to the destination region keeps them aligned.";
 "locationinfo.ip_tip.link" = "How IP matching works";
+
+/* Location — smooth long jumps (anti impossible-jump) */
+"settings.location.smooth_jumps" = "Smooth long jumps";
+"settings.location.smooth_jumps.footer" = "A big teleport glides to the new spot over a few seconds instead of jumping instantly, so apps that flag an impossible jump (dating apps, Life360) see a fast but continuous move. Short jumps stay instant.";
+
+/* Route — reverse + weather-aware pace */
+"route.reverse" = "Reverse";
+"route.weather_pace" = "Weather-aware pace";
+"route.weather_pace.footer" = "Slows the drive in rain or snow at the destination — checked once when the route starts.";

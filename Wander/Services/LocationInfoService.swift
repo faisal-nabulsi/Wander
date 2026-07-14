@@ -215,6 +215,13 @@ final class LocationInfoService: ObservableObject {
         clockTimer = timer
     }
 
+    /// Fetch just the current WMO weather code for a location, off the main
+    /// actor. Used by weather-aware route pacing to pick a speed multiplier once
+    /// at route start. Returns `nil` on any error so the caller can no-op.
+    nonisolated static func fetchWeatherCode(lat: Double, lng: Double) async -> Int? {
+        await fetch(lat: lat, lng: lng)?.current.weatherCode
+    }
+
     // MARK: - Networking (off the main actor)
 
     private nonisolated static func fetch(lat: Double, lng: Double) async -> OpenMeteoResponse? {

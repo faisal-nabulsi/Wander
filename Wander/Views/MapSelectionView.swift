@@ -47,6 +47,52 @@ private enum RouteSimulationDefaults {
     static let importedRouteFallbackSpeedMetersPerSecond: CLLocationSpeed = 13.4
 }
 
+/// Tuning for "Smooth long jumps" (anti impossible-jump). A teleport farther than
+/// `jumpThresholdMeters` from the current spoofed position is played back as a
+/// fast, continuous glide instead of an instant hop, so apps that flag an
+/// instantaneous impossible jump (dating apps, Life360) see a fast-but-continuous
+/// move. The glide targets `targetGlideSeconds` but is capped at
+/// `maxGlideSeconds` so very long jumps still complete promptly.
+private enum JumpSmoothingDefaults {
+    static let jumpThresholdMeters: CLLocationDistance = 2_000
+    static let targetGlideSeconds: TimeInterval = 4.5
+    static let maxGlideSeconds: TimeInterval = 6.0
+    static let tickInterval: TimeInterval = 0.4
+}
+
+/// Build a short, high-speed glide track from `start` to `end` along the
+/// great-circle line, timed to finish in roughly `JumpSmoothingDefaults`'
+/// target duration (capped at the max). Reuses the same `RoutePlaybackSample`
+/// machinery the route player already drives, so playback is cancelable by
+/// Stop/panic and honors `.stopSimulationRequested` for free.
+func buildJumpGlideSamples(
+    from start: CLLocationCoordinate2D,
+    to end: CLLocationCoordinate2D
+) -> [RoutePlaybackSample] {
+    let coordinates = sampledRouteCoordinates(
+        from: [start, end],
+        targetDistance: RouteSimulationDefaults.pathSamplingDistance
+    )
+    guard coordinates.count > 1 else { return [] }
+
+    // Aim for the target glide time, but never exceed the cap: a longer jump
+    // just means a higher glide speed so it still lands within a few seconds.
+    let duration = min(
+        JumpSmoothingDefaults.targetGlideSeconds,
+        JumpSmoothingDefaults.maxGlideSeconds
+    )
+    let stepCount = max(1, coordinates.count - 1)
+    let stepDelay = duration / Double(stepCount)
+
+    var samples = [RoutePlaybackSample(coordinate: coordinates[0], delayFromPrevious: 0)]
+    for coordinate in coordinates.dropFirst() {
+        if samples.last.map({ CoordinateSnapshot($0.coordinate) }) != CoordinateSnapshot(coordinate) {
+            samples.append(RoutePlaybackSample(coordinate: coordinate, delayFromPrevious: stepDelay))
+        }
+    }
+    return samples
+}
+
 struct RoutePlaybackSample {
     let coordinate: CLLocationCoordinate2D
     let delayFromPrevious: TimeInterval
@@ -785,6 +831,9 @@ final class LocationSearchCompleter: NSObject, ObservableObject, MKLocalSearchCo
 struct LocationSimulationView: View {
     @State private var coordinate: CLLocationCoordinate2D?
     @AppStorage("mapStyleMode") private var mapStyleModeRaw = MapStyleMode.standard.rawValue
+    /// "Smooth long jumps": when on, a teleport farther than the threshold from
+    /// the current spoofed position eases over a few seconds instead of hopping.
+    @AppStorage("smoothLongJumps") private var smoothLongJumps = false
     @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var visibleCenter: CLLocationCoordinate2D?
     @StateObject private var currentLocation = CurrentLocation()
@@ -1592,6 +1641,21 @@ struct LocationSimulationView: View {
         }
         SavedPlacesStore.recordRecent(coord, name: "Pinned location")
         locationInfo.refresh(lat: coord.latitude, lng: coord.longitude)
+
+        // Smooth long jumps: when enabled and the move from the *current* spoofed
+        // position is a big teleport, glide there over a few seconds so apps that
+        // flag an impossible instantaneous jump see a fast-but-continuous move.
+        // Small jumps (and every jump when the toggle is off) stay instant.
+        if smoothLongJumps, let origin = currentSpoofedCoordinate {
+            let jumpDistance = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
+                .distance(from: CLLocation(latitude: coord.latitude, longitude: coord.longitude))
+            let glideSamples = buildJumpGlideSamples(from: origin, to: coord)
+            if jumpDistance > JumpSmoothingDefaults.jumpThresholdMeters, glideSamples.count > 1 {
+                glideTeleport(to: coord, samples: glideSamples)
+                return
+            }
+        }
+
         runLocationCommand(
             errorTitle: "Simulation Failed",
             errorMessage: { code in
@@ -1604,6 +1668,36 @@ struct LocationSimulationView: View {
             startResendLoop(with: coord)
             SimulationSession.shared.started()
             if !License.shared.isLicensed { TrialManager.shared.chargeTeleport() }
+        }
+    }
+
+    /// The location currently being reported to the device: the steady teleport
+    /// position, or the live route-playback marker if a route/glide is running.
+    private var currentSpoofedCoordinate: CLLocationCoordinate2D? {
+        simulatedCoordinate ?? routePlaybackCoordinate
+    }
+
+    /// Play a fast glide `origin → coord` via the route-playback machinery, then
+    /// settle into the normal resend loop at the destination. Reusing
+    /// `routePlaybackTask` means Stop/panic (which cancels it via
+    /// `.stopSimulationRequested`) already interrupts the glide cleanly.
+    private func glideTeleport(to coord: CLLocationCoordinate2D, samples: [RoutePlaybackSample]) {
+        stopResendLoop()
+        cancelRoutePlayback(resetMarker: false)
+        runLocationCommand(
+            errorTitle: "Simulation Failed",
+            errorMessage: { code in
+                "Could not simulate location (error \(code)). Make sure the device is connected and the DDI is mounted."
+            },
+            operation: { locationUpdateCode(for: samples[0].coordinate) }
+        ) {
+            beginBackgroundTask()
+            SimulationSession.shared.started()
+            if !License.shared.isLicensed { TrialManager.shared.chargeTeleport() }
+            simulatedCoordinate = nil
+            routePlaybackSamples = samples
+            routePlaybackCoordinate = samples[0].coordinate
+            startRoutePlayback()
         }
     }
 

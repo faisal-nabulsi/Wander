@@ -156,6 +156,10 @@ struct RouteModeView: View {
     @State private var routeExpectedTime: TimeInterval = 0            // real-world ETA from MKDirections
     @AppStorage("useMph") private var useMph = false
     @AppStorage("jitterEnabled") private var jitterEnabled = false
+    /// "Weather-aware pace" (iOS parity with Android): when on, the destination
+    /// weather (read once at route start) applies a speed multiplier — clear 1.0,
+    /// rain/drizzle 0.85, snow 0.70. Calm no-op when weather is unavailable.
+    @AppStorage("weatherAwarePace") private var weatherAwarePace = false
 
     @State private var isPaused = false
     @State private var playbackRate: Double = 1.0
@@ -380,6 +384,18 @@ struct RouteModeView: View {
                 }
                 .tint(Wander.brand)
 
+                Toggle(isOn: $weatherAwarePace) {
+                    Label(L("route.weather_pace", fallback: "Weather-aware pace"), systemImage: "cloud.rain")
+                        .font(.subheadline)
+                }
+                .tint(Wander.brand)
+                if weatherAwarePace {
+                    Text(localized: "route.weather_pace.footer",
+                         fallback: "Slows the drive in rain or snow at the destination — checked once when the route starts.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 saveLoopControls
 
                 recordControls
@@ -513,6 +529,10 @@ struct RouteModeView: View {
                     Text(localized: "route.stops", fallback: "Stops")
                         .font(.caption).foregroundStyle(.secondary)
                     Spacer()
+                    Button { reverseWaypoints() } label: {
+                        Label(L("route.reverse", fallback: "Reverse"), systemImage: "arrow.up.arrow.down")
+                            .font(.caption)
+                    }
                     EditButton()
                         .font(.caption)
                 }
@@ -558,6 +578,19 @@ struct RouteModeView: View {
         waypoints.remove(atOffsets: offsets)
         routeCoordinates = []
         routeExpectedTime = 0
+    }
+
+    /// Flip the waypoint order (B→A→…) so a saved commute can be run in the
+    /// opposite direction — work-to-home instead of home-to-work. Invalidates the
+    /// previewed path so the next Preview/Drive re-routes along the new order.
+    private func reverseWaypoints() {
+        guard waypoints.count >= 2 else { return }
+        waypoints.reverse()
+        routeCoordinates = []
+        routeExpectedTime = 0
+        if let region = region(fitting: waypoints.map(\.coordinate)) {
+            cameraPosition = .region(region)
+        }
     }
 
     private func clearAll() {
@@ -727,6 +760,36 @@ struct RouteModeView: View {
         return samples
     }
 
+    /// Speed multiplier for a WMO weather code (Open-Meteo), matching Android's
+    /// weather-aware pacing: clear/cloudy 1.0, drizzle/rain/showers 0.85, any snow
+    /// 0.70. Anything else (fog, thunderstorm, unknown) stays at 1.0 — calm no-op.
+    private static func weatherPaceMultiplier(forWeatherCode code: Int) -> Double {
+        switch code {
+        case 51, 53, 55, 56, 57,       // drizzle (incl. freezing)
+             61, 63, 65, 66, 67,       // rain (incl. freezing)
+             80, 81, 82:               // rain showers
+            return 0.85
+        case 71, 73, 75, 77,           // snowfall
+             85, 86:                   // snow showers
+            return 0.70
+        default:
+            return 1.0                 // clear, cloudy, fog, thunderstorm, unknown
+        }
+    }
+
+    /// Read the destination weather once and return the pacing multiplier. Returns
+    /// 1.0 (no-op) when the toggle is off, there's no route, or the fetch fails.
+    private func weatherPaceMultiplier() async -> Double {
+        guard weatherAwarePace, let destination = routeCoordinates.last else { return 1.0 }
+        guard let code = await LocationInfoService.fetchWeatherCode(
+            lat: destination.latitude,
+            lng: destination.longitude
+        ) else {
+            return 1.0   // unavailable → calm no-op
+        }
+        return Self.weatherPaceMultiplier(forWeatherCode: code)
+    }
+
     private func bearing(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {
         let dLon = (b.longitude - a.longitude) * .pi / 180
         let lat1 = a.latitude * .pi / 180
@@ -796,7 +859,7 @@ struct RouteModeView: View {
         }
 
         isComputing = true
-        let samples: [RoutePlaybackSample]
+        var samples: [RoutePlaybackSample]
         if let prebuiltSamples {
             samples = prebuiltSamples
         } else if transportMode == .drive || transportMode == .walk {
@@ -834,6 +897,19 @@ struct RouteModeView: View {
                 built = insertTransitDwells(built)
             }
             samples = built
+        }
+
+        // Weather-aware pace (parity with Android): read the destination weather
+        // ONCE at route start and slow the whole run down for rain/snow. A
+        // multiplier < 1 means slower travel, i.e. longer per-sample delays.
+        let paceMultiplier = await weatherPaceMultiplier()
+        if paceMultiplier < 1.0 {
+            samples = samples.map {
+                RoutePlaybackSample(
+                    coordinate: $0.coordinate,
+                    delayFromPrevious: $0.delayFromPrevious / paceMultiplier
+                )
+            }
         }
         isComputing = false
 

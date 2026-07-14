@@ -1,6 +1,6 @@
 {
-  "build": 23,
+  "build": 24,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Route transport modes — pick driving, walking, cycling, public transport, boat, or plane for any route (each routes differently), and drag your stops to reorder the trip. Plane flies a great-circle path (altitude is Android-only). Plus more complete translations."
+  "notes": "Smooth long jumps: big teleports glide over a few seconds so apps can't flag an impossible instant jump. Plus one-tap Reverse route, and weather-aware pacing (routes slow for rain/snow)."
 }
