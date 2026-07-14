@@ -72,7 +72,7 @@ struct SettingsView: View {
                         Button {
                             showPaywall = true
                         } label: {
-                            Label("Get Wander Pro / enter license", systemImage: "sparkles")
+                            Label("Get Wander Pro", systemImage: "sparkles")
                         }
                     }
                 } header: {

@@ -5,13 +5,13 @@
 //  Two roles:
 //   • Trial sheet (onClose set) — a dismissable "you've used your free [mode]" prompt.
 //   • Remote kill-switch cover (onClose nil) — non-dismissable, shown when RemoteGate locks.
-//  Either way, a paying user pastes a license key to unlock unlimited use.
+//  Either way, unlock Wander Pro by buying at wanderspoofer.com and signing into your account.
 //
 
 import SwiftUI
 
 enum WanderSales {
-    static let venmoHandle = "@faisal_nabulsi"
+    static let siteURL = "https://wanderspoofer.com/pricing/"
     static let contactEmail = "faisalnab25@gmail.com"
 
     static let lifetimePrice = "$80"
@@ -28,10 +28,6 @@ struct PaywallView: View {
     @ObservedObject private var gate = RemoteGate.shared
     @ObservedObject private var license = License.shared
     @ObservedObject private var trial = TrialManager.shared
-    @State private var key = ""
-    @State private var showError = false
-    @State private var errorText = ""
-    @State private var busy = false
     @State private var showAccountSignIn = false
 
     private var isTrial: Bool { onClose != nil }
@@ -87,7 +83,7 @@ struct PaywallView: View {
         if isTrial {
             return "You've used up your free trial. Unlock Wander Pro for unlimited teleports, joystick, and routes."
         }
-        return "Wander now requires a license to spoof your location. Enter your license key to unlock."
+        return "Wander now requires Wander Pro to spoof your location. Get Pro at wanderspoofer.com, then sign in to unlock."
     }
 
     private var trialSummary: some View {
@@ -135,61 +131,33 @@ struct PaywallView: View {
                 planRow("Lifetime", WanderSales.lifetimePrice, "one-time, never expires")
                 planRow("Yearly", WanderSales.yearlyPrice, WanderSales.yearlyNote)
                 planRow("Monthly", WanderSales.monthlyPrice, "")
-                Text("Venmo \(WanderSales.venmoHandle) with your email and the plan you want. You'll get a license key to paste below.")
+                Text("Buy Wander Pro at wanderspoofer.com, then sign in below — your Pro unlocks on iPhone, Android, and desktop, and survives reinstalls.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.85))
                     .multilineTextAlignment(.center)
                     .padding(.top, 2)
             }
 
-            TextField("Paste your license key", text: $key)
-                .padding()
-                .background(.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .foregroundStyle(.black)
-
-            if showError {
-                Label(errorText.isEmpty ? "That key isn't valid." : errorText, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(.yellow)
-                    .multilineTextAlignment(.center)
+            // Primary action: buy Pro on the website (secure checkout, links to the account).
+            if let url = URL(string: WanderSales.siteURL) {
+                Link(destination: url) {
+                    Text("Get Wander Pro")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity).frame(height: 34)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.white)
+                .foregroundStyle(Wander.brand)
+                .controlSize(.large)
             }
 
-            Button {
-                busy = true
-                Task {
-                    let err = await LicenseRedeemer.redeem(key)
-                    busy = false
-                    if let err {
-                        errorText = err
-                        showError = true
-                    } else {
-                        showError = false
-                        onClose?()
-                    }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    if busy { ProgressView().controlSize(.small).tint(Wander.brand) }
-                    Text(busy ? "Unlocking…" : "Unlock")
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity).frame(height: 34)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.white)
-            .foregroundStyle(Wander.brand)
-            .controlSize(.large)
-            .disabled(busy)
-
-            // OPTIONAL account path: unlock by signing into a Wander account that already
-            // holds Pro (bought on wanderspoofer.com or via Android). Additive — the license
-            // key above still works exactly as before.
+            // Already purchased → sign into the Wander account that holds Pro
+            // (bought on wanderspoofer.com or via Android). This is the only unlock path in-app.
             Button {
                 showAccountSignIn = true
             } label: {
-                Text("Already bought on wanderspoofer.com? Sign in")
-                    .font(.footnote.weight(.semibold))
+                Text("Already bought? Sign in to unlock")
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                     .underline()
             }
