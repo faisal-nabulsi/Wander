@@ -80,6 +80,9 @@ struct RouteModeView: View {
     @State private var isGeneratingAI = false
     @State private var aiPlaces: [AIRoutinePlace] = []
     @State private var showAIRoutine = false
+    // Optional persona/day prompt (e.g. "a nurse on a night shift"), sent as the `style` field.
+    // Empty prompt + "Surprise me" sends NO style so the server randomizes the persona.
+    @State private var aiStylePrompt = ""
 
     private var manualMetersPerSecond: Double { max(manualSpeedMps, 1) }
 
@@ -896,41 +899,72 @@ struct RouteModeView: View {
     /// free/trial users see the button but tapping opens the paywall. On Pro, it POSTs the
     /// current map center (or device location) to the Worker and shows the returned stops.
     @ViewBuilder private var aiRoutineControls: some View {
-        Button {
-            generateAIRoutine()
-        } label: {
-            HStack(spacing: 8) {
-                if isGeneratingAI {
-                    ProgressView().controlSize(.small)
-                    Text("Generating a believable day…")
-                } else {
-                    Image(systemName: "sparkles")
-                    Text("Generate a believable day (AI)")
-                    if !License.shared.isLicensed {
-                        Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary)
+        VStack(spacing: 8) {
+            // Describe the day/persona. Leave blank and tap "Surprise me" for a random day.
+            TextField("Describe the day (e.g. a nurse on a night shift)", text: $aiStylePrompt)
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
+                .submitLabel(.go)
+                .disabled(isGeneratingAI)
+                .onSubmit { generateAIRoutine(style: aiStylePrompt) }
+
+            HStack(spacing: 10) {
+                // Prompt path: uses whatever the user typed as the `style`.
+                Button {
+                    generateAIRoutine(style: aiStylePrompt)
+                } label: {
+                    HStack(spacing: 6) {
+                        if isGeneratingAI {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "sparkles")
+                        }
+                        Text(isGeneratingAI ? "Generating…" : "Generate day")
+                        if !License.shared.isLicensed {
+                            Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary)
+                        }
                     }
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity).frame(height: 30)
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(Wander.brand)
+                .disabled(isGeneratingAI || aiStylePrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                // Surprise-me path: sends NO style so the server randomizes the persona.
+                Button {
+                    generateAIRoutine(style: nil)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "dice.fill")
+                        Text("Surprise me")
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity).frame(height: 30)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(Wander.brand)
+                .disabled(isGeneratingAI)
             }
-            .font(.subheadline.weight(.medium))
-            .frame(maxWidth: .infinity).frame(height: 30)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
-        .tint(Wander.brand)
-        .disabled(isGeneratingAI)
     }
 
     /// Resolve the request location (current map center, falling back to the device location),
     /// then call the Worker. Non-Pro users are sent to the paywall before any network call.
-    private func generateAIRoutine() {
+    /// `style` = a typed persona/day prompt, or nil for the "Surprise me" random path.
+    private func generateAIRoutine(style: String?) {
         if !License.shared.isLicensed { showPaywall = true; return }
         guard let origin = visibleCenter ?? currentLocation.coordinate else {
             alertText = "Pan the map to where you want the day to start, then try again."
             return
         }
+        let trimmedStyle = style?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let styleToSend = (trimmedStyle?.isEmpty ?? true) ? nil : trimmedStyle
         isGeneratingAI = true
         Task {
-            let result = await WanderAIRoutine.generate(at: origin)
+            let result = await WanderAIRoutine.generate(at: origin, style: styleToSend)
             isGeneratingAI = false
             switch result {
             case .success(let places):

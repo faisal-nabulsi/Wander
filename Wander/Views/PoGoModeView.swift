@@ -150,6 +150,9 @@ struct PoGoModeView: View {
     @State private var alertTitle = ""
     @State private var alertMessage = ""
 
+    // Current raids / eggs / events overlay (free, read-only community data from the Worker).
+    @State private var showEventsSheet = false
+
     // When ON, teleports are blocked (not just warned) while a cooldown is active.
     @AppStorage("pogoBlockUntilCooldownEnds") private var blockUntilCooldownEnds = false
 
@@ -244,6 +247,16 @@ struct PoGoModeView: View {
             }
             .navigationTitle("\(gamePreset.shortTitle) Mode")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showEventsSheet = true
+                    } label: {
+                        Image(systemName: "calendar.badge.clock")
+                    }
+                    .accessibilityLabel("Current raids, eggs & events")
+                }
+            }
             .onAppear(perform: loadData)
             .onReceive(ticker) { date in
                 // Only drive the countdown while a cooldown is pending.
@@ -253,6 +266,9 @@ struct PoGoModeView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(alertMessage)
+            }
+            .sheet(isPresented: $showEventsSheet) {
+                PoGoEventsSheet()
             }
         }
     }

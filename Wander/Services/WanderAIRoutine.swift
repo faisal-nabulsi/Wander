@@ -165,3 +165,107 @@ enum WanderAIRoutine {
         return nil
     }
 }
+
+// MARK: - Natural-language teleport (Pro)
+
+/// A resolved place from a natural-language query. `found == false` means the AI understood the
+/// request but couldn't map it to a real coordinate ("somewhere nice" etc.).
+struct AIPlace {
+    let found: Bool
+    let label: String
+    let coordinate: CLLocationCoordinate2D?
+}
+
+/// The user-actionable outcomes of an `/ai/place` request. Same non-throwing philosophy as
+/// `AIRoutineResult`: every server/transport condition maps to a case, callers never `catch`.
+enum AIPlaceResult {
+    case success(AIPlace)                // includes the found == false "couldn't place that" case
+    case proRequired                     // 403 — open the paywall
+    case dailyLimit(String)              // 429 — used today's allowance
+    case notConfigured(String)           // 503 — AI not switched on yet
+    case failed(String)                  // network / decode / other non-fatal error
+}
+
+extension WanderAIRoutine {
+    /// Natural-language teleport. POSTs { idToken, query } to <base>/ai/place and returns the
+    /// resolved place. Auth mirrors `generate` exactly (Firebase idToken in the body, 401 retry).
+    ///
+    /// Endpoint: POST <base>/ai/place
+    /// Request:  { idToken, query }
+    /// Success:  { ok:true, place:{ found:Bool, label:String, lat:Double, lng:Double } }
+    @MainActor
+    static func place(query: String) async -> AIPlaceResult {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return .failed("Type where you'd like to go first.")
+        }
+        // No sign-in → not Pro anyway, so route to the upsell rather than erroring.
+        guard let token = await WanderProAccount.shared.currentIdToken() else {
+            return .proRequired
+        }
+
+        var body: [String: Any] = ["idToken": token, "query": trimmed]
+
+        var first = await postPlace(body: body)
+        if case .failed = first.result, first.status == 401,
+           let fresh = await WanderProAccount.shared.refreshedIdToken() {
+            body["idToken"] = fresh
+            first = await postPlace(body: body)
+        }
+        return first.result
+    }
+
+    private static func postPlace(body: [String: Any]) async -> (result: AIPlaceResult, status: Int) {
+        guard let url = URL(string: "\(baseURL)/ai/place"),
+              let httpBody = try? JSONSerialization.data(withJSONObject: body) else {
+            return (.failed("Couldn't build the teleport request."), -1)
+        }
+
+        var req = URLRequest(url: url, timeoutInterval: 30)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = httpBody
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse else {
+                return (.failed("The AI server didn't respond. Please try again."), -1)
+            }
+            let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+
+            switch http.statusCode {
+            case 200:
+                guard let obj, (obj["ok"] as? Bool) == true,
+                      let place = obj["place"] as? [String: Any] else {
+                    return (.failed("The AI reply couldn't be read. Please try again."), 200)
+                }
+                let found = (place["found"] as? Bool) ?? false
+                let label = (place["label"] as? String) ?? ""
+                if found, let lat = numeric(place["lat"]), let lng = numeric(place["lng"]) {
+                    return (.success(AIPlace(
+                        found: true,
+                        label: label.isEmpty ? "Destination" : label,
+                        coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lng)
+                    )), 200)
+                }
+                // found == false (or coords missing) — a valid, non-error "couldn't place that".
+                return (.success(AIPlace(found: false, label: label, coordinate: nil)), 200)
+
+            case 403:
+                return (.proRequired, 403)
+            case 429:
+                return (.dailyLimit(serverMessage(obj)
+                    ?? "You've used today's 5 AI teleports. Try again tomorrow."), 429)
+            case 503:
+                return (.notConfigured(serverMessage(obj)
+                    ?? "AI features aren't switched on yet. Check back soon."), 503)
+            default:
+                return (.failed(serverMessage(obj)
+                    ?? "The AI server had a problem (\(http.statusCode)). Please try again."),
+                        http.statusCode)
+            }
+        } catch {
+            return (.failed("Couldn't reach the AI server. Check your connection and try again."), -1)
+        }
+    }
+}

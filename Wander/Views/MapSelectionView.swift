@@ -819,6 +819,10 @@ struct LocationSimulationView: View {
     // so the user can revert one step.
     @State private var previousCoordinate: CLLocationCoordinate2D?
 
+    // Natural-language teleport (Pro): "Where do you want to go?" → POST /ai/place → teleport.
+    @State private var nlQuery = ""
+    @State private var isResolvingNLPlace = false
+
     // GPX export.
     @State private var showGPXExporter = false
     @State private var gpxDocument = GPXDocument(text: "")
@@ -974,6 +978,8 @@ struct LocationSimulationView: View {
                             ) { coord, _ in
                                 applySelection(coord)
                             }
+
+                            nlTeleportBar
                         }
 
                         if isImportingCoordinates {
@@ -1284,6 +1290,83 @@ struct LocationSimulationView: View {
         alertTitle = "Import Failed"
         alertMessage = error.localizedDescription
         showAlert = true
+    }
+
+    // MARK: - Natural-language teleport (Pro)
+
+    /// "Where do you want to go?" — an AI teleport bar. Pro-gated: free/trial users tapping it
+    /// get the paywall. On success it drops the pin at the resolved place and simulates, reusing
+    /// the exact teleport path the map already uses. Every failure is a friendly alert.
+    @ViewBuilder
+    private var nlTeleportBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles").foregroundStyle(Wander.brand)
+            TextField("Where do you want to go?", text: $nlQuery)
+                .autocorrectionDisabled()
+                .submitLabel(.go)
+                .disabled(isResolvingNLPlace)
+                .onSubmit { resolveNLPlace() }
+            if isResolvingNLPlace {
+                ProgressView().controlSize(.small)
+            } else {
+                Button {
+                    resolveNLPlace()
+                } label: {
+                    Image(systemName: License.shared.isLicensed ? "arrow.up.circle.fill" : "lock.fill")
+                        .foregroundStyle(Wander.brand)
+                }
+                .disabled(nlQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityLabel("Teleport there")
+            }
+        }
+        .padding(10)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func resolveNLPlace() {
+        let query = nlQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        // Pro-gated entry: free users get the upsell before any network call.
+        if !License.shared.isLicensed { showPaywall = true; return }
+        guard pairingExists else {
+            alertTitle = "Pairing needed"
+            alertMessage = "Import a pairing file in Settings, then try again."
+            showAlert = true
+            return
+        }
+        isResolvingNLPlace = true
+        Task {
+            let result = await WanderAIRoutine.place(query: query)
+            isResolvingNLPlace = false
+            switch result {
+            case .success(let place):
+                if place.found, let coord = place.coordinate {
+                    applySelection(coord)
+                    nlQuery = ""
+                    simulate()
+                } else {
+                    alertTitle = "Couldn't place that"
+                    alertMessage = place.label.isEmpty
+                        ? "The AI couldn't turn that into a spot on the map. Try naming a place or city."
+                        : place.label
+                    showAlert = true
+                }
+            case .proRequired:
+                showPaywall = true
+            case .dailyLimit(let message):
+                alertTitle = "Daily limit reached"
+                alertMessage = message
+                showAlert = true
+            case .notConfigured(let message):
+                alertTitle = "Not available yet"
+                alertMessage = message
+                showAlert = true
+            case .failed(let message):
+                alertTitle = "Teleport failed"
+                alertMessage = message
+                showAlert = true
+            }
+        }
     }
 
     @ViewBuilder
