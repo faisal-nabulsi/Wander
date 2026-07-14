@@ -114,6 +114,14 @@ struct LocationInfo: Equatable {
     var windString: String {
         "\(Int(windSpeedKmh.rounded())) km/h"
     }
+
+    /// True when this location's UTC offset differs from the device's current
+    /// time-zone offset by more than ~1 hour. Purely informational: Wander can't
+    /// change the device time zone, but some apps compare the two.
+    var deviceTimeZoneMismatch: Bool {
+        let deviceOffset = TimeZone.current.secondsFromGMT()
+        return abs(utcOffsetSeconds - deviceOffset) > 3600
+    }
 }
 
 // MARK: - Service
@@ -229,6 +237,7 @@ struct LocationInfoCard: View {
 
     var body: some View {
         if let info = service.info {
+            VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
@@ -263,6 +272,22 @@ struct LocationInfoCard: View {
                 }
 
                 Spacer(minLength: 0)
+            }
+
+            if info.deviceTimeZoneMismatch {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                    Text(L(
+                        "locationinfo.tz_mismatch",
+                        fallback: "Your device time zone doesn't match this location — some apps compare the two."
+                    ))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)

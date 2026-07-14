@@ -14,6 +14,12 @@ struct WanderApp: App {
     // In-app language switcher. Injected at the root so a language change
     // republishes and re-renders the whole UI live (no relaunch).
     @StateObject private var localization = LocalizationManager.shared
+    // App-wide appearance override (System / Light / Dark), set in Settings.
+    @AppStorage("appearance") private var appearanceRaw = AppearanceMode.system.rawValue
+
+    private var appearance: AppearanceMode {
+        AppearanceMode(rawValue: appearanceRaw) ?? .system
+    }
 
     init() {
         AppBootstrapper.configure()
@@ -29,6 +35,9 @@ struct WanderApp: App {
                 }
             }
             .environmentObject(localization)
+            // Apply the user's appearance override at the root so it covers the
+            // entire UI. `nil` follows the system setting.
+            .preferredColorScheme(appearance.colorScheme)
             // Re-render the whole tree when the language changes so every view
             // that reads through L(...) picks up the new bundle immediately.
             .id(localization.currentLanguage)

@@ -784,6 +784,7 @@ final class LocationSearchCompleter: NSObject, ObservableObject, MKLocalSearchCo
 
 struct LocationSimulationView: View {
     @State private var coordinate: CLLocationCoordinate2D?
+    @AppStorage("mapStyleMode") private var mapStyleModeRaw = MapStyleMode.standard.rawValue
     @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var visibleCenter: CLLocationCoordinate2D?
     @StateObject private var currentLocation = CurrentLocation()
@@ -916,6 +917,34 @@ struct LocationSimulationView: View {
         .foregroundStyle(.secondary)
     }
 
+    private var mapStyleMode: MapStyleMode {
+        MapStyleMode(rawValue: mapStyleModeRaw) ?? .standard
+    }
+
+    /// Floating control that lets the user switch between Standard, Satellite,
+    /// and Hybrid imagery. Mirrors the app's floating-card design language.
+    private var mapStyleSwitcher: some View {
+        Menu {
+            Picker("Map style", selection: $mapStyleModeRaw) {
+                ForEach(MapStyleMode.allCases) { mode in
+                    Label(mode.label, systemImage: mode.symbol).tag(mode.rawValue)
+                }
+            }
+        } label: {
+            Image(systemName: mapStyleMode.symbol)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Wander.brand)
+                .frame(width: 44, height: 44)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                )
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+        }
+        .accessibilityLabel(L("map.style.switch", fallback: "Map style"))
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             MapReader { proxy in
@@ -942,7 +971,7 @@ struct LocationSimulationView: View {
                             .tint(.red)
                     }
                 }
-                .mapStyle(.standard(elevation: .realistic))
+                .mapStyle(mapStyleMode.mapStyle)
                 .mapControls {
                     MapCompass()
                 }
@@ -1002,6 +1031,16 @@ struct LocationSimulationView: View {
                 Spacer(minLength: 0)
             }
             .animation(.easeInOut(duration: 0.25), value: locationInfo.info)
+
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer()
+                    mapStyleSwitcher
+                }
+                .padding(.top, 8)
+                .padding(.trailing, 12)
+                Spacer(minLength: 0)
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

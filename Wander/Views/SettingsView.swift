@@ -20,6 +20,7 @@ struct SettingsView: View {
     @AppStorage("useMph") private var useMph = false
     @AppStorage("jitterEnabled") private var jitterEnabled = false
     @AppStorage("jitterRadius") private var jitterRadius = 1.5
+    @AppStorage("appearance") private var appearanceRaw = AppearanceMode.system.rawValue
     @AppStorage(SavedPlacesSync.enabledKey) private var syncPlacesEnabled = false
     @StateObject private var tunnel = WanderTunnel.shared
 
@@ -246,6 +247,23 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text(localized: "settings.location.header", fallback: "Location")
+                }
+
+                Section {
+                    HStack {
+                        Label(L("settings.appearance.title", fallback: "Appearance"), systemImage: "circle.lefthalf.filled")
+                        Spacer()
+                        Picker("Appearance", selection: $appearanceRaw) {
+                            ForEach(AppearanceMode.allCases) { mode in
+                                Text(mode.label).tag(mode.rawValue)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(width: 200)
+                    }
+                } header: {
+                    Text(localized: "settings.appearance.header", fallback: "Appearance")
                 }
 
                 Section {
