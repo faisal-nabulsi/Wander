@@ -50,29 +50,41 @@ Teleport with a tap, roam with a live on-screen joystick, or drive a realistic m
 
 **Move anywhere**
 - 📍 **One-tap Teleport** — search an address, paste coordinates or a Plus Code, drop a pin, or spin a 3D globe and tap to land.
-- 🕹️ **Live Joystick** — an on-screen stick that walks, runs, bikes or drives your location in real time.
-- 🛣️ **Multi-stop Routes** — chain stops into one trip with snap-to-roads, realistic **speed & ETA**, humanized motion, and auto-loop.
+- 🕹️ **Live Joystick** — a 360° on-screen stick that walks, runs, bikes or drives your location in real time, with speed presets.
+- 🛣️ **Multi-stop Routes** — chain stops into one trip with snap-to-roads, realistic **speed & ETA**, humanized motion, and auto-loop. **Drag to reorder** waypoints and **reverse** the whole route in one tap.
+- 🚗 **Transport modes** — pick how a route is traveled: **Driving, Walking, Cycling, Public transport** (road route at transit speed with station dwells), **Boat** (over-water great-circle), or **Plane** (great-circle flight path; real altitude on Android).
+- ✈️ **Flight planner** — pick two searchable airports, or add a time range to choose from a list of flights, then fly the great-circle route. Uses a bundled airport dataset — no API.
 - 🎮 **PoGo Mode** — jump-teleport with a **cooldown timer**, block-until-cooldown lock, and presets for Pokémon GO, Monster Hunter Now, Pikmin Bloom & Ingress.
 
 **See before you go**
 - 👀 **Street View preview** and **satellite / hybrid** map views to land in exactly the right spot.
+- 🗺️ **Offline maps** — download a map region over Wi-Fi, then pan, zoom and teleport with no connection (OpenStreetMap tiles).
 - 🕒 **Local time & weather** at the spoofed spot, with a time-zone-mismatch heads-up.
 
 **Find & organize**
-- 🔎 **Smart search** plus **AI natural-language teleport** — "take me to Times Square."
+- 🔎 **Smart search** with autocomplete, plus **AI natural-language teleport** — "take me to Times Square."
 - ⭐ **Favorites** in folders with tags & notes, **teleport history** with undo, and **save-loops**.
 
 **Plan & automate**
 - ⏺️ **Record & replay** a real route, or queue a **timed itinerary** ("stay 1hr, then route to there").
+- 📅 **Scheduling** — set Wander to be at a place during set hours, with auto start/stop. Runs even when the app is closed on Android; while backgrounded on iOS.
+- 📡 **Geofence triggers** — auto-revert to real GPS when you actually arrive at (or leave) a real place. _(iOS &amp; Android)_
 - 🧠 **AI "believable day"** generator (prompt or surprise-me) and a read-only **raids / eggs / events** board.
 
+**Stay believable**
+- 🌊 **Distance-jump smoothing** — big teleports glide over a few seconds so apps can't flag an impossible instant jump (great for dating apps &amp; Life360). _(iOS &amp; Android)_
+- 🌧️ **Weather-aware pacing** — routes slow down for rain and snow. _(iOS &amp; Android)_
+- 🧊 **Privacy toggles** — **Frozen / hold-still** and **Approximate (~3–5 km)** location modes. _(iOS &amp; Android; desktop has hold-still via the fluctuation toggle)_
+- 🛰️ **GPS jitter** for natural-looking, slightly noisy fixes.
+- 🛡️ **Anti-detection tips** — timezone-mismatch warning plus VPN / IP-alignment guidance. _(iOS; desktop has the VPN card)_
+
 **Your data**
-- 📂 **GPX import & export**, full **backup / restore**, and multi-device **sync** of saved places.
-- 🌐 **9-language localization** — Spanish, French, German, Portuguese, Italian, Japanese, Korean, Chinese, Russian.
+- 📂 **GPX &amp; KML import / export**, full **backup / restore**, and multi-device **sync** of saved places _(desktop)_.
+- 🌐 **9–10 language localization** — Spanish, French, German, Portuguese, Italian, Japanese, Korean, Chinese, Russian and more.
 
 **Comfort & safety**
 - 🆘 **Panic button** for an instant snap back to real GPS, plus **Dark Mode**.
-- 📱 **Quick Settings tile & home-screen widget** for one-tap teleport, and **offline maps** _(Android)_.
+- 📱 **Quick Settings tile & home-screen widget** for one-tap teleport _(Android)_.
 - 📶 **Works on cellular** — no Wi-Fi required.
 - 🔓 **No jailbreak** — runs on a normal, up-to-date iPhone.
 - 🔄 **Over-the-air self-updates** — set it up once; it refreshes itself, no computer needed again.
@@ -92,8 +104,9 @@ Start with a **free trial**. **Wander Pro** unlocks the movement modes (joystick
 | **Live joystick** | ✅ | ✅ | ✅ |
 | **Multi-stop routes** | ✅ | ✅ | ✅ |
 | **PoGo mode + cooldown** | ✅ | ⚠️ | ⚠️ |
+| **Transport modes (incl. flights)** | ✅ | ⚠️ | ⚠️ |
 | **AI natural-language teleport** | ✅ | ❌ | ❌ |
-| **GPX import & export** | ✅ | ⚠️ | ⚠️ |
+| **GPX & KML import / export** | ✅ | ⚠️ | ⚠️ |
 | **Works on cellular (no Wi-Fi)** | ✅ | ⚠️ | ⚠️ |
 | **iOS · Android · macOS · Windows** | ✅ | ⚠️ | ⚠️ |
 | **Over-the-air self-updates** | ✅ | ❌ | ❌ |
