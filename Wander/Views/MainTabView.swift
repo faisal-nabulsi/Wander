@@ -132,7 +132,7 @@ struct MainTabView: View {
                     performLocationAction(action)
                     pendingLocationAction = nil
                 }
-                Button("Cancel", role: .cancel) {
+                Button(L("action.cancel", fallback: "Cancel"), role: .cancel) {
                     pendingLocationAction = nil
                 }
             } message: { action in
@@ -143,7 +143,7 @@ struct MainTabView: View {
                     feature.destination
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
-                                Button("Close") {
+                                Button(L("action.close", fallback: "Close")) {
                                     detachedFeature = nil
                                 }
                             }
@@ -175,7 +175,7 @@ struct MainTabView: View {
                 .overlay(Circle().strokeBorder(.white.opacity(0.85), lineWidth: 2))
                 .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
         }
-        .accessibilityLabel("Panic — stop all spoofing")
+        .accessibilityLabel(L("panic.accessibility", fallback: "Panic — stop all spoofing"))
         .padding(.trailing, 18)
         .padding(.bottom, 66)   // sit above the tab bar
     }
@@ -185,7 +185,7 @@ struct MainTabView: View {
         if panicToastVisible {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill").font(.caption)
-                Text("Stopped — real GPS restored")
+                Text(localized: "toast.stopped_real_gps", fallback: "Stopped — real GPS restored")
                     .font(.caption.weight(.medium))
             }
             .foregroundStyle(.white)
@@ -225,7 +225,7 @@ struct MainTabView: View {
             HStack(spacing: 8) {
                 Image(systemName: "location.fill")
                     .font(.caption)
-                Text("Spoofing active — keep Wander open")
+                Text(localized: "banner.spoofing_active", fallback: "Spoofing active — keep Wander open")
                     .font(.caption.weight(.medium))
                     .fixedSize(horizontal: false, vertical: true)
             }

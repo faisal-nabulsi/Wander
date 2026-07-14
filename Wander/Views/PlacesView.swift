@@ -36,7 +36,7 @@ struct PlacesView: View {
                                 teleport(to: place.coordinate, name: place.name)
                             }
                         }
-                    } header: { Text("Recent") }
+                    } header: { Text(localized: "places.recent", fallback: "Recent") }
                 }
 
                 savedSections
@@ -48,19 +48,19 @@ struct PlacesView: View {
                         }
                     }
                 } header: {
-                    Text("Quick picks")
+                    Text(localized: "places.quick_picks", fallback: "Quick picks")
                 } footer: {
-                    Text("Tap any place to jump there and start simulating.")
+                    Text(localized: "places.quick_picks_hint", fallback: "Tap any place to jump there and start simulating.")
                 }
             }
-            .navigationTitle("Places")
+            .navigationTitle(L("places.title", fallback: "Places"))
             .toolbar {
                 if !allFolders.isEmpty || !allTags.isEmpty {
                     ToolbarItem(placement: .topBarLeading) { filterMenu }
                 }
                 if !store.recents.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("Clear") { store.clearRecents() }
+                        Button(L("action.clear", fallback: "Clear")) { store.clearRecents() }
                     }
                 }
             }
@@ -97,11 +97,11 @@ struct PlacesView: View {
     @ViewBuilder private var savedSections: some View {
         if store.saved.isEmpty {
             Section {
-                Label("Tap the bookmark on the Teleport tab to save a spot here.",
+                Label(L("places.saved_empty", fallback: "Tap the bookmark on the Teleport tab to save a spot here."),
                       systemImage: "bookmark")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-            } header: { Text("Saved") }
+            } header: { Text(localized: "places.saved", fallback: "Saved") }
         } else if case .all = filter {
             // Group by folder when no specific filter is applied.
             ForEach(groupedByFolder, id: \.title) { group in
@@ -115,7 +115,7 @@ struct PlacesView: View {
             } header: {
                 Text(filterHeader)
             } footer: {
-                if filteredSaved.isEmpty { Text("No saved places match this filter.") }
+                if filteredSaved.isEmpty { Text(localized: "places.no_match", fallback: "No saved places match this filter.") }
             }
         }
     }

@@ -89,9 +89,9 @@ struct RouteModeView: View {
                 map
                 controls
             }
-            .navigationTitle("Route")
-            .alert("Route", isPresented: Binding(get: { alertText != nil }, set: { if !$0 { alertText = nil } })) {
-                Button("OK", role: .cancel) {}
+            .navigationTitle(L("route.title", fallback: "Route"))
+            .alert(L("route.title", fallback: "Route"), isPresented: Binding(get: { alertText != nil }, set: { if !$0 { alertText = nil } })) {
+                Button(L("action.ok", fallback: "OK"), role: .cancel) {}
             } message: { Text(alertText ?? "") }
             // Don't stop an active drive just because the user switched tabs — only reset
             // when idle. The explicit Stop button / global stop still tears it down.
@@ -181,7 +181,7 @@ struct RouteModeView: View {
             if isComputing {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Working…").font(.caption).foregroundStyle(.secondary)
+                    Text(localized: "route.working", fallback: "Working…").font(.caption).foregroundStyle(.secondary)
                 }
             }
             if !isDriving {
@@ -194,12 +194,12 @@ struct RouteModeView: View {
                 }
                 HStack {
                     Button { addWaypoint() } label: {
-                        Label("Add point (\(waypoints.count))", systemImage: Wander.Icon.add)
+                        Label(String(format: L("route.add_point", fallback: "Add point (%d)"), waypoints.count), systemImage: Wander.Icon.add)
                     }
                     Spacer()
                     if !waypoints.isEmpty {
                         Button(role: .destructive) { clearAll() } label: {
-                            Label("Clear", systemImage: Wander.Icon.clear)
+                            Label(L("route.clear", fallback: "Clear"), systemImage: Wander.Icon.clear)
                         }
                     }
                 }
@@ -249,7 +249,7 @@ struct RouteModeView: View {
                         loopRoute = newValue
                     }
                 )) {
-                    Label("Loop route", systemImage: "repeat")
+                    Label(L("route.loop", fallback: "Loop route"), systemImage: "repeat")
                         .font(.subheadline)
                 }
                 .tint(Wander.brand)
@@ -262,7 +262,7 @@ struct RouteModeView: View {
 
                 HStack(spacing: 10) {
                     Button { Task { await computeRoute() } } label: {
-                        Label("Preview", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                        Label(L("route.preview", fallback: "Preview"), systemImage: "point.topleft.down.to.point.bottomright.curvepath")
                             .frame(maxWidth: .infinity).frame(height: 30)
                     }
                     .buttonStyle(.bordered)
@@ -270,7 +270,7 @@ struct RouteModeView: View {
                     .disabled(waypoints.count < 2 || isComputing)
 
                     Button { Task { await startDrive() } } label: {
-                        Label("Drive", systemImage: Wander.Icon.play)
+                        Label(L("route.drive", fallback: "Drive"), systemImage: Wander.Icon.play)
                             .font(.headline)
                             .frame(maxWidth: .infinity).frame(height: 30)
                     }
@@ -284,7 +284,7 @@ struct RouteModeView: View {
                     Text("\(Int(progress * 100))%").font(.caption.bold()).monospacedDigit()
                     ProgressView(value: progress)
                     if remainingSeconds > 0 {
-                        Text("~\(Int((remainingSeconds / 60).rounded())) min left")
+                        Text(String(format: L("route.time_left", fallback: "~%d min left"), Int((remainingSeconds / 60).rounded())))
                             .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }
                 }
@@ -303,7 +303,7 @@ struct RouteModeView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.large)
                     Button(role: .destructive) { stopDrive() } label: {
-                        Label("Stop", systemImage: Wander.Icon.stop)
+                        Label(L("route.stop", fallback: "Stop"), systemImage: Wander.Icon.stop)
                             .font(.headline)
                             .frame(maxWidth: .infinity).frame(height: 30)
                     }
@@ -755,7 +755,7 @@ struct RouteModeView: View {
                 newRouteName = ""
                 showSaveRouteSheet = true
             } label: {
-                Label("Save route", systemImage: "square.and.arrow.down")
+                Label(L("route.save_route", fallback: "Save route"), systemImage: "square.and.arrow.down")
                     .frame(maxWidth: .infinity).frame(height: 28)
             }
             .buttonStyle(.bordered)
@@ -765,7 +765,7 @@ struct RouteModeView: View {
                 if !License.shared.isLicensed { showPaywall = true; return }
                 showSavedRoutes = true
             } label: {
-                Label("Saved (\(savedRoutes.routes.count))", systemImage: "list.bullet.rectangle")
+                Label(String(format: L("route.saved_count", fallback: "Saved (%d)"), savedRoutes.routes.count), systemImage: "list.bullet.rectangle")
                     .frame(maxWidth: .infinity).frame(height: 28)
             }
             .buttonStyle(.bordered)

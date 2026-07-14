@@ -1,0 +1,146 @@
+/* Wander — 简体中文 (zh-Hans) */
+
+/* Tabs / mode names */
+"tab.teleport" = "瞬移";
+"tab.joystick" = "摇杆";
+"tab.route" = "路线";
+"tab.pogo" = "PoGo";
+"tab.places" = "地点";
+"tab.settings" = "设置";
+
+/* Common actions */
+"action.ok" = "好";
+"action.cancel" = "取消";
+"action.save" = "保存";
+"action.close" = "关闭";
+"action.done" = "完成";
+"action.stop" = "停止";
+"action.clear" = "清除";
+"action.discard" = "放弃";
+"action.edit" = "编辑";
+"action.connect" = "连接";
+"action.disconnect" = "断开连接";
+"action.submit" = "提交";
+
+/* Map / Teleport screen */
+"map.move_here" = "移动到此处";
+"map.simulate" = "模拟";
+"map.stop" = "停止";
+"map.street_view" = "街景";
+"map.undo_move" = "撤销移动";
+"map.play_route" = "播放路线";
+"map.reset" = "重置";
+"map.use_route" = "使用此路线";
+"map.bookmarks" = "书签";
+"map.simulate_route" = "模拟路线";
+"map.search_route_prompt" = "搜索起点和终点以创建路线。";
+"map.name_location_prompt" = "请输入该地点的名称。";
+"map.bookmark_empty" = "在地图上放置图钉，然后点按书签图标来保存地点。";
+
+/* Joystick screen */
+"joystick.title" = "摇杆";
+"joystick.walk" = "步行";
+"joystick.run" = "跑步";
+"joystick.drive" = "驾车";
+
+/* Route screen */
+"route.title" = "路线";
+"route.add_point" = "添加点 (%d)";
+"route.clear" = "清除";
+"route.working" = "处理中…";
+"route.loop" = "循环路线";
+"route.preview" = "预览";
+"route.drive" = "驾车";
+"route.stop" = "停止";
+"route.save_route" = "保存路线";
+"route.saved_count" = "已保存 (%d)";
+"route.time_left" = "剩余约 %d 分钟";
+"route.save_recording_title" = "保存录制";
+"route.record_real_route" = "录制真实路线";
+"route.name" = "名称";
+
+/* Places screen */
+"places.title" = "地点";
+"places.recent" = "最近";
+"places.saved" = "已保存";
+"places.quick_picks" = "快捷推荐";
+"places.quick_picks_hint" = "点按任意地点即可瞬移到那里并开始模拟。";
+"places.saved_empty" = "在“瞬移”标签中点按书签，即可在此保存地点。";
+"places.no_match" = "没有符合此筛选条件的已保存地点。";
+"places.organize" = "整理";
+"places.folder" = "文件夹";
+"places.tags" = "标签";
+"places.notes" = "备注";
+"places.all" = "全部";
+
+/* Settings screen */
+"settings.title" = "设置";
+"settings.tagline" = "你的位置，任意所在";
+"settings.language" = "语言";
+"settings.language_footer" = "选择 Wander 使用的语言。应用会立即更新，无需重启。";
+
+"settings.pro.header" = "Wander Pro";
+"settings.pro.active" = "Wander Pro — 已激活";
+"settings.pro.get" = "获取 Wander Pro";
+"settings.pro.footer_active" = "感谢你支持 Wander — 所有限制均已解除。";
+"settings.pro.footer_free" = "免费试用：5 次瞬移、30 分钟摇杆和 3 条路线。使用许可证解锁无限使用。";
+"settings.trial.teleports" = "瞬移";
+"settings.trial.joystick" = "摇杆";
+"settings.trial.routes" = "路线";
+
+"settings.location.header" = "位置";
+"settings.location.stop" = "停止模拟位置";
+"settings.location.speed_units" = "速度单位";
+"settings.location.jitter" = "模拟抖动（自然漂移）";
+"settings.location.drift" = "漂移";
+
+"settings.reminders.header" = "提醒";
+"settings.reminders.toggle" = "如果可能已暂停则提醒我";
+
+"settings.keepalive.header" = "保持模拟运行";
+"settings.keepalive.audio" = "静音音频";
+"settings.keepalive.background_location" = "后台位置";
+
+"settings.tunnel.header" = "Wander 隧道";
+"settings.tunnel.checklist" = "设置清单";
+
+"settings.help.header" = "帮助";
+"settings.help.download_vpn" = "下载 LocalDevVPN";
+
+"settings.backup.header" = "备份";
+"settings.backup.back_up" = "备份我的数据";
+"settings.backup.restore" = "从备份恢复";
+
+"settings.pairing.import" = "导入配对文件";
+
+"settings.community.header" = "社区";
+"settings.community.star" = "⭐ 在 GitHub 上为 Wander 加星";
+"settings.community.discord" = "💬 加入我们的 Discord";
+
+"settings.update.header" = "软件更新";
+"settings.update.current_version" = "当前版本";
+"settings.update.check" = "检查更新";
+
+/* Paywall */
+"paywall.title" = "Wander Pro";
+"paywall.headline_trial" = "你的免费试用已用完。解锁 Wander Pro，畅享无限瞬移、摇杆和路线。";
+"paywall.headline_locked" = "现在需要 Wander Pro 才能伪造你的位置。请在 wanderspoofer.com 获取 Pro，然后登录解锁。";
+"paywall.choose_plan" = "选择方案";
+"paywall.plan.lifetime" = "终身";
+"paywall.plan.lifetime_note" = "一次性付费，永不过期";
+"paywall.plan.yearly" = "按年";
+"paywall.plan.monthly" = "按月";
+"paywall.buy_hint" = "在 wanderspoofer.com 购买 Wander Pro，然后在下方登录 — 你的 Pro 会在 iPhone、Android 和桌面端解锁，并在重装后依然有效。";
+"paywall.get_pro" = "获取 Wander Pro";
+"paywall.already_bought" = "已购买？登录解锁";
+"paywall.teleports" = "瞬移";
+"paywall.joystick" = "摇杆";
+"paywall.routes" = "路线";
+
+/* Toasts / banners */
+"toast.stopped_real_gps" = "已停止 — 已恢复真实 GPS";
+"banner.spoofing_active" = "正在伪造 — 请保持 Wander 打开";
+"panic.accessibility" = "紧急停止 — 停止所有伪造";
+
+/* Language picker option */
+"language.system" = "系统默认";

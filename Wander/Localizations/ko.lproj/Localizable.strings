@@ -1,0 +1,146 @@
+/* Wander — 한국어 (ko) */
+
+/* Tabs / mode names */
+"tab.teleport" = "텔레포트";
+"tab.joystick" = "조이스틱";
+"tab.route" = "경로";
+"tab.pogo" = "PoGo";
+"tab.places" = "장소";
+"tab.settings" = "설정";
+
+/* Common actions */
+"action.ok" = "확인";
+"action.cancel" = "취소";
+"action.save" = "저장";
+"action.close" = "닫기";
+"action.done" = "완료";
+"action.stop" = "중지";
+"action.clear" = "지우기";
+"action.discard" = "삭제";
+"action.edit" = "편집";
+"action.connect" = "연결";
+"action.disconnect" = "연결 해제";
+"action.submit" = "제출";
+
+/* Map / Teleport screen */
+"map.move_here" = "여기로 이동";
+"map.simulate" = "시뮬레이션";
+"map.stop" = "중지";
+"map.street_view" = "스트리트 뷰";
+"map.undo_move" = "이동 실행 취소";
+"map.play_route" = "경로 재생";
+"map.reset" = "재설정";
+"map.use_route" = "이 경로 사용";
+"map.bookmarks" = "북마크";
+"map.simulate_route" = "경로 시뮬레이션";
+"map.search_route_prompt" = "출발지와 목적지를 검색해 경로를 만드세요.";
+"map.name_location_prompt" = "이 위치의 이름을 입력하세요.";
+"map.bookmark_empty" = "지도에 핀을 놓고 북마크 아이콘을 눌러 위치를 저장하세요.";
+
+/* Joystick screen */
+"joystick.title" = "조이스틱";
+"joystick.walk" = "걷기";
+"joystick.run" = "달리기";
+"joystick.drive" = "운전";
+
+/* Route screen */
+"route.title" = "경로";
+"route.add_point" = "지점 추가 (%d)";
+"route.clear" = "지우기";
+"route.working" = "처리 중…";
+"route.loop" = "경로 반복";
+"route.preview" = "미리보기";
+"route.drive" = "주행";
+"route.stop" = "중지";
+"route.save_route" = "경로 저장";
+"route.saved_count" = "저장됨 (%d)";
+"route.time_left" = "약 %d분 남음";
+"route.save_recording_title" = "기록 저장";
+"route.record_real_route" = "실제 경로 기록";
+"route.name" = "이름";
+
+/* Places screen */
+"places.title" = "장소";
+"places.recent" = "최근";
+"places.saved" = "저장됨";
+"places.quick_picks" = "추천";
+"places.quick_picks_hint" = "아무 장소나 눌러 그곳으로 이동하고 시뮬레이션을 시작하세요.";
+"places.saved_empty" = "텔레포트 탭에서 북마크를 눌러 여기에 장소를 저장하세요.";
+"places.no_match" = "이 필터와 일치하는 저장된 장소가 없습니다.";
+"places.organize" = "정리";
+"places.folder" = "폴더";
+"places.tags" = "태그";
+"places.notes" = "메모";
+"places.all" = "전체";
+
+/* Settings screen */
+"settings.title" = "설정";
+"settings.tagline" = "당신의 위치를, 어디에서나";
+"settings.language" = "언어";
+"settings.language_footer" = "Wander에서 사용할 언어를 선택하세요. 다시 시작하지 않아도 즉시 적용됩니다.";
+
+"settings.pro.header" = "Wander Pro";
+"settings.pro.active" = "Wander Pro — 활성화됨";
+"settings.pro.get" = "Wander Pro 받기";
+"settings.pro.footer_active" = "Wander를 후원해 주셔서 감사합니다. 모든 제한이 해제되었습니다.";
+"settings.pro.footer_free" = "무료 체험: 텔레포트 5회, 조이스틱 30분, 경로 3개. 라이선스로 무제한 이용을 잠금 해제하세요.";
+"settings.trial.teleports" = "텔레포트";
+"settings.trial.joystick" = "조이스틱";
+"settings.trial.routes" = "경로";
+
+"settings.location.header" = "위치";
+"settings.location.stop" = "위치 시뮬레이션 중지";
+"settings.location.speed_units" = "속도 단위";
+"settings.location.jitter" = "시뮬레이션 흔들림 (자연스러운 드리프트)";
+"settings.location.drift" = "드리프트";
+
+"settings.reminders.header" = "알림";
+"settings.reminders.toggle" = "일시 중지되었을 수 있으면 알려주기";
+
+"settings.keepalive.header" = "시뮬레이션 유지";
+"settings.keepalive.audio" = "무음 오디오";
+"settings.keepalive.background_location" = "백그라운드 위치";
+
+"settings.tunnel.header" = "Wander 터널";
+"settings.tunnel.checklist" = "설정 체크리스트";
+
+"settings.help.header" = "도움말";
+"settings.help.download_vpn" = "LocalDevVPN 다운로드";
+
+"settings.backup.header" = "백업";
+"settings.backup.back_up" = "내 데이터 백업";
+"settings.backup.restore" = "백업에서 복원";
+
+"settings.pairing.import" = "페어링 파일 가져오기";
+
+"settings.community.header" = "커뮤니티";
+"settings.community.star" = "⭐ GitHub에서 Wander에 별표 주기";
+"settings.community.discord" = "💬 Discord 참여하기";
+
+"settings.update.header" = "소프트웨어 업데이트";
+"settings.update.current_version" = "현재 버전";
+"settings.update.check" = "업데이트 확인";
+
+/* Paywall */
+"paywall.title" = "Wander Pro";
+"paywall.headline_trial" = "무료 체험을 모두 사용했습니다. Wander Pro로 텔레포트, 조이스틱, 경로를 무제한으로 이용하세요.";
+"paywall.headline_locked" = "이제 위치를 위조하려면 Wander Pro가 필요합니다. wanderspoofer.com에서 Pro를 받은 뒤 로그인해 잠금을 해제하세요.";
+"paywall.choose_plan" = "요금제 선택";
+"paywall.plan.lifetime" = "평생";
+"paywall.plan.lifetime_note" = "일회성 결제, 만료 없음";
+"paywall.plan.yearly" = "연간";
+"paywall.plan.monthly" = "월간";
+"paywall.buy_hint" = "wanderspoofer.com에서 Wander Pro를 구매한 뒤 아래에서 로그인하세요. Pro는 iPhone, Android, 데스크톱에서 잠금 해제되며 재설치 후에도 유지됩니다.";
+"paywall.get_pro" = "Wander Pro 받기";
+"paywall.already_bought" = "이미 구매하셨나요? 로그인해 잠금 해제";
+"paywall.teleports" = "텔레포트";
+"paywall.joystick" = "조이스틱";
+"paywall.routes" = "경로";
+
+/* Toasts / banners */
+"toast.stopped_real_gps" = "중지됨 — 실제 GPS로 복원되었습니다";
+"banner.spoofing_active" = "위조 중 — Wander를 열어 두세요";
+"panic.accessibility" = "비상 정지 — 모든 위조 중지";
+
+/* Language picker option */
+"language.system" = "시스템 기본값";

@@ -57,7 +57,7 @@ struct PaywallView: View {
                         .font(.system(size: 52))
                         .foregroundStyle(.white)
                         .padding(.top, isTrial ? 0 : 36)
-                    Text("Wander Pro")
+                    Text(localized: "paywall.title", fallback: "Wander Pro")
                         .font(.largeTitle.bold())
                         .foregroundStyle(.white)
                     Text(headline)
@@ -81,16 +81,16 @@ struct PaywallView: View {
     private var headline: String {
         if !isTrial && !gate.message.isEmpty { return gate.message }
         if isTrial {
-            return "You've used up your free trial. Unlock Wander Pro for unlimited teleports, joystick, and routes."
+            return L("paywall.headline_trial", fallback: "You've used up your free trial. Unlock Wander Pro for unlimited teleports, joystick, and routes.")
         }
-        return "Wander now requires Wander Pro to spoof your location. Get Pro at wanderspoofer.com, then sign in to unlock."
+        return L("paywall.headline_locked", fallback: "Wander now requires Wander Pro to spoof your location. Get Pro at wanderspoofer.com, then sign in to unlock.")
     }
 
     private var trialSummary: some View {
         VStack(spacing: 6) {
-            usageRow("Teleports", trial.teleportsUsed, TrialManager.maxTeleports)
-            usageRow("Joystick", trial.joystickSecondsUsed / 60, TrialManager.maxJoystickSeconds / 60, unit: " min")
-            usageRow("Routes", trial.routesUsed, TrialManager.maxRoutes)
+            usageRow(L("paywall.teleports", fallback: "Teleports"), trial.teleportsUsed, TrialManager.maxTeleports)
+            usageRow(L("paywall.joystick", fallback: "Joystick"), trial.joystickSecondsUsed / 60, TrialManager.maxJoystickSeconds / 60, unit: " min")
+            usageRow(L("paywall.routes", fallback: "Routes"), trial.routesUsed, TrialManager.maxRoutes)
         }
         .font(.caption)
         .foregroundStyle(.white.opacity(0.9))
@@ -127,11 +127,11 @@ struct PaywallView: View {
     private var unlockCard: some View {
         VStack(spacing: 14) {
             VStack(spacing: 8) {
-                Text("Choose a plan").font(.headline).foregroundStyle(.white)
-                planRow("Lifetime", WanderSales.lifetimePrice, "one-time, never expires")
-                planRow("Yearly", WanderSales.yearlyPrice, WanderSales.yearlyNote)
-                planRow("Monthly", WanderSales.monthlyPrice, "")
-                Text("Buy Wander Pro at wanderspoofer.com, then sign in below — your Pro unlocks on iPhone, Android, and desktop, and survives reinstalls.")
+                Text(localized: "paywall.choose_plan", fallback: "Choose a plan").font(.headline).foregroundStyle(.white)
+                planRow(L("paywall.plan.lifetime", fallback: "Lifetime"), WanderSales.lifetimePrice, L("paywall.plan.lifetime_note", fallback: "one-time, never expires"))
+                planRow(L("paywall.plan.yearly", fallback: "Yearly"), WanderSales.yearlyPrice, WanderSales.yearlyNote)
+                planRow(L("paywall.plan.monthly", fallback: "Monthly"), WanderSales.monthlyPrice, "")
+                Text(localized: "paywall.buy_hint", fallback: "Buy Wander Pro at wanderspoofer.com, then sign in below — your Pro unlocks on iPhone, Android, and desktop, and survives reinstalls.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.85))
                     .multilineTextAlignment(.center)
@@ -141,7 +141,7 @@ struct PaywallView: View {
             // Primary action: buy Pro on the website (secure checkout, links to the account).
             if let url = URL(string: WanderSales.siteURL) {
                 Link(destination: url) {
-                    Text("Get Wander Pro")
+                    Text(localized: "paywall.get_pro", fallback: "Get Wander Pro")
                         .font(.headline)
                         .frame(maxWidth: .infinity).frame(height: 34)
                 }
@@ -156,7 +156,7 @@ struct PaywallView: View {
             Button {
                 showAccountSignIn = true
             } label: {
-                Text("Already bought? Sign in to unlock")
+                Text(localized: "paywall.already_bought", fallback: "Already bought? Sign in to unlock")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                     .underline()

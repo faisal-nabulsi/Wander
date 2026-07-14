@@ -1,0 +1,146 @@
+/* Wander — 日本語 (ja) */
+
+/* Tabs / mode names */
+"tab.teleport" = "テレポート";
+"tab.joystick" = "ジョイスティック";
+"tab.route" = "ルート";
+"tab.pogo" = "PoGo";
+"tab.places" = "場所";
+"tab.settings" = "設定";
+
+/* Common actions */
+"action.ok" = "OK";
+"action.cancel" = "キャンセル";
+"action.save" = "保存";
+"action.close" = "閉じる";
+"action.done" = "完了";
+"action.stop" = "停止";
+"action.clear" = "消去";
+"action.discard" = "破棄";
+"action.edit" = "編集";
+"action.connect" = "接続";
+"action.disconnect" = "切断";
+"action.submit" = "送信";
+
+/* Map / Teleport screen */
+"map.move_here" = "ここに移動";
+"map.simulate" = "シミュレート";
+"map.stop" = "停止";
+"map.street_view" = "ストリートビュー";
+"map.undo_move" = "移動を取り消す";
+"map.play_route" = "ルートを再生";
+"map.reset" = "リセット";
+"map.use_route" = "このルートを使う";
+"map.bookmarks" = "ブックマーク";
+"map.simulate_route" = "ルートをシミュレート";
+"map.search_route_prompt" = "出発地と目的地を検索してルートを作成します。";
+"map.name_location_prompt" = "この場所の名前を入力してください。";
+"map.bookmark_empty" = "地図にピンを置き、ブックマークアイコンをタップして場所を保存します。";
+
+/* Joystick screen */
+"joystick.title" = "ジョイスティック";
+"joystick.walk" = "歩く";
+"joystick.run" = "走る";
+"joystick.drive" = "運転";
+
+/* Route screen */
+"route.title" = "ルート";
+"route.add_point" = "ポイントを追加 (%d)";
+"route.clear" = "消去";
+"route.working" = "処理中…";
+"route.loop" = "ルートをループ";
+"route.preview" = "プレビュー";
+"route.drive" = "走行";
+"route.stop" = "停止";
+"route.save_route" = "ルートを保存";
+"route.saved_count" = "保存済み (%d)";
+"route.time_left" = "残り約%d分";
+"route.save_recording_title" = "記録を保存";
+"route.record_real_route" = "実際のルートを記録";
+"route.name" = "名前";
+
+/* Places screen */
+"places.title" = "場所";
+"places.recent" = "最近";
+"places.saved" = "保存済み";
+"places.quick_picks" = "おすすめ";
+"places.quick_picks_hint" = "場所をタップするとそこに移動し、シミュレートを開始します。";
+"places.saved_empty" = "テレポートタブのブックマークをタップして、ここに場所を保存します。";
+"places.no_match" = "このフィルターに一致する保存済みの場所はありません。";
+"places.organize" = "整理";
+"places.folder" = "フォルダ";
+"places.tags" = "タグ";
+"places.notes" = "メモ";
+"places.all" = "すべて";
+
+/* Settings screen */
+"settings.title" = "設定";
+"settings.tagline" = "あなたの位置を、どこへでも";
+"settings.language" = "言語";
+"settings.language_footer" = "Wander で使う言語を選びます。再起動なしですぐに反映されます。";
+
+"settings.pro.header" = "Wander Pro";
+"settings.pro.active" = "Wander Pro — 有効";
+"settings.pro.get" = "Wander Pro を入手";
+"settings.pro.footer_active" = "Wander をご支援いただきありがとうございます。すべての制限が解除されました。";
+"settings.pro.footer_free" = "無料トライアル：テレポート5回、ジョイスティック30分、ルート3回。ライセンスで無制限に利用できます。";
+"settings.trial.teleports" = "テレポート";
+"settings.trial.joystick" = "ジョイスティック";
+"settings.trial.routes" = "ルート";
+
+"settings.location.header" = "位置情報";
+"settings.location.stop" = "位置情報のシミュレートを停止";
+"settings.location.speed_units" = "速度の単位";
+"settings.location.jitter" = "疑似ゆらぎ（自然なドリフト）";
+"settings.location.drift" = "ドリフト";
+
+"settings.reminders.header" = "リマインダー";
+"settings.reminders.toggle" = "一時停止した可能性があれば通知する";
+
+"settings.keepalive.header" = "シミュレーションを維持";
+"settings.keepalive.audio" = "無音オーディオ";
+"settings.keepalive.background_location" = "バックグラウンド位置情報";
+
+"settings.tunnel.header" = "Wander トンネル";
+"settings.tunnel.checklist" = "セットアップチェックリスト";
+
+"settings.help.header" = "ヘルプ";
+"settings.help.download_vpn" = "LocalDevVPN をダウンロード";
+
+"settings.backup.header" = "バックアップ";
+"settings.backup.back_up" = "データをバックアップ";
+"settings.backup.restore" = "バックアップから復元";
+
+"settings.pairing.import" = "ペアリングファイルを読み込む";
+
+"settings.community.header" = "コミュニティ";
+"settings.community.star" = "⭐ GitHub で Wander にスターを付ける";
+"settings.community.discord" = "💬 Discord に参加する";
+
+"settings.update.header" = "ソフトウェアアップデート";
+"settings.update.current_version" = "現在のバージョン";
+"settings.update.check" = "アップデートを確認";
+
+/* Paywall */
+"paywall.title" = "Wander Pro";
+"paywall.headline_trial" = "無料トライアルを使い切りました。Wander Pro でテレポート・ジョイスティック・ルートを無制限に利用できます。";
+"paywall.headline_locked" = "位置情報の偽装には Wander Pro が必要になりました。wanderspoofer.com で Pro を入手し、サインインして解除してください。";
+"paywall.choose_plan" = "プランを選択";
+"paywall.plan.lifetime" = "買い切り";
+"paywall.plan.lifetime_note" = "一度きり、期限なし";
+"paywall.plan.yearly" = "年額";
+"paywall.plan.monthly" = "月額";
+"paywall.buy_hint" = "wanderspoofer.com で Wander Pro を購入し、下からサインインしてください。Pro は iPhone・Android・デスクトップで解除され、再インストールしても維持されます。";
+"paywall.get_pro" = "Wander Pro を入手";
+"paywall.already_bought" = "購入済みですか？ サインインして解除";
+"paywall.teleports" = "テレポート";
+"paywall.joystick" = "ジョイスティック";
+"paywall.routes" = "ルート";
+
+/* Toasts / banners */
+"toast.stopped_real_gps" = "停止しました — 実際の GPS に戻りました";
+"banner.spoofing_active" = "偽装中 — Wander を開いたままにしてください";
+"panic.accessibility" = "パニック — すべての偽装を停止";
+
+/* Language picker option */
+"language.system" = "システムのデフォルト";

@@ -41,17 +41,17 @@ enum AppFeature: String, CaseIterable, Identifiable {
         case .processes:
             return "Processes"
         case .location:
-            return "Teleport"
+            return L("tab.teleport", fallback: "Teleport")
         case .walk:
-            return "Joystick"
+            return L("tab.joystick", fallback: "Joystick")
         case .route:
-            return "Route"
+            return L("tab.route", fallback: "Route")
         case .pogo:
-            return "PoGo"
+            return L("tab.pogo", fallback: "PoGo")
         case .places:
-            return "Places"
+            return L("tab.places", fallback: "Places")
         case .settings:
-            return "Settings"
+            return L("tab.settings", fallback: "Settings")
         }
     }
 

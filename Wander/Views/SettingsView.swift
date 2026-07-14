@@ -42,6 +42,7 @@ struct SettingsView: View {
     @ObservedObject private var selfRefresh = SelfRefreshService.shared
     @ObservedObject private var proAccount = WanderProAccount.shared
     @State private var showProSignIn = false
+    @EnvironmentObject private var localization: LocalizationManager
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -60,7 +61,7 @@ struct SettingsView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
                             VStack(spacing: 2) {
                                 Text("Wander").font(.title2.weight(.semibold))
-                                Text("Your location, anywhere").font(.caption).foregroundStyle(.secondary)
+                                Text(localized: "settings.tagline", fallback: "Your location, anywhere").font(.caption).foregroundStyle(.secondary)
                             }
                         }
                         Spacer()
@@ -71,29 +72,31 @@ struct SettingsView: View {
 
                 Section {
                     if license.isLicensed {
-                        Label("Wander Pro — active", systemImage: "checkmark.seal.fill")
+                        Label(L("settings.pro.active", fallback: "Wander Pro — active"), systemImage: "checkmark.seal.fill")
                             .foregroundStyle(.green)
                         if let expiry = license.expiry {
                             Text("Renews/expires \(expiry.formatted(date: .abbreviated, time: .omitted))")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     } else {
-                        trialRow("Teleports", trial.teleportsUsed, TrialManager.maxTeleports)
-                        trialRow("Joystick", trial.joystickSecondsUsed / 60, TrialManager.maxJoystickSeconds / 60, unit: " min")
-                        trialRow("Routes", trial.routesUsed, TrialManager.maxRoutes)
+                        trialRow(L("settings.trial.teleports", fallback: "Teleports"), trial.teleportsUsed, TrialManager.maxTeleports)
+                        trialRow(L("settings.trial.joystick", fallback: "Joystick"), trial.joystickSecondsUsed / 60, TrialManager.maxJoystickSeconds / 60, unit: " min")
+                        trialRow(L("settings.trial.routes", fallback: "Routes"), trial.routesUsed, TrialManager.maxRoutes)
                         Button {
                             showPaywall = true
                         } label: {
-                            Label("Get Wander Pro", systemImage: "sparkles")
+                            Label(L("settings.pro.get", fallback: "Get Wander Pro"), systemImage: "sparkles")
                         }
                     }
                 } header: {
-                    Text("Wander Pro")
+                    Text(localized: "settings.pro.header", fallback: "Wander Pro")
                 } footer: {
                     Text(license.isLicensed
-                         ? "Thanks for supporting Wander — all limits are lifted."
-                         : "Free trial: 5 teleports, 30 minutes of joystick, and 3 routes. Unlock unlimited use with a license.")
+                         ? L("settings.pro.footer_active", fallback: "Thanks for supporting Wander — all limits are lifted.")
+                         : L("settings.pro.footer_free", fallback: "Free trial: 5 teleports, 30 minutes of joystick, and 3 routes. Unlock unlimited use with a license."))
                 }
+
+                languageSection
 
                 syncSection
 
@@ -140,7 +143,7 @@ struct SettingsView: View {
 
                 Section {
                     HStack {
-                        Text("Current version")
+                        Text(localized: "settings.update.current_version", fallback: "Current version")
                         Spacer()
                         Text("\(updater.currentVersion) (\(updater.currentBuild))")
                             .foregroundStyle(.secondary)
@@ -167,7 +170,7 @@ struct SettingsView: View {
                         Button {
                             Task { await updater.check() }
                         } label: {
-                            Label("Check for updates", systemImage: "arrow.clockwise")
+                            Label(L("settings.update.check", fallback: "Check for updates"), systemImage: "arrow.clockwise")
                         }
                         .disabled(updater.isBusy)
                     }
@@ -176,7 +179,7 @@ struct SettingsView: View {
                             .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     }
                 } header: {
-                    Text("Software Update")
+                    Text(localized: "settings.update.header", fallback: "Software Update")
                 } footer: {
                     Text("Wander updates itself over the tunnel using your Apple ID — no computer. You'll need to be signed in (above) and connected. The app relaunches when the update installs.")
                 }
@@ -187,7 +190,9 @@ struct SettingsView: View {
                             .foregroundStyle(tunnel.status == .connected ? Color.green : Color.secondary)
                         Text(tunnel.status.title)
                         Spacer()
-                        Button(tunnel.status == .connected || tunnel.status == .connecting ? "Disconnect" : "Connect") {
+                        Button(tunnel.status == .connected || tunnel.status == .connecting
+                               ? L("action.disconnect", fallback: "Disconnect")
+                               : L("action.connect", fallback: "Connect")) {
                             tunnel.toggle()
                         }
                         .buttonStyle(.borderedProminent)
@@ -196,10 +201,10 @@ struct SettingsView: View {
                     Button {
                         showSetupCheck = true
                     } label: {
-                        Label("Setup checklist", systemImage: "checklist")
+                        Label(L("settings.tunnel.checklist", fallback: "Setup checklist"), systemImage: "checklist")
                     }
                 } header: {
-                    Text("Wander Tunnel")
+                    Text(localized: "settings.tunnel.header", fallback: "Wander Tunnel")
                 } footer: {
                     if let e = tunnel.lastError {
                         Text("Couldn't start the built-in tunnel (\(e)).\n\niOS restricts VPNs to paid Apple accounts, so on a free install this can't activate — use the LocalDevVPN app instead. No Wi-Fi? Turn on Airplane Mode, then connect LocalDevVPN.")
@@ -213,11 +218,11 @@ struct SettingsView: View {
                     Button(role: .destructive) {
                         SimulationSession.shared.stopAll()
                     } label: {
-                        Label("Stop simulating location", systemImage: "stop.circle")
+                        Label(L("settings.location.stop", fallback: "Stop simulating location"), systemImage: "stop.circle")
                     }
 
                     HStack {
-                        Label("Speed units", systemImage: "speedometer")
+                        Label(L("settings.location.speed_units", fallback: "Speed units"), systemImage: "speedometer")
                         Spacer()
                         Picker("Speed units", selection: $useMph) {
                             Text("km/h").tag(false)
@@ -229,23 +234,23 @@ struct SettingsView: View {
                     }
 
                     Toggle(isOn: $jitterEnabled) {
-                        Label("Simulated jitter (natural drift)", systemImage: "dot.radiowaves.left.and.right")
+                        Label(L("settings.location.jitter", fallback: "Simulated jitter (natural drift)"), systemImage: "dot.radiowaves.left.and.right")
                     }
                     if jitterEnabled {
                         HStack {
-                            Text("Drift").font(.caption).foregroundStyle(.secondary)
+                            Text(localized: "settings.location.drift", fallback: "Drift").font(.caption).foregroundStyle(.secondary)
                             Slider(value: $jitterRadius, in: 0.5...5, step: 0.5)
                             Text(String(format: "%.1f m", jitterRadius))
                                 .font(.caption).monospacedDigit().frame(width: 52, alignment: .trailing)
                         }
                     }
                 } header: {
-                    Text("Location")
+                    Text(localized: "settings.location.header", fallback: "Location")
                 }
 
                 Section {
                     Toggle(isOn: $reminderEnabled) {
-                        Label("Remind me if it may have paused", systemImage: "bell.badge")
+                        Label(L("settings.reminders.toggle", fallback: "Remind me if it may have paused"), systemImage: "bell.badge")
                     }
                     .onChange(of: reminderEnabled) { _, isOn in
                         if isOn {
@@ -255,7 +260,7 @@ struct SettingsView: View {
                         }
                     }
                 } header: {
-                    Text("Reminders")
+                    Text(localized: "settings.reminders.header", fallback: "Reminders")
                 } footer: {
                     Text("iOS pauses a simulation after about 2 hours in the background. When this is on, Wander reminds you to reopen it — but only while you're actively simulating a location.")
                 }
@@ -263,7 +268,7 @@ struct SettingsView: View {
                 Section {
                     Toggle(isOn: $keepAliveAudio) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Silent Audio")
+                            Text(localized: "settings.keepalive.audio", fallback: "Silent Audio")
                             Text("Plays inaudible audio so iOS keeps the app running.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
@@ -275,7 +280,7 @@ struct SettingsView: View {
 
                     Toggle(isOn: $keepAliveLocation) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Background Location")
+                            Text(localized: "settings.keepalive.background_location", fallback: "Background Location")
                             Text("Uses low-accuracy location to stay alive when an activity needs it.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
@@ -284,17 +289,17 @@ struct SettingsView: View {
                         if !enabled { BackgroundLocationManager.shared.stop() }
                     }
                 } header: {
-                    Text("Keep simulation alive")
+                    Text(localized: "settings.keepalive.header", fallback: "Keep simulation alive")
                 }
 
                 vpnSection
 
                 Section {
                     Link(destination: SettingsLinks.localDevVPN) {
-                        Label("Download LocalDevVPN", systemImage: "arrow.down.circle")
+                        Label(L("settings.help.download_vpn", fallback: "Download LocalDevVPN"), systemImage: "arrow.down.circle")
                     }
                 } header: {
-                    Text("Help")
+                    Text(localized: "settings.help.header", fallback: "Help")
                 } footer: {
                     Text("The tunnel connects Wander to your device. Use the LocalDevVPN app — on Wi-Fi, or without Wi-Fi by turning on Airplane Mode first, then connecting LocalDevVPN.")
                 }
@@ -305,7 +310,7 @@ struct SettingsView: View {
                     Button {
                         isShowingPairingFilePicker = true
                     } label: {
-                        Label("Import pairing file", systemImage: "doc.badge.plus")
+                        Label(L("settings.pairing.import", fallback: "Import pairing file"), systemImage: "doc.badge.plus")
                     }
                     if let msg = pairingImportResult {
                         Label(msg.text, systemImage: msg.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
@@ -318,14 +323,14 @@ struct SettingsView: View {
 
                 Section {
                     Link(destination: SettingsLinks.githubRepo) {
-                        Label("⭐ Star Wander on GitHub", systemImage: "star.fill")
+                        Label(L("settings.community.star", fallback: "⭐ Star Wander on GitHub"), systemImage: "star.fill")
                     }
                     Link(destination: SettingsLinks.discordInvite) {
-                        Label("💬 Join our Discord", systemImage: "bubble.left.and.bubble.right.fill")
+                        Label(L("settings.community.discord", fallback: "💬 Join our Discord"), systemImage: "bubble.left.and.bubble.right.fill")
                             .foregroundStyle(Color(red: 0x58 / 255, green: 0x65 / 255, blue: 0xF2 / 255))
                     }
                 } header: {
-                    Text("Community")
+                    Text(localized: "settings.community.header", fallback: "Community")
                 } footer: {
                     Text("Wander is open source. Star the repo on GitHub to help others find it, and join our Discord to share tips and get help.")
                 }
@@ -337,7 +342,7 @@ struct SettingsView: View {
                         .listRowBackground(Color.clear)
                 }
             }
-            .navigationTitle("Settings")
+            .navigationTitle(L("settings.title", fallback: "Settings"))
             .scrollContentBackground(.hidden)
             .background(Color.blue.opacity(0.07).ignoresSafeArea())
         }
@@ -398,6 +403,24 @@ struct SettingsView: View {
             }
         } message: {
             Text("Enter the 6-digit code Apple sent to your trusted device. No popup? Get it from Settings → your name → Sign-In & Security → Get Verification Code.")
+        }
+    }
+
+    // MARK: - Language (free, in-app switcher)
+
+    private var languageSection: some View {
+        Section {
+            Picker(selection: $localization.currentLanguage) {
+                ForEach(AppLanguage.allCases) { language in
+                    Text(language.displayName).tag(language)
+                }
+            } label: {
+                Label(L("settings.language", fallback: "Language"), systemImage: "globe")
+            }
+            .pickerStyle(.navigationLink)
+        } footer: {
+            Text(localized: "settings.language_footer",
+                 fallback: "Choose the language Wander uses. The app updates immediately — no restart needed.")
         }
     }
 
@@ -507,13 +530,13 @@ struct SettingsView: View {
             Button {
                 startBackupExport()
             } label: {
-                Label("Back up my data", systemImage: "square.and.arrow.up")
+                Label(L("settings.backup.back_up", fallback: "Back up my data"), systemImage: "square.and.arrow.up")
             }
             Button {
                 backupResult = nil
                 isImportingBackup = true
             } label: {
-                Label("Restore from backup", systemImage: "square.and.arrow.down")
+                Label(L("settings.backup.restore", fallback: "Restore from backup"), systemImage: "square.and.arrow.down")
             }
             if let msg = backupResult {
                 Label(msg.text, systemImage: msg.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
@@ -521,7 +544,7 @@ struct SettingsView: View {
                     .foregroundStyle(msg.isError ? .red : .green)
             }
         } header: {
-            Text("Backup")
+            Text(localized: "settings.backup.header", fallback: "Backup")
         } footer: {
             Text("Exports all your favorites, saved & recorded routes, and teleport history to one file. Restore merges a backup back in — it never deletes what you already have, and re-importing the same file won't create duplicates.")
         }

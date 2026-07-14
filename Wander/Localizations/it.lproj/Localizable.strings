@@ -1,0 +1,146 @@
+/* Wander — Italiano (it) */
+
+/* Tabs / mode names */
+"tab.teleport" = "Teletrasporto";
+"tab.joystick" = "Joystick";
+"tab.route" = "Percorso";
+"tab.pogo" = "PoGo";
+"tab.places" = "Luoghi";
+"tab.settings" = "Impostazioni";
+
+/* Common actions */
+"action.ok" = "OK";
+"action.cancel" = "Annulla";
+"action.save" = "Salva";
+"action.close" = "Chiudi";
+"action.done" = "Fine";
+"action.stop" = "Ferma";
+"action.clear" = "Cancella";
+"action.discard" = "Scarta";
+"action.edit" = "Modifica";
+"action.connect" = "Connetti";
+"action.disconnect" = "Disconnetti";
+"action.submit" = "Invia";
+
+/* Map / Teleport screen */
+"map.move_here" = "Spostati qui";
+"map.simulate" = "Simula";
+"map.stop" = "Ferma";
+"map.street_view" = "Street View";
+"map.undo_move" = "Annulla spostamento";
+"map.play_route" = "Avvia percorso";
+"map.reset" = "Reimposta";
+"map.use_route" = "Usa percorso";
+"map.bookmarks" = "Preferiti";
+"map.simulate_route" = "Simula percorso";
+"map.search_route_prompt" = "Cerca un punto di partenza e una destinazione per creare il percorso.";
+"map.name_location_prompt" = "Inserisci un nome per questo luogo.";
+"map.bookmark_empty" = "Posiziona un segnaposto sulla mappa e tocca l'icona dei preferiti per salvare un luogo.";
+
+/* Joystick screen */
+"joystick.title" = "Joystick";
+"joystick.walk" = "Cammina";
+"joystick.run" = "Corri";
+"joystick.drive" = "Guida";
+
+/* Route screen */
+"route.title" = "Percorso";
+"route.add_point" = "Aggiungi punto (%d)";
+"route.clear" = "Cancella";
+"route.working" = "Elaborazione…";
+"route.loop" = "Percorso ad anello";
+"route.preview" = "Anteprima";
+"route.drive" = "Guida";
+"route.stop" = "Ferma";
+"route.save_route" = "Salva percorso";
+"route.saved_count" = "Salvati (%d)";
+"route.time_left" = "~%d min rimanenti";
+"route.save_recording_title" = "Salva registrazione";
+"route.record_real_route" = "Registra un percorso reale";
+"route.name" = "Nome";
+
+/* Places screen */
+"places.title" = "Luoghi";
+"places.recent" = "Recenti";
+"places.saved" = "Salvati";
+"places.quick_picks" = "Suggerimenti";
+"places.quick_picks_hint" = "Tocca un luogo qualsiasi per teletrasportarti lì e avviare la simulazione.";
+"places.saved_empty" = "Tocca il preferito nella scheda Teletrasporto per salvare un luogo qui.";
+"places.no_match" = "Nessun luogo salvato corrisponde a questo filtro.";
+"places.organize" = "Organizza";
+"places.folder" = "Cartella";
+"places.tags" = "Tag";
+"places.notes" = "Note";
+"places.all" = "Tutti";
+
+/* Settings screen */
+"settings.title" = "Impostazioni";
+"settings.tagline" = "La tua posizione, ovunque";
+"settings.language" = "Lingua";
+"settings.language_footer" = "Scegli la lingua di Wander. L'app si aggiorna subito, senza riavvio.";
+
+"settings.pro.header" = "Wander Pro";
+"settings.pro.active" = "Wander Pro — attivo";
+"settings.pro.get" = "Ottieni Wander Pro";
+"settings.pro.footer_active" = "Grazie per supportare Wander — tutti i limiti sono stati rimossi.";
+"settings.pro.footer_free" = "Prova gratuita: 5 teletrasporti, 30 minuti di joystick e 3 percorsi. Sblocca l'uso illimitato con una licenza.";
+"settings.trial.teleports" = "Teletrasporti";
+"settings.trial.joystick" = "Joystick";
+"settings.trial.routes" = "Percorsi";
+
+"settings.location.header" = "Posizione";
+"settings.location.stop" = "Interrompi la simulazione della posizione";
+"settings.location.speed_units" = "Unità di velocità";
+"settings.location.jitter" = "Fluttuazione simulata (deriva naturale)";
+"settings.location.drift" = "Deriva";
+
+"settings.reminders.header" = "Promemoria";
+"settings.reminders.toggle" = "Avvisami se potrebbe essersi messa in pausa";
+
+"settings.keepalive.header" = "Mantieni attiva la simulazione";
+"settings.keepalive.audio" = "Audio silenzioso";
+"settings.keepalive.background_location" = "Posizione in background";
+
+"settings.tunnel.header" = "Tunnel Wander";
+"settings.tunnel.checklist" = "Lista di configurazione";
+
+"settings.help.header" = "Aiuto";
+"settings.help.download_vpn" = "Scarica LocalDevVPN";
+
+"settings.backup.header" = "Backup";
+"settings.backup.back_up" = "Esegui il backup dei miei dati";
+"settings.backup.restore" = "Ripristina da un backup";
+
+"settings.pairing.import" = "Importa file di abbinamento";
+
+"settings.community.header" = "Community";
+"settings.community.star" = "⭐ Metti una stella a Wander su GitHub";
+"settings.community.discord" = "💬 Unisciti al nostro Discord";
+
+"settings.update.header" = "Aggiornamento software";
+"settings.update.current_version" = "Versione attuale";
+"settings.update.check" = "Cerca aggiornamenti";
+
+/* Paywall */
+"paywall.title" = "Wander Pro";
+"paywall.headline_trial" = "Hai esaurito la prova gratuita. Sblocca Wander Pro per teletrasporti, joystick e percorsi illimitati.";
+"paywall.headline_locked" = "Wander ora richiede Wander Pro per falsificare la tua posizione. Ottieni Pro su wanderspoofer.com, poi accedi per sbloccare.";
+"paywall.choose_plan" = "Scegli un piano";
+"paywall.plan.lifetime" = "A vita";
+"paywall.plan.lifetime_note" = "pagamento unico, non scade mai";
+"paywall.plan.yearly" = "Annuale";
+"paywall.plan.monthly" = "Mensile";
+"paywall.buy_hint" = "Acquista Wander Pro su wanderspoofer.com, poi accedi qui sotto — il tuo Pro si sblocca su iPhone, Android e desktop e sopravvive alle reinstallazioni.";
+"paywall.get_pro" = "Ottieni Wander Pro";
+"paywall.already_bought" = "Già acquistato? Accedi per sbloccare";
+"paywall.teleports" = "Teletrasporti";
+"paywall.joystick" = "Joystick";
+"paywall.routes" = "Percorsi";
+
+/* Toasts / banners */
+"toast.stopped_real_gps" = "Fermato — GPS reale ripristinato";
+"banner.spoofing_active" = "Simulazione attiva — tieni Wander aperto";
+"panic.accessibility" = "Panico — ferma ogni simulazione";
+
+/* Language picker option */
+"language.system" = "Impostazione di sistema";

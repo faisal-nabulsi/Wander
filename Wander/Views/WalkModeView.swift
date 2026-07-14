@@ -39,9 +39,9 @@ struct WalkModeView: View {
                 mapLayer
                 controls
             }
-            .navigationTitle("Joystick")
+            .navigationTitle(L("joystick.title", fallback: "Joystick"))
             .alert(alertTitle, isPresented: $showAlert) {
-                Button("OK", role: .cancel) { }
+                Button(L("action.ok", fallback: "OK"), role: .cancel) { }
             } message: {
                 Text(alertMessage)
             }
@@ -98,9 +98,9 @@ struct WalkModeView: View {
                             Text("\(Int(SpeedFormat.fromMps(speedMps, useMph: useMph))) \(SpeedFormat.unitLabel(useMph: useMph))")
                                 .font(.title3.bold()).monospacedDigit()
                             HStack(spacing: 6) {
-                                Button("Walk") { speedMps = 6_000.0 / 3_600.0 }.buttonStyle(.bordered).font(.caption)
-                                Button("Run") { speedMps = 12_000.0 / 3_600.0 }.buttonStyle(.bordered).font(.caption)
-                                Button("Drive") { speedMps = 50_000.0 / 3_600.0 }.buttonStyle(.bordered).font(.caption)
+                                Button(L("joystick.walk", fallback: "Walk")) { speedMps = 6_000.0 / 3_600.0 }.buttonStyle(.bordered).font(.caption)
+                                Button(L("joystick.run", fallback: "Run")) { speedMps = 12_000.0 / 3_600.0 }.buttonStyle(.bordered).font(.caption)
+                                Button(L("joystick.drive", fallback: "Drive")) { speedMps = 50_000.0 / 3_600.0 }.buttonStyle(.bordered).font(.caption)
                             }
                         }
                     }

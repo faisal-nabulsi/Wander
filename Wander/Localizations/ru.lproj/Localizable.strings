@@ -1,0 +1,146 @@
+/* Wander — Русский (ru) */
+
+/* Tabs / mode names */
+"tab.teleport" = "Телепорт";
+"tab.joystick" = "Джойстик";
+"tab.route" = "Маршрут";
+"tab.pogo" = "PoGo";
+"tab.places" = "Места";
+"tab.settings" = "Настройки";
+
+/* Common actions */
+"action.ok" = "OK";
+"action.cancel" = "Отмена";
+"action.save" = "Сохранить";
+"action.close" = "Закрыть";
+"action.done" = "Готово";
+"action.stop" = "Остановить";
+"action.clear" = "Очистить";
+"action.discard" = "Отклонить";
+"action.edit" = "Изменить";
+"action.connect" = "Подключить";
+"action.disconnect" = "Отключить";
+"action.submit" = "Отправить";
+
+/* Map / Teleport screen */
+"map.move_here" = "Переместить сюда";
+"map.simulate" = "Симулировать";
+"map.stop" = "Остановить";
+"map.street_view" = "Просмотр улиц";
+"map.undo_move" = "Отменить перемещение";
+"map.play_route" = "Запустить маршрут";
+"map.reset" = "Сбросить";
+"map.use_route" = "Использовать маршрут";
+"map.bookmarks" = "Закладки";
+"map.simulate_route" = "Симулировать маршрут";
+"map.search_route_prompt" = "Найдите начальную точку и пункт назначения, чтобы построить маршрут.";
+"map.name_location_prompt" = "Введите название для этого места.";
+"map.bookmark_empty" = "Поставьте булавку на карте и коснитесь значка закладки, чтобы сохранить место.";
+
+/* Joystick screen */
+"joystick.title" = "Джойстик";
+"joystick.walk" = "Шаг";
+"joystick.run" = "Бег";
+"joystick.drive" = "Езда";
+
+/* Route screen */
+"route.title" = "Маршрут";
+"route.add_point" = "Добавить точку (%d)";
+"route.clear" = "Очистить";
+"route.working" = "Обработка…";
+"route.loop" = "Зациклить маршрут";
+"route.preview" = "Предпросмотр";
+"route.drive" = "Ехать";
+"route.stop" = "Остановить";
+"route.save_route" = "Сохранить маршрут";
+"route.saved_count" = "Сохранено (%d)";
+"route.time_left" = "~%d мин осталось";
+"route.save_recording_title" = "Сохранить запись";
+"route.record_real_route" = "Записать реальный маршрут";
+"route.name" = "Название";
+
+/* Places screen */
+"places.title" = "Места";
+"places.recent" = "Недавние";
+"places.saved" = "Сохранённые";
+"places.quick_picks" = "Рекомендации";
+"places.quick_picks_hint" = "Коснитесь любого места, чтобы переместиться туда и начать симуляцию.";
+"places.saved_empty" = "Коснитесь закладки на вкладке «Телепорт», чтобы сохранить место здесь.";
+"places.no_match" = "Нет сохранённых мест, соответствующих этому фильтру.";
+"places.organize" = "Упорядочить";
+"places.folder" = "Папка";
+"places.tags" = "Теги";
+"places.notes" = "Заметки";
+"places.all" = "Все";
+
+/* Settings screen */
+"settings.title" = "Настройки";
+"settings.tagline" = "Ваше местоположение — где угодно";
+"settings.language" = "Язык";
+"settings.language_footer" = "Выберите язык Wander. Приложение обновится сразу — перезапуск не нужен.";
+
+"settings.pro.header" = "Wander Pro";
+"settings.pro.active" = "Wander Pro — активен";
+"settings.pro.get" = "Получить Wander Pro";
+"settings.pro.footer_active" = "Спасибо за поддержку Wander — все ограничения сняты.";
+"settings.pro.footer_free" = "Бесплатный период: 5 телепортов, 30 минут джойстика и 3 маршрута. Снимите ограничения с помощью лицензии.";
+"settings.trial.teleports" = "Телепорты";
+"settings.trial.joystick" = "Джойстик";
+"settings.trial.routes" = "Маршруты";
+
+"settings.location.header" = "Местоположение";
+"settings.location.stop" = "Прекратить симуляцию местоположения";
+"settings.location.speed_units" = "Единицы скорости";
+"settings.location.jitter" = "Симуляция дрожания (естественный дрейф)";
+"settings.location.drift" = "Дрейф";
+
+"settings.reminders.header" = "Напоминания";
+"settings.reminders.toggle" = "Напоминать, если симуляция могла приостановиться";
+
+"settings.keepalive.header" = "Поддерживать симуляцию";
+"settings.keepalive.audio" = "Беззвучный звук";
+"settings.keepalive.background_location" = "Фоновое местоположение";
+
+"settings.tunnel.header" = "Туннель Wander";
+"settings.tunnel.checklist" = "Чек-лист настройки";
+
+"settings.help.header" = "Помощь";
+"settings.help.download_vpn" = "Скачать LocalDevVPN";
+
+"settings.backup.header" = "Резервная копия";
+"settings.backup.back_up" = "Сделать резервную копию данных";
+"settings.backup.restore" = "Восстановить из копии";
+
+"settings.pairing.import" = "Импортировать файл сопряжения";
+
+"settings.community.header" = "Сообщество";
+"settings.community.star" = "⭐ Поставьте звезду Wander на GitHub";
+"settings.community.discord" = "💬 Присоединяйтесь к нашему Discord";
+
+"settings.update.header" = "Обновление ПО";
+"settings.update.current_version" = "Текущая версия";
+"settings.update.check" = "Проверить обновления";
+
+/* Paywall */
+"paywall.title" = "Wander Pro";
+"paywall.headline_trial" = "Бесплатный период закончился. Откройте Wander Pro для безлимитных телепортов, джойстика и маршрутов.";
+"paywall.headline_locked" = "Теперь для подмены местоположения нужен Wander Pro. Получите Pro на wanderspoofer.com, затем войдите, чтобы разблокировать.";
+"paywall.choose_plan" = "Выберите тариф";
+"paywall.plan.lifetime" = "Навсегда";
+"paywall.plan.lifetime_note" = "разовый платёж, без срока действия";
+"paywall.plan.yearly" = "Годовой";
+"paywall.plan.monthly" = "Месячный";
+"paywall.buy_hint" = "Купите Wander Pro на wanderspoofer.com, затем войдите ниже — ваш Pro откроется на iPhone, Android и компьютере и сохранится после переустановки.";
+"paywall.get_pro" = "Получить Wander Pro";
+"paywall.already_bought" = "Уже купили? Войдите, чтобы разблокировать";
+"paywall.teleports" = "Телепорты";
+"paywall.joystick" = "Джойстик";
+"paywall.routes" = "Маршруты";
+
+/* Toasts / banners */
+"toast.stopped_real_gps" = "Остановлено — восстановлен реальный GPS";
+"banner.spoofing_active" = "Симуляция активна — не закрывайте Wander";
+"panic.accessibility" = "Паника — остановить всю симуляцию";
+
+/* Language picker option */
+"language.system" = "Системный по умолчанию";

@@ -1316,7 +1316,7 @@ struct LocationSimulationView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.large)
                     .disabled(hasActiveSimulation || isBusy || isRouteRunning)
-                    .accessibilityLabel("Undo move")
+                    .accessibilityLabel(L("map.undo_move", fallback: "Undo move"))
                 }
 
                 // Re-position the pin to the crosshair (map center). Disabled while
@@ -1324,7 +1324,7 @@ struct LocationSimulationView: View {
                 Button {
                     setPinToCenter()
                 } label: {
-                    Label("Move here", systemImage: Wander.Icon.setHere)
+                    Label(L("map.move_here", fallback: "Move here"), systemImage: Wander.Icon.setHere)
                         .frame(maxWidth: .infinity).frame(height: 30)
                 }
                 .buttonStyle(.bordered)
@@ -1337,7 +1337,7 @@ struct LocationSimulationView: View {
                 Button {
                     showStreetView = true
                 } label: {
-                    Label("Street View", systemImage: "binoculars.fill")
+                    Label(L("map.street_view", fallback: "Street View"), systemImage: "binoculars.fill")
                         .frame(maxWidth: .infinity).frame(height: 30)
                 }
                 .buttonStyle(.bordered)
@@ -1346,7 +1346,7 @@ struct LocationSimulationView: View {
 
             HStack(spacing: 10) {
                 Button(action: clear) {
-                    Label("Stop", systemImage: Wander.Icon.stop)
+                    Label(L("map.stop", fallback: "Stop"), systemImage: Wander.Icon.stop)
                         .frame(maxWidth: .infinity).frame(height: 30)
                 }
                 .buttonStyle(.bordered)
@@ -1355,7 +1355,7 @@ struct LocationSimulationView: View {
                 .disabled(!pairingExists || isBusy || !hasActiveSimulation)
 
                 Button(action: simulate) {
-                    Label("Simulate", systemImage: Wander.Icon.simulate)
+                    Label(L("map.simulate", fallback: "Simulate"), systemImage: Wander.Icon.simulate)
                         .font(.headline)
                         .frame(maxWidth: .infinity).frame(height: 30)
                 }

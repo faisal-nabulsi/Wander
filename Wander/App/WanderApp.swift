@@ -11,6 +11,9 @@ struct WanderApp: App {
     @State private var shouldAttemptTunnelReconnect = false
     // Transient (not persisted) so the welcome screen shows on every fresh launch.
     @State private var showWelcome = true
+    // In-app language switcher. Injected at the root so a language change
+    // republishes and re-renders the whole UI live (no relaunch).
+    @StateObject private var localization = LocalizationManager.shared
 
     init() {
         AppBootstrapper.configure()
@@ -25,6 +28,10 @@ struct WanderApp: App {
                     MainTabView()
                 }
             }
+            .environmentObject(localization)
+            // Re-render the whole tree when the language changes so every view
+            // that reads through L(...) picks up the new bundle immediately.
+            .id(localization.currentLanguage)
             .task {
                 await MainActor.run { WanderAccount.shared.restoreSession() }
                 // Restore the OPTIONAL Wander-account Pro state (Firebase). Touching the
