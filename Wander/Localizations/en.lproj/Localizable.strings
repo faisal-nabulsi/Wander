@@ -146,3 +146,10 @@
 
 /* Language picker option */
 "language.system" = "System default";
+
+/* Location info card — anti-detection advisories (time zone + IP/VPN alignment) */
+"locationinfo.tz_advisory" = "Your device's time zone still reads %@. Some apps compare it to your GPS — consider matching it in Settings › General › Date & Time.";
+"locationinfo.tz_advisory.dismiss" = "Dismiss time zone tip";
+"locationinfo.ip_tip.title" = "Match your IP & time zone";
+"locationinfo.ip_tip.body" = "For the most believable location, your IP address and time zone should match your spoofed GPS. Some apps cross-check them. A VPN set to the destination region keeps them aligned.";
+"locationinfo.ip_tip.link" = "How IP matching works";

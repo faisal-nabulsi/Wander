@@ -122,6 +122,18 @@ struct LocationInfo: Equatable {
         let deviceOffset = TimeZone.current.secondsFromGMT()
         return abs(utcOffsetSeconds - deviceOffset) > 3600
     }
+
+    /// A human-friendly label for the *device's* current time zone, e.g.
+    /// "Los Angeles (PDT)". Used in the mismatch advisory so the user can see at
+    /// a glance what their phone still reports.
+    var deviceTimeZoneDisplay: String {
+        let zone = TimeZone.current
+        let city = zone.identifier
+            .split(separator: "/").last
+            .map { $0.replacingOccurrences(of: "_", with: " ") } ?? zone.identifier
+        let abbrev = zone.abbreviation() ?? ""
+        return abbrev.isEmpty ? city : "\(city) (\(abbrev))"
+    }
 }
 
 // MARK: - Service
@@ -239,6 +251,15 @@ final class LocationInfoService: ObservableObject {
 struct LocationInfoCard: View {
     @ObservedObject var service: LocationInfoService
 
+    /// The user dismissed the time-zone advisory once — don't nag again this session.
+    @State private var tzAdvisoryDismissed = false
+    /// Reveals the (collapsed by default) IP / VPN alignment tip.
+    @State private var showIPTip = false
+    @Environment(\.openURL) private var openURL
+
+    /// Wander's VPN / IP-matching guide (parity with the desktop "Match your IP" card).
+    private let vpnGuideURL = URL(string: "https://wanderspoofer.com/vpn/")
+
     var body: some View {
         if let info = service.info {
             VStack(alignment: .leading, spacing: 8) {
@@ -278,18 +299,84 @@ struct LocationInfoCard: View {
                 Spacer(minLength: 0)
             }
 
-            if info.deviceTimeZoneMismatch {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption2)
+            // Calm, dismissible time-zone advisory (not an error). Names the
+            // device's current zone so the user knows exactly what to change.
+            if info.deviceTimeZoneMismatch && !tzAdvisoryDismissed {
+                Divider().padding(.vertical, 2)
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "clock.badge.exclamationmark")
+                        .font(.caption)
                         .foregroundStyle(.orange)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(String(
+                            format: L(
+                                "locationinfo.tz_advisory",
+                                fallback: "Your device's time zone still reads %@. Some apps compare it to your GPS — consider matching it in Settings › General › Date & Time."
+                            ),
+                            info.deviceTimeZoneDisplay
+                        ))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    Button {
+                        withAnimation { tzAdvisoryDismissed = true }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L("locationinfo.tz_advisory.dismiss", fallback: "Dismiss time zone tip"))
+                }
+            }
+
+            // IP / VPN alignment tip — parity with the desktop "Match your IP"
+            // card. Collapsed by default so it never nags; one tap reveals it.
+            Divider().padding(.vertical, 2)
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    withAnimation { showIPTip.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "network.badge.shield.half.filled")
+                            .font(.caption)
+                            .foregroundStyle(Wander.brand)
+                        Text(L("locationinfo.ip_tip.title", fallback: "Match your IP & time zone"))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Spacer(minLength: 0)
+                        Image(systemName: showIPTip ? "chevron.up" : "chevron.down")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if showIPTip {
                     Text(L(
-                        "locationinfo.tz_mismatch",
-                        fallback: "Your device time zone doesn't match this location — some apps compare the two."
+                        "locationinfo.ip_tip.body",
+                        fallback: "For the most believable location, your IP address and time zone should match your spoofed GPS. Some apps cross-check them. A VPN set to the destination region keeps them aligned."
                     ))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                    if let vpnGuideURL {
+                        Button {
+                            openURL(vpnGuideURL)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(L("locationinfo.ip_tip.link", fallback: "How IP matching works"))
+                                Image(systemName: "arrow.up.right.square")
+                            }
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(Wander.brand)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
             }
