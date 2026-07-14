@@ -25,6 +25,7 @@ struct PlacesView: View {
 
     @State private var filter: PlacesFilter = .all
     @State private var editingPlace: LocationBookmark?
+    @State private var showGlobe = false
 
     var body: some View {
         NavigationStack {
@@ -58,11 +59,22 @@ struct PlacesView: View {
                 if !allFolders.isEmpty || !allTags.isEmpty {
                     ToolbarItem(placement: .topBarLeading) { filterMenu }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    // 3D globe (FREE): tap-to-teleport on a spinning globe.
+                    Button {
+                        showGlobe = true
+                    } label: {
+                        Label(L("globe.title", fallback: "Globe"), systemImage: "globe")
+                    }
+                }
                 if !store.recents.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(L("action.clear", fallback: "Clear")) { store.clearRecents() }
                     }
                 }
+            }
+            .sheet(isPresented: $showGlobe) {
+                GlobeSheet()
             }
             .onAppear { store.reload() }
             .onChange(of: selection) { _, newValue in

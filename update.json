@@ -1,6 +1,6 @@
 {
-  "build": 16,
+  "build": 17,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Believable-day takes a prompt (or surprises you), natural-language teleport — just type where to go — and a live Raids/Eggs/Events board"
+  "notes": "Timed itineraries (Pro): queue stops with stay-times and run them in order. Plus a spinnable 3D globe — tap anywhere to teleport"
 }
