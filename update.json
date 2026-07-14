@@ -1,6 +1,6 @@
 {
-  "build": 10,
+  "build": 11,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Teleport undo, Plus Codes search, GPX export, and a PoGo cooldown-safety lock"
+  "notes": "Save & replay favorite routes (Pro), game presets (Monster Hunter Now/Pikmin/Ingress), an instant Panic-Stop, and folders/tags/notes for saved places"
 }

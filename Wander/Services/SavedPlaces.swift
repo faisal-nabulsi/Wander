@@ -61,6 +61,17 @@ final class SavedPlacesStore: ObservableObject {
 
     func deleteSaved(_ offsets: IndexSet) {
         saved.remove(atOffsets: offsets)
+        persistSaved()
+    }
+
+    /// Replace a saved place in-place (used when editing its folder/tags/notes) and persist.
+    func updateSaved(_ bookmark: LocationBookmark) {
+        guard let idx = saved.firstIndex(where: { $0.id == bookmark.id }) else { return }
+        saved[idx] = bookmark
+        persistSaved()
+    }
+
+    private func persistSaved() {
         if let data = try? JSONEncoder().encode(saved) {
             UserDefaults.standard.set(data, forKey: savedKey)
         }

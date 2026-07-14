@@ -61,6 +61,12 @@ struct RouteModeView: View {
 
     @State private var alertText: String?
 
+    // Save-loop builder (Pro): named user routes.
+    @StateObject private var savedRoutes = SavedRoutesStore()
+    @State private var showSaveRouteSheet = false
+    @State private var newRouteName = ""
+    @State private var showSavedRoutes = false
+
     private var manualMetersPerSecond: Double { max(manualSpeedMps, 1) }
 
     var body: some View {
@@ -81,6 +87,8 @@ struct RouteModeView: View {
             }
             .onAppear { currentLocation.request() }
             .sheet(isPresented: $showPaywall) { PaywallView(onClose: { showPaywall = false }) }
+            .sheet(isPresented: $showSaveRouteSheet) { saveRouteSheet }
+            .sheet(isPresented: $showSavedRoutes) { savedRoutesSheet }
             .onReceive(currentLocation.$coordinate.compactMap { $0 }) { c in
                 if waypoints.isEmpty && !isDriving {
                     cameraPosition = .region(MKCoordinateRegion(center: c, latitudinalMeters: 2500, longitudinalMeters: 2500))
@@ -224,6 +232,8 @@ struct RouteModeView: View {
                         .font(.subheadline)
                 }
                 .tint(Wander.brand)
+
+                saveLoopControls
 
                 HStack(spacing: 10) {
                     Button { Task { await computeRoute() } } label: {
@@ -551,6 +561,136 @@ struct RouteModeView: View {
         guard let path = pairingFilePath() else { return }
         LocationSimulationCommandQueue.shared.async {
             _ = simulate_location(DeviceConnectionContext.targetIPAddress, coord.latitude, coord.longitude, path)
+        }
+    }
+
+    // MARK: - Save-loop builder (Pro)
+
+    /// "Save this route" + "Saved routes" entry points. Both are gated: non-licensed
+    /// users see the buttons but tapping opens the paywall (matching the Loop toggle).
+    @ViewBuilder private var saveLoopControls: some View {
+        HStack(spacing: 10) {
+            Button {
+                if !License.shared.isLicensed { showPaywall = true; return }
+                guard waypoints.count >= 2 else {
+                    alertText = "Add at least two points before saving a route."
+                    return
+                }
+                newRouteName = ""
+                showSaveRouteSheet = true
+            } label: {
+                Label("Save route", systemImage: "square.and.arrow.down")
+                    .frame(maxWidth: .infinity).frame(height: 28)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            Button {
+                if !License.shared.isLicensed { showPaywall = true; return }
+                showSavedRoutes = true
+            } label: {
+                Label("Saved (\(savedRoutes.routes.count))", systemImage: "list.bullet.rectangle")
+                    .frame(maxWidth: .infinity).frame(height: 28)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .font(.subheadline)
+    }
+
+    private var saveRouteSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Route name", text: $newRouteName)
+                        .textInputAutocapitalization(.words)
+                } header: {
+                    Text("Name")
+                } footer: {
+                    Text("Saves the \(waypoints.count) current points. Run it later and toggle Loop to repeat.")
+                }
+            }
+            .navigationTitle("Save Route")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showSaveRouteSheet = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        savedRoutes.add(name: newRouteName, coordinates: waypoints.map(\.coordinate))
+                        showSaveRouteSheet = false
+                    }
+                }
+            }
+        }
+        .presentationDetents([.height(220)])
+    }
+
+    private var savedRoutesSheet: some View {
+        NavigationStack {
+            List {
+                if savedRoutes.routes.isEmpty {
+                    Label("No saved routes yet. Build a route, then tap Save route.",
+                          systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(savedRoutes.routes) { route in
+                        Button {
+                            runSavedRoute(route)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "point.topleft.down.to.point.bottomright.curvepath.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(Wander.brand)
+                                    .frame(width: 28)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(route.name).font(.body).foregroundStyle(.primary)
+                                    Text("\(route.pointCount) points").font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Label("Run", systemImage: Wander.Icon.play)
+                                    .labelStyle(.titleAndIcon)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(Wander.brand)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .onDelete { savedRoutes.delete($0) }
+                }
+            }
+            .navigationTitle("Saved Routes")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showSavedRoutes = false }
+                }
+            }
+        }
+    }
+
+    /// Load a saved route's waypoints, compute the road path, and start driving.
+    /// Honors the current Loop toggle (combine with Loop to repeat). Pro-gated at entry.
+    private func runSavedRoute(_ route: SavedRoute) {
+        if !License.shared.isLicensed { showPaywall = true; return }
+        let coords = route.coordinates
+        guard coords.count >= 2 else {
+            alertText = "This saved route doesn't have enough points to run."
+            return
+        }
+        showSavedRoutes = false
+        waypoints = coords.map { RouteWaypoint(coordinate: $0) }
+        routeCoordinates = []
+        Task {
+            await computeRoute()
+            guard routeCoordinates.count > 1 else {
+                alertText = "Couldn't build a drivable path for this saved route."
+                return
+            }
+            await startDrive()
         }
     }
 }

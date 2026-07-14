@@ -53,6 +53,38 @@ private struct PoGoData: Codable {
     let routes: [PoGoRoute]
 }
 
+// MARK: - Game presets (free, additive)
+
+/// Location-based games this mode can be framed around. Purely changes labels;
+/// the cooldown model stays the same soft-ban curve (PoGoCooldown) for all of them.
+enum GamePreset: String, CaseIterable, Identifiable {
+    case pokemonGo
+    case monsterHunterNow
+    case pikminBloom
+    case ingress
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .pokemonGo: return "Pokémon GO"
+        case .monsterHunterNow: return "Monster Hunter Now"
+        case .pikminBloom: return "Pikmin Bloom"
+        case .ingress: return "Ingress"
+        }
+    }
+
+    /// Short label used in the nav bar / cooldown section header.
+    var shortTitle: String {
+        switch self {
+        case .pokemonGo: return "PoGo"
+        case .monsterHunterNow: return "MH Now"
+        case .pikminBloom: return "Pikmin"
+        case .ingress: return "Ingress"
+        }
+    }
+}
+
 // MARK: - Cooldown math
 
 enum PoGoCooldown {
@@ -121,6 +153,10 @@ struct PoGoModeView: View {
     // When ON, teleports are blocked (not just warned) while a cooldown is active.
     @AppStorage("pogoBlockUntilCooldownEnds") private var blockUntilCooldownEnds = false
 
+    // Selected location-based game (free preset). Only changes labels; cooldown curve is shared.
+    @AppStorage("pogoGamePreset") private var gamePresetRaw = GamePreset.pokemonGo.rawValue
+    private var gamePreset: GamePreset { GamePreset(rawValue: gamePresetRaw) ?? .pokemonGo }
+
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private var pairingFileURL: URL { PairingFileStore.prepareURL() }
@@ -145,6 +181,18 @@ struct PoGoModeView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+                }
+
+                Section {
+                    Picker("Game", selection: $gamePresetRaw) {
+                        ForEach(GamePreset.allCases) { preset in
+                            Text(preset.title).tag(preset.rawValue)
+                        }
+                    }
+                } header: {
+                    Text("Game")
+                } footer: {
+                    Text("Sets the mode label. The soft-ban cooldown curve is shared across games.")
                 }
 
                 cooldownSection
@@ -194,7 +242,7 @@ struct PoGoModeView: View {
                     }
                 }
             }
-            .navigationTitle("PoGo Mode")
+            .navigationTitle("\(gamePreset.shortTitle) Mode")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear(perform: loadData)
             .onReceive(ticker) { date in
@@ -252,7 +300,7 @@ struct PoGoModeView: View {
                 }
                 .padding(.vertical, 2)
             } header: {
-                Text("PoGo cooldown")
+                Text("\(gamePreset.shortTitle) cooldown")
             }
             .id(cooldownEndsAt)   // reset the row when a new cooldown starts
         }

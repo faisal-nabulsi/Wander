@@ -66,6 +66,10 @@ struct MainTabView: View {
     @State private var bannerVisible = false
     @State private var bannerHideWork: DispatchWorkItem?
 
+    // Panic button confirmation toast.
+    @State private var panicToastVisible = false
+    @State private var panicToastHideWork: DispatchWorkItem?
+
     var body: some View {
         ZStack {
             Color.clear.ignoresSafeArea()
@@ -147,11 +151,63 @@ struct MainTabView: View {
                 }
             }
             .overlay(alignment: .top) { spoofingBanner }
+            .overlay(alignment: .bottomTrailing) { panicButton }
+            .overlay(alignment: .top) { panicToast }
             .animation(.easeInOut(duration: 0.25), value: bannerVisible)
+            .animation(.easeInOut(duration: 0.25), value: panicToastVisible)
             .onChange(of: session.isActive) { _, active in
                 if active { flashBanner() } else { withAnimation { bannerVisible = false } }
             }
         }
+    }
+
+    /// Always-available safety control (FREE): instantly stops ALL spoofing and reverts
+    /// the device to its real GPS, from anywhere in the app. Reuses the global stop path.
+    private var panicButton: some View {
+        Button(role: .destructive) {
+            panicStop()
+        } label: {
+            Image(systemName: "stop.fill")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 56, height: 56)
+                .background(Color.red, in: Circle())
+                .overlay(Circle().strokeBorder(.white.opacity(0.85), lineWidth: 2))
+                .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
+        }
+        .accessibilityLabel("Panic — stop all spoofing")
+        .padding(.trailing, 18)
+        .padding(.bottom, 66)   // sit above the tab bar
+    }
+
+    /// Brief confirmation shown after a panic stop.
+    @ViewBuilder private var panicToast: some View {
+        if panicToastVisible {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill").font(.caption)
+                Text("Stopped — real GPS restored")
+                    .font(.caption.weight(.medium))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(Color.red, in: Capsule())
+            .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+            .padding(.top, 52)
+            .allowsHitTesting(false)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    /// Reverts to real GPS immediately and flashes a confirmation. Fail-safe: even if no
+    /// simulation is running, stopAll() is a harmless clear.
+    private func panicStop() {
+        SimulationSession.shared.stopAll()
+        panicToastHideWork?.cancel()
+        withAnimation { panicToastVisible = true }
+        let work = DispatchWorkItem { withAnimation { panicToastVisible = false } }
+        panicToastHideWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: work)
     }
 
     /// Show the "keep Wander open" pill briefly, then fade it out so it never sits on the

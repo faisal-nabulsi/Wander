@@ -695,8 +695,38 @@ struct LocationBookmark: Identifiable, Codable {
     var latitude: Double
     var longitude: Double
 
+    // Optional organizing metadata (Favorites). All optional so records saved by
+    // older builds — which had none of these fields — still decode cleanly.
+    var folder: String? = nil
+    var tags: [String] = []
+    var notes: String? = nil
+
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+
+    // Custom decoding keeps old saved data loadable: any missing metadata key
+    // falls back to its empty/nil default rather than failing the whole decode.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decode(String.self, forKey: .name)
+        latitude = try c.decode(Double.self, forKey: .latitude)
+        longitude = try c.decode(Double.self, forKey: .longitude)
+        folder = try c.decodeIfPresent(String.self, forKey: .folder)
+        tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+        notes = try c.decodeIfPresent(String.self, forKey: .notes)
+    }
+
+    init(id: UUID = UUID(), name: String, latitude: Double, longitude: Double,
+         folder: String? = nil, tags: [String] = [], notes: String? = nil) {
+        self.id = id
+        self.name = name
+        self.latitude = latitude
+        self.longitude = longitude
+        self.folder = folder
+        self.tags = tags
+        self.notes = notes
     }
 }
 
