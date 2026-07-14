@@ -31,6 +31,9 @@ struct WanderApp: App {
                 // singleton loads the cached isPro from the Keychain and kicks off a background
                 // entitlement re-check; folds into License.isLicensed so the gates honor it.
                 await MainActor.run { _ = WanderProAccount.shared }
+                // OPT-IN, PRO-ONLY saved-places sync. No-ops unless the toggle is on, the user is
+                // Pro, and a Wander account is signed in. Fully fail-safe (see SavedPlacesSync).
+                await MainActor.run { SavedPlacesSync.shared.syncIfEnabled() }
                 await WanderUpdater.shared.check()
                 // Auto-install a newer build the moment it's found — same pipeline as the
                 // manual Settings button, no tap. Fires at most once per launch; falls back to

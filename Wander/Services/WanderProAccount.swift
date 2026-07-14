@@ -231,6 +231,60 @@ final class WanderProAccount: ObservableObject {
         }
     }
 
+    // MARK: - Authenticated Firestore access (for opt-in features like place sync)
+
+    /// The signed-in user's Firebase uid, or nil if not signed in. Sync uses this to scope
+    /// its documents to `users/{uid}/savedPlaces`.
+    var firebaseUID: String? { uid }
+
+    /// The Firestore project id, so callers can build document paths against the same project
+    /// this account authenticates with.
+    var firestoreProjectId: String { Self.projectId }
+
+    /// Perform an authenticated Firestore REST request, minting a fresh idToken first if needed.
+    /// Returns the raw (data, HTTPURLResponse) on success, or nil on any auth/transport failure
+    /// (so callers can fail-safe without crashing). `body`, when provided, is sent as JSON.
+    ///
+    /// This is the ONLY entry point sync uses to talk to Firestore — it reuses the same token
+    /// machinery as the entitlement read and never exposes the raw token to callers.
+    func firestoreRequest(method: String,
+                          path: String,
+                          query: String? = nil,
+                          body: Data? = nil) async -> (Data, HTTPURLResponse)? {
+        // Ensure we hold a usable idToken. A stale one would 401; refreshing first avoids that.
+        if idToken == nil {
+            guard await refreshIfNeeded() else { return nil }
+        }
+        guard let token = idToken else { return nil }
+
+        var urlString = "https://firestore.googleapis.com/v1/\(path)"
+        if let query, !query.isEmpty { urlString += "?\(query)" }
+        guard let url = URL(string: urlString) else { return nil }
+
+        var req = URLRequest(url: url, timeoutInterval: 20)
+        req.httpMethod = method
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let body {
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = body
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse else { return nil }
+            // A 401 likely means the idToken expired mid-session; refresh once and retry.
+            if http.statusCode == 401, await refreshIfNeeded(), let fresh = idToken {
+                req.setValue("Bearer \(fresh)", forHTTPHeaderField: "Authorization")
+                guard let (d2, r2) = try? await URLSession.shared.data(for: req),
+                      let http2 = r2 as? HTTPURLResponse else { return nil }
+                return (d2, http2)
+            }
+            return (data, http)
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - Sign out
 
     func signOut() {

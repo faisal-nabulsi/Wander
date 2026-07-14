@@ -364,6 +364,7 @@ private struct PlaceMetadataEditor: View {
             .filter { !$0.isEmpty }
         let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         updated.notes = trimmedNotes.isEmpty ? nil : trimmedNotes
+        updated.updatedAt = Date()   // stamp so this edit wins the multi-device sync merge
         onSave(updated)
     }
 }

@@ -10,6 +10,7 @@ private enum SettingsLinks {
     static let localDevVPN = URL(string: "https://apps.apple.com/us/app/localdevvpn/id6755608044")!
     static let githubRepo = URL(string: "https://github.com/faisal-nabulsi/Wander")!
     static let discordInvite = URL(string: "https://discord.gg/gfHdsRXUVA")!
+    static let vpn = URL(string: "https://wanderspoofer.com/vpn/")!
 }
 
 struct SettingsView: View {
@@ -19,6 +20,7 @@ struct SettingsView: View {
     @AppStorage("useMph") private var useMph = false
     @AppStorage("jitterEnabled") private var jitterEnabled = false
     @AppStorage("jitterRadius") private var jitterRadius = 1.5
+    @AppStorage(SavedPlacesSync.enabledKey) private var syncPlacesEnabled = false
     @StateObject private var tunnel = WanderTunnel.shared
 
     @State private var isShowingPairingFilePicker = false
@@ -32,6 +34,8 @@ struct SettingsView: View {
     @ObservedObject private var updater = WanderUpdater.shared
     @ObservedObject private var wanderAccount = WanderAccount.shared
     @ObservedObject private var selfRefresh = SelfRefreshService.shared
+    @ObservedObject private var proAccount = WanderProAccount.shared
+    @State private var showProSignIn = false
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -84,6 +88,8 @@ struct SettingsView: View {
                          ? "Thanks for supporting Wander — all limits are lifted."
                          : "Free trial: 5 teleports, 30 minutes of joystick, and 3 routes. Unlock unlimited use with a license.")
                 }
+
+                syncSection
 
                 Section {
                     if selfRefresh.needsReSignIn {
@@ -275,6 +281,8 @@ struct SettingsView: View {
                     Text("Keep simulation alive")
                 }
 
+                vpnSection
+
                 Section {
                     Link(destination: SettingsLinks.localDevVPN) {
                         Label("Download LocalDevVPN", systemImage: "arrow.down.circle")
@@ -341,6 +349,13 @@ struct SettingsView: View {
         .sheet(isPresented: $showPaywall) {
             PaywallView(onClose: { showPaywall = false })
         }
+        .sheet(isPresented: $showProSignIn) {
+            WanderAccountSignInView(onSuccess: {
+                showProSignIn = false
+                // Signed in + Pro → if the toggle is on, kick an immediate first sync.
+                SavedPlacesSync.shared.syncIfEnabled()
+            })
+        }
         .alert("Two-Factor Code", isPresented: $wanderAccount.awaiting2FA) {
             TextField("6-digit code", text: $twoFactorCode)
                 .keyboardType(.numberPad)
@@ -354,6 +369,82 @@ struct SettingsView: View {
             }
         } message: {
             Text("Enter the 6-digit code Apple sent to your trusted device. No popup? Get it from Settings → your name → Sign-In & Security → Get Verification Code.")
+        }
+    }
+
+    // MARK: - Multi-device sync (Pro, opt-in)
+
+    @ViewBuilder private var syncSection: some View {
+        Section {
+            if !license.isLicensed {
+                // Free / unlicensed: the toggle is locked and routes to the paywall.
+                Button {
+                    showPaywall = true
+                } label: {
+                    HStack {
+                        Label("Sync places across devices", systemImage: "arrow.triangle.2.circlepath")
+                        Spacer()
+                        Image(systemName: "lock.fill").foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Toggle(isOn: $syncPlacesEnabled) {
+                    Label("Sync places across devices", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .onChange(of: syncPlacesEnabled) { _, isOn in
+                    if isOn { SavedPlacesSync.shared.syncIfEnabled() }
+                }
+                .tint(Wander.brand)
+
+                if syncPlacesEnabled {
+                    if proAccount.isSignedIn {
+                        Label("Signed in as \(proAccount.email ?? "your Wander account")",
+                              systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    } else {
+                        // Pro via offline key but no Wander account: sync needs a signed-in
+                        // account to know WHERE to store. Prompt to sign in.
+                        Label("Sign in to your Wander account to start syncing.",
+                              systemImage: "exclamationmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                        Button {
+                            showProSignIn = true
+                        } label: {
+                            Label("Sign in to Wander account", systemImage: "person.badge.key")
+                        }
+                    }
+                }
+            }
+        } header: {
+            Text("Sync")
+        } footer: {
+            Text(license.isLicensed
+                 ? "When on, your saved places are mirrored to your Wander account and merged across your devices. Places are only ever added — nothing is deleted from any device. Off by default."
+                 : "Wander Pro syncs your saved places across all your devices. Places are only ever added, never deleted.")
+        }
+    }
+
+    // MARK: - Match your IP (VPN) — free info card
+
+    private var vpnSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Match your IP", systemImage: "network.badge.shield.half.filled")
+                    .font(.body.weight(.semibold))
+                Text("Some dating and Pokémon GO-style apps compare your IP address against your GPS location. A VPN in the same region keeps them consistent.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Link(destination: SettingsLinks.vpn) {
+                    Label("Get a matching VPN", systemImage: "arrow.up.right.square")
+                }
+                .font(.callout.weight(.medium))
+                .padding(.top, 2)
+            }
+            .padding(.vertical, 4)
+        } header: {
+            Text("Match your IP")
         }
     }
 

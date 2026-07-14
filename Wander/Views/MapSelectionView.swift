@@ -701,8 +701,25 @@ struct LocationBookmark: Identifiable, Codable {
     var tags: [String] = []
     var notes: String? = nil
 
+    // Last time this place was created/edited on this device. Drives multi-device
+    // sync conflict resolution (newest-wins on the same key). Optional-back-compat:
+    // records from older builds decode with `updatedAt == nil` and are treated as
+    // oldest, so a newer edit on any device always wins over a legacy record.
+    var updatedAt: Date? = nil
+
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+
+    /// Stable identity for the additive-union sync merge: lowercased, trimmed name +
+    /// coordinates rounded to ~5 decimals (~1 m). Two records with the same syncKey are
+    /// considered "the same place" regardless of their `id`, so a place saved on device A
+    /// and independently on device B collapses to one row instead of duplicating.
+    var syncKey: String {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let lat = (latitude * 100_000).rounded() / 100_000
+        let lng = (longitude * 100_000).rounded() / 100_000
+        return String(format: "%@|%.5f|%.5f", n, lat, lng)
     }
 
     // Custom decoding keeps old saved data loadable: any missing metadata key
@@ -716,10 +733,12 @@ struct LocationBookmark: Identifiable, Codable {
         folder = try c.decodeIfPresent(String.self, forKey: .folder)
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
         notes = try c.decodeIfPresent(String.self, forKey: .notes)
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
     }
 
     init(id: UUID = UUID(), name: String, latitude: Double, longitude: Double,
-         folder: String? = nil, tags: [String] = [], notes: String? = nil) {
+         folder: String? = nil, tags: [String] = [], notes: String? = nil,
+         updatedAt: Date? = nil) {
         self.id = id
         self.name = name
         self.latitude = latitude
@@ -727,6 +746,7 @@ struct LocationBookmark: Identifiable, Codable {
         self.folder = folder
         self.tags = tags
         self.notes = notes
+        self.updatedAt = updatedAt
     }
 }
 
@@ -1134,7 +1154,8 @@ struct LocationSimulationView: View {
         let bookmark = LocationBookmark(
             name: name.isEmpty ? String(format: "%.4f, %.4f", coord.latitude, coord.longitude) : name,
             latitude: coord.latitude,
-            longitude: coord.longitude
+            longitude: coord.longitude,
+            updatedAt: Date()   // stamp for multi-device sync newest-wins merge
         )
         bookmarks.append(bookmark)
         saveBookmarks()
