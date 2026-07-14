@@ -23,12 +23,17 @@ import CoreLocation
 private struct GlobeWebView: UIViewRepresentable {
     /// Called on the main actor with the tapped coordinate.
     let onPick: (CLLocationCoordinate2D) -> Void
+    /// Toggled true when the page fails to load (offline / CDN unreachable), so the sheet can
+    /// show a calm "needs internet" note over the blank WebView instead of a white void.
+    @Binding var loadFailed: Bool
+    /// Bumping this triggers a reload (used by the "Try again" button).
+    let reloadToken: Int
 
     /// The hosted globe.gl page (do NOT rebuild — just embed the URL).
     private static let globeURL = URL(string: "https://wanderspoofer.com/globe/")!
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onPick: onPick)
+        Coordinator(onPick: onPick, loadFailed: $loadFailed)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -41,15 +46,20 @@ private struct GlobeWebView: UIViewRepresentable {
         configuration.userContentController.add(context.coordinator, name: "wanderGlobe")
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = context.coordinator
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.isScrollEnabled = false
-        webView.load(URLRequest(url: Self.globeURL))
+        webView.load(URLRequest(url: Self.globeURL, timeoutInterval: 20))
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        // Nothing to update — the page owns its own state.
+        // A change in reloadToken means the user asked to retry — clear the failure flag and reload.
+        if context.coordinator.lastReloadToken != reloadToken {
+            context.coordinator.lastReloadToken = reloadToken
+            webView.load(URLRequest(url: Self.globeURL, timeoutInterval: 20))
+        }
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
@@ -57,13 +67,35 @@ private struct GlobeWebView: UIViewRepresentable {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "wanderGlobe")
     }
 
-    /// Receives the `wanderGlobe` messages the page posts and extracts {lat,lng}.
-    final class Coordinator: NSObject, WKScriptMessageHandler {
+    /// Receives the `wanderGlobe` messages the page posts and extracts {lat,lng}, and observes
+    /// navigation so a failed load surfaces a calm note rather than a blank screen.
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         private let onPick: (CLLocationCoordinate2D) -> Void
+        private let loadFailed: Binding<Bool>
+        var lastReloadToken = 0
 
-        init(onPick: @escaping (CLLocationCoordinate2D) -> Void) {
+        init(onPick: @escaping (CLLocationCoordinate2D) -> Void, loadFailed: Binding<Bool>) {
             self.onPick = onPick
+            self.loadFailed = loadFailed
         }
+
+        // MARK: WKNavigationDelegate — offline / CDN-unreachable handling
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            if loadFailed.wrappedValue { loadFailed.wrappedValue = false }
+        }
+
+        func webView(_ webView: WKWebView,
+                     didFailProvisionalNavigation navigation: WKNavigation!,
+                     withError error: Error) {
+            loadFailed.wrappedValue = true
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            loadFailed.wrappedValue = true
+        }
+
+        // MARK: WKScriptMessageHandler
 
         func userContentController(_ userContentController: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
@@ -98,10 +130,19 @@ private struct GlobeWebView: UIViewRepresentable {
 struct GlobeSheet: View {
     @Environment(\.dismiss) private var dismiss
 
+    @State private var loadFailed = false
+    @State private var reloadToken = 0
+
     var body: some View {
         NavigationStack {
-            GlobeWebView { coordinate in
-                teleport(to: coordinate)
+            ZStack {
+                GlobeWebView(onPick: { coordinate in
+                    teleport(to: coordinate)
+                }, loadFailed: $loadFailed, reloadToken: reloadToken)
+
+                if loadFailed {
+                    offlineNote
+                }
             }
             .ignoresSafeArea(edges: .bottom)
             .background(Color(red: 0.05, green: 0.05, blue: 0.06))
@@ -113,6 +154,26 @@ struct GlobeSheet: View {
                 }
             }
         }
+    }
+
+    /// Shown over the (blank) WebView when the globe can't load — offline or the CDN is
+    /// unreachable. One calm message plus a retry, never a white void.
+    private var offlineNote: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "wifi.slash")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text(L("globe.offline",
+                   fallback: "The 3D globe needs an internet connection to load."))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button(L("action.try_again", fallback: "Try again")) {
+                reloadToken += 1
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(24)
     }
 
     /// Reuse the existing teleport path: LocationSimulationView listens for

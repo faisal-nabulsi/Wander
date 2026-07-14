@@ -1,6 +1,6 @@
 {
-  "build": 18,
+  "build": 19,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Satellite & hybrid map views, a Dark Mode toggle, and a heads-up when your device time zone doesn't match your spoofed location"
+  "notes": "Cleaner offline experience: calm messages instead of broken screens, a subtle offline indicator, and teleport/joystick/routes keep working with no connection"
 }

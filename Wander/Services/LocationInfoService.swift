@@ -215,8 +215,12 @@ final class LocationInfoService: ObservableObject {
         ]
         guard let url = components?.url else { return nil }
 
+        // Bounded timeout so a dropped connection can't leave the fetch hanging on the default
+        // 60s — the card just stays hidden and we quietly try again on the next location change.
+        let request = URLRequest(url: url, timeoutInterval: 15)
+
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: request)
             if let httpResponse = response as? HTTPURLResponse,
                !(200...299).contains(httpResponse.statusCode) {
                 return nil

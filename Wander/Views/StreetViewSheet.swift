@@ -136,11 +136,28 @@ private struct StreetViewWebView: UIViewRepresentable {
             };
 
             (function() {
+              // Safety net for flaky/offline networks where a stalled script never fires onerror:
+              // if the Maps API hasn't invoked our callback within 15s, show the offline note
+              // instead of spinning on "Loading Street View…" forever.
+              var loaded = false;
+              var timeout = setTimeout(function() {
+                if (!loaded) {
+                  showMessage('Street View needs an internet connection — check your connection and try again.');
+                }
+              }, 15000);
+              var priorInit = window.init;
+              window.init = function() {
+                loaded = true;
+                clearTimeout(timeout);
+                if (priorInit) { priorInit(); }
+              };
+
               var s = document.createElement('script');
               s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(\(keyJS)) + '&callback=init';
               s.async = true;
               s.defer = true;
               s.onerror = function() {
+                clearTimeout(timeout);
                 showMessage('Could not load Google Maps — check the key and your connection.');
               };
               document.head.appendChild(s);

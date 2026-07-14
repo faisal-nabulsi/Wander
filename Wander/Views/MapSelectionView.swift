@@ -789,6 +789,7 @@ struct LocationSimulationView: View {
     @State private var visibleCenter: CLLocationCoordinate2D?
     @StateObject private var currentLocation = CurrentLocation()
     @StateObject private var locationInfo = LocationInfoService()
+    @ObservedObject private var reachability = NetworkReachability.shared
 
     @State private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @State private var resendTimer: Timer?
@@ -923,6 +924,26 @@ struct LocationSimulationView: View {
 
     /// Floating control that lets the user switch between Standard, Satellite,
     /// and Hybrid imagery. Mirrors the app's floating-card design language.
+    /// A subtle, non-nagging hint shown only while the device has no connectivity, so the app's
+    /// calm offline states (hidden weather card, empty raids board, an unavailable globe) read as
+    /// intentional. Core features (teleport, joystick, routes) keep working regardless.
+    private var offlinePill: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "wifi.slash")
+                .font(.caption2)
+            Text(L("offline.badge", fallback: "Offline — live extras paused"))
+                .font(.caption2.weight(.medium))
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.10), radius: 6, y: 2)
+        .accessibilityLabel(L("offline.badge.a11y",
+                              fallback: "You are offline. Live extras are paused. The map and teleport still work."))
+    }
+
     private var mapStyleSwitcher: some View {
         Menu {
             Picker("Map style", selection: $mapStyleModeRaw) {
@@ -1025,12 +1046,18 @@ struct LocationSimulationView: View {
                 }
             }
 
-            VStack(spacing: 0) {
+            VStack(spacing: 6) {
+                if !reachability.isOnline {
+                    offlinePill
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 LocationInfoCard(service: locationInfo)
-                    .padding(.top, 8)
+                    .padding(.top, reachability.isOnline ? 8 : 0)
                 Spacer(minLength: 0)
             }
             .animation(.easeInOut(duration: 0.25), value: locationInfo.info)
+            .animation(.easeInOut(duration: 0.25), value: reachability.isOnline)
 
             VStack(spacing: 0) {
                 HStack {
