@@ -1,29 +1,40 @@
 #!/usr/bin/env python3
 """
-wander-license.py — mint a Wander license key.
+wander-license.py — RETIRED. Keyless lifetime license minting is deprecated.
 
-A license key is an Ed25519-signed token the app verifies offline against the
-public key embedded in Wander. Only the holder of the private key can create
-valid keys, so they can't be forged.
+Lifetime (and all Pro) now flows through the ACCOUNT: a Lemon Squeezy purchase
+sets the account's plan to "pro", which the app validates online and which is
+subject to the per-account DEVICE CAP (max devices per account). Keyless
+Ed25519 tokens minted by this tool bypass that cap (whoever holds the key
+unlocks unlimited devices) — exactly the account-sharing hole we closed, so we
+no longer mint them.
 
-Setup (one time):
-    pip install cryptography
+To grant Pro now (comps, support, refunds-reversal), use an ACCOUNT path:
+  - Preferred: a 100%-off Lemon Squeezy order/coupon for their email, OR
+  - set licenses/{uid}.plan = "pro" in Firestore for their account uid/email.
+Both honor the device cap.
 
-Usage:
-    ./wander-license.py buyer@example.com
-    WANDER_KEY=/path/to/wander-license-private.key ./wander-license.py buyer@example.com
-
-The private key defaults to ~/Desktop/wander-license-private.key.
-KEEP THE PRIVATE KEY SECRET — never commit it. Anyone with it can mint keys.
-
-To go paid: set "locked": true in config.json (and push it). Every installed copy
-locks on next launch; customers unlock by pasting the key you mint here.
+Existing keyless keys already in the wild KEEP WORKING (the app still verifies
+them via the embedded Ed25519 public key) — we only stop MINTING new ones.
+This script refuses by default; pass --force-legacy for a documented one-off
+that you accept BYPASSES the device cap (not recommended).
 """
 import sys, os, json, base64, time
+
+if "--force-legacy" not in sys.argv:
+    sys.exit(
+        "wander-license.py is RETIRED — keyless lifetime keys bypass the account device cap.\n"
+        "Grant Pro via the account instead: a 100%-off Lemon Squeezy order, or set\n"
+        "licenses/{uid}.plan='pro' in Firestore. Pass --force-legacy to override (not recommended)."
+    )
+
+# --- Legacy path (only with --force-legacy). Mints a keyless Ed25519 token that
+#     bypasses the device cap. Kept solely for rare documented emergencies. ---
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+args = [a for a in sys.argv[1:] if a != "--force-legacy"]
 keyfile = os.environ.get("WANDER_KEY", os.path.expanduser("~/Desktop/wander-license-private.key"))
-who = sys.argv[1] if len(sys.argv) > 1 else "customer"
+who = args[0] if args else "customer"
 
 try:
     raw = base64.b64decode(open(keyfile).read().strip())
@@ -37,4 +48,5 @@ sig = priv.sign(payload)
 def b64u(b):
     return base64.urlsafe_b64encode(b).decode().rstrip("=")
 
+sys.stderr.write("WARNING: minted a LEGACY keyless key that BYPASSES the account device cap.\n")
 print(b64u(payload) + "." + b64u(sig))
