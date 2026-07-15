@@ -68,10 +68,19 @@ struct PaywallView: View {
     @ObservedObject private var gate = RemoteGate.shared
     @ObservedObject private var license = License.shared
     @ObservedObject private var trial = TrialManager.shared
+    @ObservedObject private var proAccount = WanderProAccount.shared
+    @ObservedObject private var deviceActivation = WanderDeviceActivation.shared
     @State private var showAccountSignIn = false
+    @State private var showManageDevices = false
     @StateObject private var prices = PriceLocalizer()
 
     private var isTrial: Bool { onClose != nil }
+
+    /// The account IS Pro but THIS device is over the 5-device cap, so Pro isn't unlocked here.
+    /// This is the one case where the fix is "manage your devices", not "buy Pro".
+    private var deviceOverLimit: Bool {
+        proAccount.isPro && deviceActivation.atLimit && !deviceActivation.registered
+    }
 
     var body: some View {
         ZStack {
@@ -109,6 +118,10 @@ struct PaywallView: View {
 
                     if isTrial { trialSummary }
 
+                    if deviceOverLimit {
+                        deviceLimitCard
+                    }
+
                     unlockCard
 
                     Spacer(minLength: 12)
@@ -121,11 +134,46 @@ struct PaywallView: View {
     }
 
     private var headline: String {
+        if deviceOverLimit {
+            return "You're Pro — but this device is over your \(deviceActivation.limit)-device limit. Remove another device to unlock Wander Pro here."
+        }
         if !isTrial && !gate.message.isEmpty { return gate.message }
         if isTrial {
             return L("paywall.headline_trial", fallback: "You've used up your free trial. Unlock Wander Pro for unlimited teleports, joystick, and routes.")
         }
         return L("paywall.headline_locked", fallback: "Wander now requires Wander Pro to spoof your location. Get Pro at wanderspoofer.com, then sign in to unlock.")
+    }
+
+    /// Shown when the account is Pro but this device is over the 5-device cap: the fix is to
+    /// remove another device (Manage Devices), not to buy Pro again.
+    private var deviceLimitCard: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "iphone.slash")
+                .font(.system(size: 28))
+                .foregroundStyle(.white)
+            Text("Device limit reached")
+                .font(.headline).foregroundStyle(.white)
+            Text("Wander Pro is active on \(deviceActivation.limit) devices. Remove one to unlock it on this device.")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.9))
+                .multilineTextAlignment(.center)
+            Button {
+                showManageDevices = true
+            } label: {
+                Text("Manage Devices")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity).frame(height: 30)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.white)
+            .foregroundStyle(Wander.brand)
+        }
+        .padding(16)
+        .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, 28)
+        .sheet(isPresented: $showManageDevices) {
+            ManageDevicesView(overLimitContext: true)
+        }
     }
 
     private var trialSummary: some View {

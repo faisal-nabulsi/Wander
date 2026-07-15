@@ -38,7 +38,15 @@ final class License: ObservableObject {
     ///
     /// Pro is ADDITIVE: the app is licensed if the offline key is valid OR the signed-in
     /// Wander account is Pro (WanderProAccount). Either path alone unlocks; neither weakens
-    /// the other. WanderProAccount calls this whenever its `isPro` flips so the gates recompute.
+    /// the other. WanderProAccount calls this whenever its `isPro` flips, and
+    /// WanderDeviceActivation calls it whenever this device's registration flips, so the gates
+    /// recompute.
+    ///
+    /// DEVICE CAP: account-Pro additionally requires THIS device to be within the account's
+    /// 5-device cap (WanderDeviceActivation). This is FAIL-SAFE — the device gate only withholds
+    /// Pro on an explicit "over the limit and not one of the 5" signal; offline / unknown /
+    /// registered all allow it, so a paying user is never locked out by a network hiccup. The
+    /// offline-key path is unaffected by the cap (a signed key is already device-bound on its own).
     func refresh() {
         let keyResult: Evaluation
         if let token = WanderKeychain.string(Self.storeKey) {
@@ -46,8 +54,11 @@ final class License: ObservableObject {
         } else {
             keyResult = Evaluation(valid: false, plan: nil, expiry: nil)
         }
-        // Effective Pro = offline key valid OR account is Pro.
-        isLicensed = keyResult.valid || WanderProAccount.shared.isPro
+        // Account-Pro only counts on this device when the device cap allows it (fail-safe).
+        let accountPro = WanderProAccount.shared.isPro
+            && WanderDeviceActivation.shared.allowsAccountPro
+        // Effective Pro = offline key valid OR account is Pro (within the device cap).
+        isLicensed = keyResult.valid || accountPro
         // plan/expiry describe the offline key only (an account carries no local expiry).
         plan = keyResult.plan
         expiry = keyResult.expiry

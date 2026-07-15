@@ -113,6 +113,10 @@ final class WanderProAccount: ObservableObject {
 
             // Read entitlement now so the UI can dismiss straight into a Pro state.
             await fetchEntitlement()
+            // Register THIS device against the account's 5-device cap (server-enforced). This is
+            // fully fail-safe: on any error it leaves the cached state and never locks the user
+            // out. Effective Pro = account plan pro AND this device registered (within the cap).
+            await WanderDeviceActivation.shared.activate()
             if isPro {
                 status = "✅ Signed in — Wander Pro unlocked."
             } else {
@@ -320,6 +324,9 @@ final class WanderProAccount: ObservableObject {
         WanderKeychain.set(Key.refresh, "")
         WanderKeychain.set(Key.isPro, "0")
         status = "Signed out."
+        // Clear this device's registration state so the next account starts fresh (effective Pro
+        // already drops because the account is no longer Pro; this just tidies the device gate).
+        WanderDeviceActivation.shared.reset()
         setPro(false)
     }
 
@@ -346,6 +353,8 @@ final class WanderProAccount: ObservableObject {
             guard let self else { return }
             if await self.refreshIfNeeded() {
                 await self.fetchEntitlement()
+                // Re-register this device on launch (while online). Fail-safe: never locks out.
+                await WanderDeviceActivation.shared.activate()
             }
         }
     }

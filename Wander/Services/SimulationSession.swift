@@ -26,11 +26,33 @@ final class SimulationSession: ObservableObject {
     /// keep Wander foregrounded.
     @Published private(set) var isActive = false
 
+    /// Set to `true` for one run-loop tick when spoofing starts while on cellular, to ask the
+    /// UI (MainTabView) to present the one-time "spoofing on cellular" coaching alert. The UI
+    /// resets it to `false` on dismiss. Advisory only — never blocks spoofing.
+    @Published var showCellularTip = false
+
+    /// Process-lifetime latch: once the cellular coaching tip has been shown this app session,
+    /// we never show it again until the app is relaunched. Deliberately NOT persisted to
+    /// UserDefaults — we want the reminder to reappear on the next launch if the user is still
+    /// on cellular, but never nag more than once within a single session.
+    private var didShowCellularTip = false
+
     /// Call when a mode begins simulating.
     func started() {
         isActive = true
         BackgroundLocationManager.shared.requestStart()
         scheduleReminderIfEnabled()
+        maybeShowCellularTip()
+    }
+
+    /// Show the cellular coaching tip at most once per app session, and only when the active
+    /// internet path is cellular (not Wi-Fi). See `NetworkReachability.isOnCellular` for the
+    /// VPN/tunnel reliability caveat: we key off cellular-vs-Wi-Fi, not "is a VPN present",
+    /// because Wander's own required tunnel is indistinguishable from a privacy VPN.
+    private func maybeShowCellularTip() {
+        guard !didShowCellularTip, NetworkReachability.isOnCellularSnapshot else { return }
+        didShowCellularTip = true
+        showCellularTip = true
     }
 
     /// Call when a single mode stops only itself (e.g. Teleport's Clear). The global Stop

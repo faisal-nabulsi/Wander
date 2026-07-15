@@ -49,7 +49,9 @@ struct SettingsView: View {
     @ObservedObject private var wanderAccount = WanderAccount.shared
     @ObservedObject private var selfRefresh = SelfRefreshService.shared
     @ObservedObject private var proAccount = WanderProAccount.shared
+    @ObservedObject private var deviceActivation = WanderDeviceActivation.shared
     @State private var showProSignIn = false
+    @State private var showManageDevices = false
     @EnvironmentObject private var localization: LocalizationManager
 
     private var appVersion: String {
@@ -86,7 +88,20 @@ struct SettingsView: View {
                             Text("Renews/expires \(expiry.formatted(date: .abbreviated, time: .omitted))")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
+                        // A Pro account can manage the devices it's signed into (5-device cap).
+                        if proAccount.isPro {
+                            manageDevicesRow
+                        }
                     } else {
+                        // Pro account, but THIS device is over the 5-device cap → not unlocked
+                        // here. Point the user straight at Manage Devices to free a slot.
+                        if proAccount.isPro && deviceActivation.atLimit && !deviceActivation.registered {
+                            Label("This device isn't unlocked — your Pro account is at its \(deviceActivation.limit)-device limit.",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.orange)
+                            manageDevicesRow
+                        }
                         trialRow(L("settings.trial.teleports", fallback: "Teleports"), trial.teleportsUsed, TrialManager.maxTeleports)
                         trialRow(L("settings.trial.joystick", fallback: "Joystick"), trial.joystickSecondsUsed / 60, TrialManager.maxJoystickSeconds / 60, unit: " min")
                         trialRow(L("settings.trial.routes", fallback: "Routes"), trial.routesUsed, TrialManager.maxRoutes)
@@ -471,6 +486,9 @@ struct SettingsView: View {
                 SavedPlacesSync.shared.syncIfEnabled()
             })
         }
+        .sheet(isPresented: $showManageDevices) {
+            ManageDevicesView(overLimitContext: deviceActivation.atLimit && !deviceActivation.registered)
+        }
         .alert("Two-Factor Code", isPresented: $wanderAccount.awaiting2FA) {
             TextField("6-digit code", text: $twoFactorCode)
                 .keyboardType(.numberPad)
@@ -503,6 +521,24 @@ struct SettingsView: View {
             Text(localized: "settings.language_footer",
                  fallback: "Choose the language Wander uses. The app updates immediately — no restart needed.")
         }
+    }
+
+    // MARK: - Manage devices (Pro, 5-device cap)
+
+    private var manageDevicesRow: some View {
+        Button {
+            showManageDevices = true
+        } label: {
+            HStack {
+                Label("Manage devices", systemImage: "iphone.and.arrow.forward")
+                Spacer()
+                Text("\(max(deviceActivation.devices.count, 0))/\(deviceActivation.limit)")
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                Image(systemName: "chevron.right")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+        }
+        .tint(.primary)
     }
 
     // MARK: - Multi-device sync (Pro, opt-in)

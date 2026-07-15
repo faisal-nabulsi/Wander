@@ -50,6 +50,10 @@ struct WanderApp: App {
                 // singleton loads the cached isPro from the Keychain and kicks off a background
                 // entitlement re-check; folds into License.isLicensed so the gates honor it.
                 await MainActor.run { _ = WanderProAccount.shared }
+                // Register THIS install against the account's 5-device cap (server-enforced),
+                // while online. Fully fail-safe — on any error it keeps the cached registration
+                // so a paying user is never locked out offline. No-ops when not signed in.
+                await WanderDeviceActivation.shared.activate()
                 // OPT-IN, PRO-ONLY saved-places sync. No-ops unless the toggle is on, the user is
                 // Pro, and a Wander account is signed in. Fully fail-safe (see SavedPlacesSync).
                 await MainActor.run { SavedPlacesSync.shared.syncIfEnabled() }

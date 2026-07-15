@@ -158,6 +158,19 @@ struct MainTabView: View {
             .onChange(of: session.isActive) { _, active in
                 if active { flashBanner() } else { withAnimation { bannerVisible = false } }
             }
+            // One-time-per-session coaching tip: spoofing was just started while on cellular.
+            // Advisory only — spoofing already started; this never blocks it. Shown at most once
+            // per app session (see SimulationSession.didShowCellularTip); reappears next launch.
+            .alert(
+                L("tip.cellular.title", fallback: "Heads up: you're on cellular"),
+                isPresented: $session.showCellularTip
+            ) {
+                Button(L("action.ok", fallback: "Got it"), role: .cancel) {
+                    session.showCellularTip = false
+                }
+            } message: {
+                Text(localized: "tip.cellular.body", fallback: "On cellular your real area can still leak — even with a VPN. For the most believable spoof, connect to Wi-Fi or turn on Airplane Mode.")
+            }
         }
     }
 
