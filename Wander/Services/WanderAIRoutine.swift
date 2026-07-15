@@ -33,10 +33,24 @@ struct AIRoutinePlace: Identifiable {
     let depart: String?
 }
 
+/// Where a successful routine came from. `.server` is a live AI-crafted day from the Worker;
+/// `.offlineCache` is a genuine past server routine replayed from the on-device cache; and
+/// `.offlineGenerated` is a believable day built entirely on-device with no network. The two
+/// offline cases let the UI badge the result ("Offline routine — reconnect for AI-crafted ones")
+/// so the user knows it isn't a fresh AI day.
+enum AIRoutineSource {
+    case server
+    case offlineCache
+    case offlineGenerated
+
+    /// True for either offline case — the UI badges these.
+    var isOffline: Bool { self != .server }
+}
+
 /// The distinct, user-actionable outcomes of an AI-routine request. The view switches on this;
 /// there is no throwing/crashing path — every server and transport condition maps to a case.
 enum AIRoutineResult {
-    case success([AIRoutinePlace])
+    case success([AIRoutinePlace], source: AIRoutineSource)
     case proRequired                    // 403 — open the paywall
     case dailyLimit(String)             // 429 — friendly limit message
     case notConfigured(String)          // 503 — AI not switched on yet
@@ -55,6 +69,13 @@ enum WanderAIRoutine {
     static func generate(at coordinate: CLLocationCoordinate2D,
                          city: String? = nil,
                          style: String? = nil) async -> AIRoutineResult {
+        // Offline path #1: the connectivity monitor already knows we can't reach the Worker.
+        // Don't burn a doomed round-trip (or send the user to the paywall for a missing token
+        // that only failed because there's no network) — degrade straight to an offline routine.
+        if !NetworkReachability.shared.isOnline {
+            return offlineFallback(at: coordinate, style: style)
+        }
+
         // Reuse the exact idToken retrieval the trial/sync features use. No sign-in → the
         // account isn't Pro anyway, so route the user to the upsell rather than erroring.
         guard let token = await WanderProAccount.shared.currentIdToken() else {
@@ -77,7 +98,40 @@ enum WanderAIRoutine {
             body["idToken"] = fresh
             first = await post(body: body)
         }
-        return first.result
+
+        switch first.result {
+        case .success(let places, _):
+            // A genuine AI day — cache it so a later offline request can replay a real routine
+            // rather than a generic on-device one.
+            RoutineCacheStore.save(places, at: coordinate, style: style)
+            return first.result
+        case .failed:
+            // Offline path #2: the call threw / timed out despite the monitor thinking we were
+            // online (flaky connection, DNS, captive portal). A transport failure is exactly the
+            // "airplane mode" case the user hit — degrade to an offline routine instead of the
+            // dead error copy. Server-shaped errors (403/429/503) are NOT transport failures and
+            // still surface as themselves.
+            if first.status < 0 {
+                return offlineFallback(at: coordinate, style: style)
+            }
+            return first.result
+        default:
+            return first.result
+        }
+    }
+
+    /// Build the best offline routine for `coordinate`: PREFER a genuine past server routine from
+    /// the on-device cache, and only fall back to the on-device generator when the cache is empty.
+    /// Either way the result is a `.success` (never `.failed`) tagged with an offline source so
+    /// the UI can badge it. No network, no secrets — the generator runs fully on-device.
+    @MainActor
+    private static func offlineFallback(at coordinate: CLLocationCoordinate2D,
+                                        style: String?) -> AIRoutineResult {
+        if let cached = RoutineCacheStore.best(near: coordinate), !cached.isEmpty {
+            return .success(cached, source: .offlineCache)
+        }
+        let generated = OfflineRoutineGenerator.generate(at: coordinate, style: style)
+        return .success(generated, source: .offlineGenerated)
     }
 
     /// Perform one POST and map the HTTP status → an `AIRoutineResult`. Returns the raw status
@@ -111,7 +165,7 @@ enum WanderAIRoutine {
                 guard !places.isEmpty else {
                     return (.failed("The AI didn't return any stops. Try a different spot."), 200)
                 }
-                return (.success(places), 200)
+                return (.success(places, source: .server), 200)
 
             case 403:
                 // Pro-gated on the server too — send the user to the upsell.

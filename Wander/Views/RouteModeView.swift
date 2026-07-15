@@ -195,6 +195,9 @@ struct RouteModeView: View {
     @State private var isGeneratingAI = false
     @State private var aiPlaces: [AIRoutinePlace] = []
     @State private var showAIRoutine = false
+    // True when the shown day is an OFFLINE routine (cached real day or on-device generated),
+    // so the sheet can badge it "Offline routine — reconnect for AI-crafted ones".
+    @State private var aiRoutineIsOffline = false
     // Optional persona/day prompt (e.g. "a nurse on a night shift"), sent as the `style` field.
     // Empty prompt + "Surprise me" sends NO style so the server randomizes the persona.
     @State private var aiStylePrompt = ""
@@ -1405,8 +1408,9 @@ struct RouteModeView: View {
             let result = await WanderAIRoutine.generate(at: origin, style: styleToSend)
             isGeneratingAI = false
             switch result {
-            case .success(let places):
+            case .success(let places, let source):
                 aiPlaces = places
+                aiRoutineIsOffline = source.isOffline
                 showAIRoutine = true
             case .proRequired:
                 showPaywall = true
@@ -1425,6 +1429,20 @@ struct RouteModeView: View {
     private var aiRoutineSheet: some View {
         NavigationStack {
             List {
+                // Offline badge: shown only when the day came from the on-device fallback or the
+                // cache (not a live AI day), so the user knows why it looks generic.
+                if aiRoutineIsOffline {
+                    Section {
+                        HStack(spacing: 10) {
+                            Image(systemName: "wifi.slash")
+                                .foregroundStyle(.secondary)
+                            Text(L("routine.offline_badge",
+                                   fallback: "Offline routine — reconnect for AI-crafted ones"))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 Section {
                     ForEach(Array(aiPlaces.enumerated()), id: \.element.id) { index, place in
                         HStack(spacing: 12) {
