@@ -20,6 +20,46 @@ enum WanderSales {
     static let monthlyPrice = "$3.99/mo"
 }
 
+/// Localizes the paywall's DISPLAYED prices to the visitor's currency via the Worker /pricing/geo
+/// endpoint (live FX, cached daily). Display only — checkout charges the real amount in the local
+/// currency via Lemon Squeezy. Everyone pays the same value; it's just shown natively. Falls back
+/// to the USD strings until/unless the fetch succeeds.
+@MainActor
+final class PriceLocalizer: ObservableObject {
+    @Published var lifetime = WanderSales.lifetimePrice
+    @Published var yearly = WanderSales.yearlyPrice
+    @Published var yearlyNote = WanderSales.yearlyNote
+    @Published var monthly = WanderSales.monthlyPrice
+
+    private var loaded = false
+
+    func load() {
+        guard !loaded else { return }
+        loaded = true
+        guard let url = URL(string: "https://wander-payments.wanderlocation.workers.dev/pricing/geo") else { return }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        Task { @MainActor [weak self] in
+            do {
+                let (data, _) = try await URLSession.shared.data(for: req)
+                guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let currency = obj["currency"] as? String, currency != "USD",
+                      let rate = obj["rate"] as? Double, rate > 0 else { return }
+                let fmt = NumberFormatter()
+                fmt.numberStyle = .currency
+                fmt.currencyCode = currency
+                fmt.locale = Locale.current
+                func money(_ usd: Double) -> String? { fmt.string(from: NSNumber(value: usd * rate)) }
+                guard let self else { return }
+                if let v = money(80) { self.lifetime = v }
+                if let v = money(36) { self.yearly = v + "/yr" }
+                if let v = money(3.99) { self.monthly = v + "/mo" }
+                if let v = money(3) { self.yearlyNote = v + "/mo, billed yearly" }
+            } catch { /* keep the USD fallback */ }
+        }
+    }
+}
+
 struct PaywallView: View {
     /// When set, the paywall is a dismissable trial-limit sheet with a Close button.
     /// When nil, it's the non-dismissable remote kill-switch cover.
@@ -29,6 +69,7 @@ struct PaywallView: View {
     @ObservedObject private var license = License.shared
     @ObservedObject private var trial = TrialManager.shared
     @State private var showAccountSignIn = false
+    @StateObject private var prices = PriceLocalizer()
 
     private var isTrial: Bool { onClose != nil }
 
@@ -76,6 +117,7 @@ struct PaywallView: View {
             }
         }
         .interactiveDismissDisabled(onClose == nil)
+        .task { prices.load() }
     }
 
     private var headline: String {
@@ -128,9 +170,9 @@ struct PaywallView: View {
         VStack(spacing: 14) {
             VStack(spacing: 8) {
                 Text(localized: "paywall.choose_plan", fallback: "Choose a plan").font(.headline).foregroundStyle(.white)
-                planRow(L("paywall.plan.lifetime", fallback: "Lifetime"), WanderSales.lifetimePrice, L("paywall.plan.lifetime_note", fallback: "one-time, never expires"))
-                planRow(L("paywall.plan.yearly", fallback: "Yearly"), WanderSales.yearlyPrice, WanderSales.yearlyNote)
-                planRow(L("paywall.plan.monthly", fallback: "Monthly"), WanderSales.monthlyPrice, "")
+                planRow(L("paywall.plan.lifetime", fallback: "Lifetime"), prices.lifetime, L("paywall.plan.lifetime_note", fallback: "one-time, never expires"))
+                planRow(L("paywall.plan.yearly", fallback: "Yearly"), prices.yearly, prices.yearlyNote)
+                planRow(L("paywall.plan.monthly", fallback: "Monthly"), prices.monthly, "")
                 Text(localized: "paywall.buy_hint", fallback: "Buy Wander Pro at wanderspoofer.com, then sign in below — your Pro unlocks on iPhone, Android, and desktop, and survives reinstalls.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.85))

@@ -1,6 +1,6 @@
 {
-  "build": 27,
+  "build": 28,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Flight planner — pick two airports (or a time range for a flight to choose) and fly the great-circle route. Plus 'hold perfectly still' and 'approximate location' (~3-5km) privacy toggles."
+  "notes": "Localized pricing — the Pro paywall now shows prices in your local currency."
 }
