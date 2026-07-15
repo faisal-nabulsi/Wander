@@ -11,6 +11,10 @@ private enum SettingsLinks {
     static let githubRepo = URL(string: "https://github.com/faisal-nabulsi/Wander")!
     static let discordInvite = URL(string: "https://discord.gg/gfHdsRXUVA")!
     static let vpn = URL(string: "https://wanderspoofer.com/vpn/")!
+    // Attribution for the bundled offline place gazetteer used by natural-language teleport
+    // (OfflineGeocoder). The data is derived from GeoNames and is licensed under CC BY 4.0,
+    // which requires a user-visible credit — surfaced in the Community section below.
+    static let geonamesLicense = URL(string: "https://creativecommons.org/licenses/by/4.0/")!
 }
 
 struct SettingsView: View {
@@ -398,6 +402,13 @@ struct SettingsView: View {
                     Link(destination: SettingsLinks.discordInvite) {
                         Label(L("settings.community.discord", fallback: "💬 Join our Discord"), systemImage: "bubble.left.and.bubble.right.fill")
                             .foregroundStyle(Color(red: 0x58 / 255, green: 0x65 / 255, blue: 0xF2 / 255))
+                    }
+                    // Required CC BY 4.0 credit for the bundled offline place data (GeoNames),
+                    // which powers natural-language teleport when the device is offline.
+                    Link(destination: SettingsLinks.geonamesLicense) {
+                        Text("Offline place data © GeoNames (CC BY 4.0)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                 } header: {
                     Text(localized: "settings.community.header", fallback: "Community")

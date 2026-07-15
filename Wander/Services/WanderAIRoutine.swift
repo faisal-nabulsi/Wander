@@ -253,6 +253,16 @@ extension WanderAIRoutine {
         guard !trimmed.isEmpty else {
             return .failed("Type where you'd like to go first.")
         }
+
+        // Offline path #1: the connectivity monitor already knows we can't reach the Worker.
+        // The caller (resolveNLPlace) has ALREADY Pro-gated, so we must NOT require a Firebase
+        // token here — a missing token offline just means "no network", not "not Pro". Resolve
+        // the query against the bundled on-device gazetteer instead of burning a doomed round-trip
+        // that would only surface the dead error copy the user hits in airplane mode.
+        if !NetworkReachability.shared.isOnline {
+            return offlinePlace(query: trimmed)
+        }
+
         // No sign-in → not Pro anyway, so route to the upsell rather than erroring.
         guard let token = await WanderProAccount.shared.currentIdToken() else {
             return .proRequired
@@ -266,7 +276,29 @@ extension WanderAIRoutine {
             body["idToken"] = fresh
             first = await postPlace(body: body)
         }
+
+        // Offline path #2: the call threw / timed out despite the monitor thinking we were online
+        // (flaky connection, DNS, captive portal). A transport failure (status -1) is exactly the
+        // "airplane mode" case — degrade to the on-device gazetteer instead of the dead error copy.
+        // Server-shaped errors (403/429/503/other HTTP codes) are NOT transport failures and still
+        // surface as themselves. The online success path is unchanged.
+        if case .failed = first.result, first.status < 0 {
+            return offlinePlace(query: trimmed)
+        }
+
         return first.result
+    }
+
+    /// Resolve `query` entirely on-device via the bundled gazetteer. A hit becomes a normal
+    /// `.success` teleport (the caller already teleports on `place.found && coordinate != nil`);
+    /// a miss becomes a friendly, actionable `.failed` that points the user at coordinates / a
+    /// Plus Code / reconnecting. Zero network, no secrets, no token.
+    @MainActor
+    private static func offlinePlace(query: String) -> AIPlaceResult {
+        if let hit = OfflineGeocoder.resolve(query) {
+            return .success(AIPlace(found: true, label: hit.name, coordinate: hit.coordinate))
+        }
+        return .failed("Couldn't find \"\(query)\" offline. Try coordinates, a Plus Code, or reconnect for AI search.")
     }
 
     private static func postPlace(body: [String: Any]) async -> (result: AIPlaceResult, status: Int) {
