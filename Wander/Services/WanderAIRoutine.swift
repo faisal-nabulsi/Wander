@@ -22,6 +22,38 @@
 import Foundation
 import CoreLocation
 
+/// A user's own saved/favorite spot handed to the routine generator so the AI (or the offline
+/// builder) anchors the day on REAL places ("Home", "Gym", "Grandma") instead of invented ones.
+/// This is the exact shape of the `namedPlaces` entries in the POST /ai/routine request body.
+struct NamedPlace {
+    let name: String
+    let lat: Double
+    let lng: Double
+}
+
+extension NamedPlace {
+    /// Build the `namedPlaces` payload from the user's saved bookmarks per the shared contract:
+    /// trim names, drop empty names or invalid coords, dedupe by (trimmed, case-insensitive) name,
+    /// and cap at 12. Preserves the source order so the day anchors on the user's top places first.
+    static func fromBookmarks(_ bookmarks: [LocationBookmark]) -> [NamedPlace] {
+        var out: [NamedPlace] = []
+        var seen = Set<String>()
+        for bookmark in bookmarks {
+            let name = bookmark.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+            let lat = bookmark.latitude, lng = bookmark.longitude
+            // Drop invalid coords: NaN/inf or out of the valid lat/lng range.
+            guard lat.isFinite, lng.isFinite,
+                  abs(lat) <= 90, abs(lng) <= 180 else { continue }
+            let key = name.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            out.append(NamedPlace(name: name, lat: lat, lng: lng))
+            if out.count >= 12 { break }
+        }
+        return out
+    }
+}
+
 /// One stop in an AI-generated day. `arrive`/`depart` are whatever human-readable time strings
 /// the Worker returned (e.g. "9:00 AM"); the app only displays them and never parses them.
 struct AIRoutinePlace: Identifiable {
@@ -68,12 +100,13 @@ enum WanderAIRoutine {
     @MainActor
     static func generate(at coordinate: CLLocationCoordinate2D,
                          city: String? = nil,
-                         style: String? = nil) async -> AIRoutineResult {
+                         style: String? = nil,
+                         namedPlaces: [NamedPlace] = []) async -> AIRoutineResult {
         // Offline path #1: the connectivity monitor already knows we can't reach the Worker.
         // Don't burn a doomed round-trip (or send the user to the paywall for a missing token
         // that only failed because there's no network) — degrade straight to an offline routine.
         if !NetworkReachability.shared.isOnline {
-            return offlineFallback(at: coordinate, style: style)
+            return offlineFallback(at: coordinate, style: style, namedPlaces: namedPlaces)
         }
 
         // Reuse the exact idToken retrieval the trial/sync features use. No sign-in → the
@@ -89,6 +122,12 @@ enum WanderAIRoutine {
         ]
         if let city, !city.isEmpty { body["city"] = city }
         if let style, !style.isEmpty { body["style"] = style }
+        // Send the user's own saved spots as REAL anchors the model should prefer over invented
+        // locations. Omit the field entirely when there are none, so old-server / no-places
+        // behavior is byte-for-byte unchanged (the Worker treats a missing field as before).
+        if !namedPlaces.isEmpty {
+            body["namedPlaces"] = namedPlaces.map { ["name": $0.name, "lat": $0.lat, "lng": $0.lng] }
+        }
 
         var first = await post(body: body)
         // A 401 means the short-lived idToken expired mid-flight — mint a fresh one and retry once,
@@ -112,7 +151,7 @@ enum WanderAIRoutine {
             // dead error copy. Server-shaped errors (403/429/503) are NOT transport failures and
             // still surface as themselves.
             if first.status < 0 {
-                return offlineFallback(at: coordinate, style: style)
+                return offlineFallback(at: coordinate, style: style, namedPlaces: namedPlaces)
             }
             return first.result
         default:
@@ -126,11 +165,13 @@ enum WanderAIRoutine {
     /// the UI can badge it. No network, no secrets — the generator runs fully on-device.
     @MainActor
     private static func offlineFallback(at coordinate: CLLocationCoordinate2D,
-                                        style: String?) -> AIRoutineResult {
+                                        style: String?,
+                                        namedPlaces: [NamedPlace] = []) -> AIRoutineResult {
         if let cached = RoutineCacheStore.best(near: coordinate), !cached.isEmpty {
             return .success(cached, source: .offlineCache)
         }
-        let generated = OfflineRoutineGenerator.generate(at: coordinate, style: style)
+        let generated = OfflineRoutineGenerator.generate(at: coordinate, style: style,
+                                                         namedPlaces: namedPlaces)
         return .success(generated, source: .offlineGenerated)
     }
 

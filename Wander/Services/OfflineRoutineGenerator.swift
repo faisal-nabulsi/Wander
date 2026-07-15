@@ -32,12 +32,37 @@ enum OfflineRoutineGenerator {
     /// Worker call but only lightly influences the day offline (we can't run a language model
     /// on-device); an empty/nil style yields the default balanced day.
     ///
-    /// Layout: Home at `center`; Office 2–8 km away on a pseudo-random bearing; Gym 1–3 km away;
-    /// plus a Cafe on the commute and an evening Errand. Distances/bearings and the small
-    /// time/dwell jitter are seeded from the coordinate so the same spot yields a stable day
+    /// `namedPlaces` are the user's OWN saved spots. When supplied, the day is anchored on them
+    /// via a simple name heuristic (see `roleFor`) so even the offline day uses REAL places —
+    /// "home"/"house"/"apt"/"dorm" → the home/overnight anchor, "work"/"office"/"job" → the
+    /// weekday work anchor, "school"/"college"/… → the daytime anchor, "gym"/"fitness" → the gym
+    /// anchor, and anything else becomes an extra errand/social stop in order. Any role with no
+    /// matching saved place falls back to the existing synthetic offset below.
+    ///
+    /// Layout (fallbacks): Home at `center`; Office 2–8 km away on a pseudo-random bearing; Gym
+    /// 1–3 km away; plus a Cafe on the commute and an evening Errand. Distances/bearings and the
+    /// small time/dwell jitter are seeded from the coordinate so the same spot yields a stable day
     /// (feels intentional, not random on every tap) while different spots differ.
-    static func generate(at center: CLLocationCoordinate2D, style: String? = nil) -> [AIRoutinePlace] {
+    static func generate(at center: CLLocationCoordinate2D, style: String? = nil,
+                         namedPlaces: [NamedPlace] = []) -> [AIRoutinePlace] {
         var rng = SeededGenerator(seed: seed(for: center, style: style))
+
+        // Sort the user's saved spots into day roles by name. The first match for each single-slot
+        // role wins; everything unmatched becomes an extra errand/social stop, in the user's order.
+        var homePlace: NamedPlace?
+        var workPlace: NamedPlace?
+        var schoolPlace: NamedPlace?
+        var gymPlace: NamedPlace?
+        var extraStops: [NamedPlace] = []
+        for np in namedPlaces {
+            switch roleFor(np.name) {
+            case .home:   if homePlace == nil { homePlace = np } else { extraStops.append(np) }
+            case .work:   if workPlace == nil { workPlace = np } else { extraStops.append(np) }
+            case .school: if schoolPlace == nil { schoolPlace = np } else { extraStops.append(np) }
+            case .gym:    if gymPlace == nil { gymPlace = np } else { extraStops.append(np) }
+            case .other:  extraStops.append(np)
+            }
+        }
 
         // Anchor points around Home. Bearings are spread so Office/Gym/Cafe don't stack up.
         let officeBearing = Double.random(in: 0..<360, using: &rng)
@@ -51,11 +76,25 @@ enum OfflineRoutineGenerator {
         let errandBearing = Double.random(in: 0..<360, using: &rng)
         let errandKm = Double.random(in: 0.8...2.5, using: &rng)
 
-        let home = center
+        // Home anchors the whole day: prefer the user's saved home, else the requested center.
+        let home = homePlace.map(coord(of:)) ?? center
         let cafe = offset(from: home, km: cafeKm, bearingDegrees: cafeBearing)
-        let office = offset(from: home, km: officeKm, bearingDegrees: officeBearing)
-        let gym = offset(from: office, km: gymKm, bearingDegrees: gymBearing)
+        // Prefer the user's saved work/school as the daytime anchor; fall back to a synthetic
+        // office. A school takes priority over work for the daytime slot when both exist.
+        let daytimePlace = workPlace ?? schoolPlace
+        let office = daytimePlace.map(coord(of:)) ?? offset(from: home, km: officeKm, bearingDegrees: officeBearing)
+        let gym = gymPlace.map(coord(of:)) ?? offset(from: office, km: gymKm, bearingDegrees: gymBearing)
         let errand = offset(from: home, km: errandKm, bearingDegrees: errandBearing)
+
+        // Labels/kinds follow the real saved place when we anchored on one, else the generic copy.
+        let homeLabel = homePlace?.name ?? L("routine.home", fallback: "Home")
+        // A saved school (with no saved work) makes the daytime anchor a school; otherwise it's work.
+        let anchoredSchool = (workPlace == nil && schoolPlace != nil)
+        let daytimeLabel = daytimePlace?.name
+            ?? (anchoredSchool ? L("routine.school", fallback: "School")
+                               : L("routine.office", fallback: "Office"))
+        let daytimeKind = anchoredSchool ? "school" : "work"
+        let gymLabel = gymPlace?.name ?? L("routine.gym", fallback: "Gym")
 
         // Minutes of jitter so start/end times aren't robotically identical each run.
         let wakeJitter = Int.random(in: -20...20, using: &rng)
@@ -63,8 +102,8 @@ enum OfflineRoutineGenerator {
         let gymJitter = Int.random(in: -15...25, using: &rng)
 
         // A weekday, in wall-clock minutes past midnight, with dwell built into arrive/depart.
-        let places: [AIRoutinePlace] = [
-            place(label: L("routine.home", fallback: "Home"), kind: "home",
+        var places: [AIRoutinePlace] = [
+            place(label: homeLabel, kind: "home",
                   coord: home,
                   arriveMin: nil,                                  // already home overnight
                   departMin: 8 * 60 + 5 + wakeJitter),            // leaves ~8:05 AM
@@ -72,24 +111,63 @@ enum OfflineRoutineGenerator {
                   coord: cafe,
                   arriveMin: 8 * 60 + 20 + commuteJitter,
                   departMin: 8 * 60 + 40 + commuteJitter),
-            place(label: L("routine.office", fallback: "Office"), kind: "work",
+            place(label: daytimeLabel, kind: daytimeKind,
                   coord: office,
                   arriveMin: 9 * 60 + commuteJitter,               // ~9:00 AM
                   departMin: 17 * 60 + commuteJitter),             // ~5:00 PM
-            place(label: L("routine.gym", fallback: "Gym"), kind: "gym",
+            place(label: gymLabel, kind: "gym",
                   coord: gym,
                   arriveMin: 17 * 60 + 30 + gymJitter,
                   departMin: 18 * 60 + 45 + gymJitter),
-            place(label: L("routine.errand", fallback: "Errand"), kind: "shop",
-                  coord: errand,
-                  arriveMin: 19 * 60 + 10 + gymJitter,
-                  departMin: 19 * 60 + 40 + gymJitter),
-            place(label: L("routine.home", fallback: "Home"), kind: "home",
-                  coord: home,
-                  arriveMin: 20 * 60 + gymJitter,                  // home for the evening
-                  departMin: nil),
         ]
+
+        // Evening errand/social stops: prefer the user's leftover saved spots (in order),
+        // otherwise the single synthetic errand. Each gets a ~30 min visit, chained in time.
+        var errandArrive = 19 * 60 + 10 + gymJitter
+        if extraStops.isEmpty {
+            places.append(place(label: L("routine.errand", fallback: "Errand"), kind: "shop",
+                                coord: errand,
+                                arriveMin: errandArrive,
+                                departMin: errandArrive + 30))
+        } else {
+            // Cap the number of evening stops so the day stays believable (not a 12-stop marathon).
+            for np in extraStops.prefix(3) {
+                places.append(place(label: np.name, kind: "shop",
+                                    coord: coord(of: np),
+                                    arriveMin: errandArrive,
+                                    departMin: errandArrive + 30))
+                errandArrive += 45   // ~30 min visit + ~15 min hop to the next
+            }
+        }
+
+        // Back home for the evening, after the last evening stop.
+        places.append(place(label: homeLabel, kind: "home",
+                            coord: home,
+                            arriveMin: max(20 * 60 + gymJitter, errandArrive + 20),
+                            departMin: nil))
         return places
+    }
+
+    // MARK: Named-place roles
+
+    /// The day-role a saved place maps to, from its name (per the shared contract heuristic).
+    private enum PlaceRole { case home, work, school, gym, other }
+
+    /// Classify a saved place by simple name keywords. Order matters only in that each keyword
+    /// group is checked independently; the first single-slot match in the user's list wins upstream.
+    private static func roleFor(_ name: String) -> PlaceRole {
+        let n = name.lowercased()
+        func has(_ needles: [String]) -> Bool { needles.contains { n.contains($0) } }
+        if has(["home", "house", "apt", "dorm"]) { return .home }
+        if has(["work", "office", "job"]) { return .work }
+        if has(["school", "college", "class", "campus", "uni"]) { return .school }
+        if has(["gym", "fitness"]) { return .gym }
+        return .other
+    }
+
+    /// A saved place's coordinate.
+    private static func coord(of np: NamedPlace) -> CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: np.lat, longitude: np.lng)
     }
 
     // MARK: Place construction

@@ -191,6 +191,11 @@ struct RouteModeView: View {
     // generate plausible flights across a time range, then fly the great-circle PLANE route.
     @State private var showFlightPlanner = false
 
+    // The user's own saved/favorite places (their custom-named bookmarks). Handed to the AI /
+    // offline routine generator as REAL anchors so the day is built around their spots (Home,
+    // Gym, Grandma) instead of invented ones.
+    @StateObject private var savedPlaces = SavedPlacesStore()
+
     // AI "believable day" (Pro): the Worker generates a plausible day of stops we can replay/save.
     @State private var isGeneratingAI = false
     @State private var aiPlaces: [AIRoutinePlace] = []
@@ -225,7 +230,15 @@ struct RouteModeView: View {
             .onReceive(NotificationCenter.default.publisher(for: .savedRoutesDidChange)) { _ in
                 savedRoutes.reload()
             }
-            .onAppear { currentLocation.request() }
+            .onAppear {
+                currentLocation.request()
+                savedPlaces.reload()   // load the user's saved spots to anchor the AI day
+            }
+            // Keep the saved-places snapshot fresh when the Places tab / sync writes to the store,
+            // so a routine generated later anchors on the user's current spots.
+            .onReceive(NotificationCenter.default.publisher(for: .placesDidChange)) { _ in
+                savedPlaces.reload()
+            }
             .sheet(isPresented: $showPaywall) { PaywallView(onClose: { showPaywall = false }) }
             .sheet(isPresented: $showSaveRouteSheet) { saveRouteSheet }
             .sheet(isPresented: $showSaveRecordingSheet) { saveRecordingSheet }
@@ -1403,9 +1416,13 @@ struct RouteModeView: View {
         }
         let trimmedStyle = style?.trimmingCharacters(in: .whitespacesAndNewlines)
         let styleToSend = (trimmedStyle?.isEmpty ?? true) ? nil : trimmedStyle
+        // Anchor the day on the user's OWN saved places (their named bookmarks — NOT the QuickPlaces
+        // landmark list). Deduped/trimmed/capped per the shared contract; omitted when empty.
+        let namedPlaces = NamedPlace.fromBookmarks(savedPlaces.saved)
         isGeneratingAI = true
         Task {
-            let result = await WanderAIRoutine.generate(at: origin, style: styleToSend)
+            let result = await WanderAIRoutine.generate(at: origin, style: styleToSend,
+                                                        namedPlaces: namedPlaces)
             isGeneratingAI = false
             switch result {
             case .success(let places, let source):

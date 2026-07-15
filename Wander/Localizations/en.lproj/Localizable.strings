@@ -61,6 +61,7 @@
 "routine.offline_badge" = "Offline routine — reconnect for AI-crafted ones";
 "routine.home" = "Home";
 "routine.office" = "Office";
+"routine.school" = "School";
 "routine.gym" = "Gym";
 "routine.cafe" = "Morning Coffee";
 "routine.errand" = "Errand";
