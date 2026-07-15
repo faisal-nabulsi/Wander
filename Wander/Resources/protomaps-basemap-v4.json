@@ -1,0 +1,150 @@
+{
+  "version": 8,
+  "name": "Protomaps Basemap v4 (Light)",
+  "metadata": {
+    "maputnik:renderer": "mlgljs",
+    "wander:note": "Protomaps basemap v4 vector style. The `protomaps` source url is rewritten at load time to point at OfflineMapConfig.pmTilesURL via MapLibre's pmtiles:// protocol handler."
+  },
+  "glyphs": "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf",
+  "sprite": "https://protomaps.github.io/basemaps-assets/sprites/v4/light",
+  "sources": {
+    "protomaps": {
+      "type": "vector",
+      "url": "pmtiles://https://demo-bucket.protomaps.com/v4.pmtiles",
+      "attribution": "<a href=\"https://github.com/protomaps/basemaps\">Protomaps</a> © <a href=\"https://openstreetmap.org\">OpenStreetMap</a>"
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": { "background-color": "#f8f4f0" }
+    },
+    {
+      "id": "earth",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "earth",
+      "paint": { "fill-color": "#f8f4f0" }
+    },
+    {
+      "id": "landcover",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "landcover",
+      "paint": { "fill-color": "#e0e8d8", "fill-opacity": 0.7 }
+    },
+    {
+      "id": "landuse_park",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "landuse",
+      "filter": ["in", "pmap:kind", "park", "cemetery", "protected_area", "nature_reserve", "forest", "golf_course", "wood", "grass", "scrub", "farmland", "recreation_ground", "military"],
+      "paint": { "fill-color": "#d7e0c8" }
+    },
+    {
+      "id": "water",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "water",
+      "paint": { "fill-color": "#a0c8f0" }
+    },
+    {
+      "id": "waterway",
+      "type": "line",
+      "source": "protomaps",
+      "source-layer": "physical_line",
+      "filter": ["in", "pmap:kind", "river", "stream", "canal"],
+      "paint": { "line-color": "#a0c8f0", "line-width": 0.8 }
+    },
+    {
+      "id": "buildings",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "buildings",
+      "minzoom": 13,
+      "paint": { "fill-color": "#e8e0d8", "fill-opacity": 0.8 }
+    },
+    {
+      "id": "roads_minor",
+      "type": "line",
+      "source": "protomaps",
+      "source-layer": "roads",
+      "filter": ["in", "pmap:kind", "minor_road", "other", "path"],
+      "minzoom": 12,
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.5, 16, 2.5]
+      }
+    },
+    {
+      "id": "roads_medium",
+      "type": "line",
+      "source": "protomaps",
+      "source-layer": "roads",
+      "filter": ["==", "pmap:kind", "medium_road"],
+      "minzoom": 10,
+      "paint": {
+        "line-color": "#ffd9a1",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.8, 16, 5]
+      }
+    },
+    {
+      "id": "roads_major",
+      "type": "line",
+      "source": "protomaps",
+      "source-layer": "roads",
+      "filter": ["in", "pmap:kind", "major_road", "highway"],
+      "paint": {
+        "line-color": "#fca863",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.6, 16, 7]
+      }
+    },
+    {
+      "id": "boundaries",
+      "type": "line",
+      "source": "protomaps",
+      "source-layer": "boundaries",
+      "paint": {
+        "line-color": "#adacae",
+        "line-width": 0.75,
+        "line-dasharray": [3, 2]
+      }
+    },
+    {
+      "id": "places_locality",
+      "type": "symbol",
+      "source": "protomaps",
+      "source-layer": "places",
+      "filter": ["==", "pmap:kind", "locality"],
+      "layout": {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 4, 10, 12, 18]
+      },
+      "paint": {
+        "text-color": "#3c3836",
+        "text-halo-color": "#f8f4f0",
+        "text-halo-width": 1.2
+      }
+    },
+    {
+      "id": "places_region",
+      "type": "symbol",
+      "source": "protomaps",
+      "source-layer": "places",
+      "filter": ["==", "pmap:kind", "region"],
+      "layout": {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 12,
+        "text-transform": "uppercase"
+      },
+      "paint": {
+        "text-color": "#7c6f64",
+        "text-halo-color": "#f8f4f0",
+        "text-halo-width": 1.2
+      }
+    }
+  ]
+}

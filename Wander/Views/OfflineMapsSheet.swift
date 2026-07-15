@@ -4,16 +4,18 @@
 //
 //  The Offline Maps screen (parity with the Android osmdroid offline flow). Free feature.
 //
-//  What it does, all self-contained (it never touches the shipping SwiftUI Map):
-//    - Shows an OfflineMapView (UIKit MKMapView + WanderTileOverlay rendering OSM tiles).
-//    - "Download this area": pick a zoom depth, see the tile-count + MB estimate (with a
-//      warning when it's large), a progress bar while downloading, and a Cancel.
-//    - Lists saved offline regions with their sizes, each swipe-to-delete.
+//  Reworked onto MapLibre Native + a Protomaps PMTiles vector basemap:
+//    - Shows an OfflineMapView (MLNMapView rendering the Protomaps basemap v4 vector style,
+//      served from a PMTiles archive via MapLibre's pmtiles:// protocol).
+//    - "Download this area": pick a zoom depth, then hand the visible bbox + zoom range to
+//      MapLibre's offline packs (MLNOfflineStorage). A progress bar tracks the pack download
+//      with a Cancel.
+//    - Lists saved offline packs with their sizes, each with delete.
 //    - Shows total cache size + "Delete all".
 //    - "Teleport here" on the long-pressed coordinate, using the SAME low-level simulate
 //      path every other mode uses, so the global banner / Stop / panic all apply.
 //
-//  Presented like the app's other sheets (StreetViewSheet / GlobeSheet).
+//  It never touches the shipping SwiftUI Map. Presented like the app's other sheets.
 //
 
 import SwiftUI
@@ -23,25 +25,26 @@ struct OfflineMapsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var reachability = NetworkReachability.shared
 
-    private let store = OfflineTileStore.shared
+    private let packStore = OfflineMapPackStore.shared
 
     @State private var region = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
+        center: CLLocationCoordinate2D(
+            latitude: OfflineMapConfig.defaultCenterLatitude,
+            longitude: OfflineMapConfig.defaultCenterLongitude
+        ),
         span: MKCoordinateSpan(latitudeDelta: 0.2, longitudeDelta: 0.2)
     )
     @State private var selectedCoordinate: CLLocationCoordinate2D?
-    @State private var cacheOnly = false
 
     // Download configuration + progress.
     @State private var downloadDepth = 2              // extra zoom levels above the current view.
-    @State private var estimate: OfflineDownloadEstimate?
     @State private var isDownloading = false
-    @State private var downloadTask: Task<Void, Never>?
-    @State private var progressDone = 0
-    @State private var progressTotal = 0
+    @State private var downloadBytes: Int64 = 0
+    @State private var progressCompleted: UInt64 = 0
+    @State private var progressExpected: UInt64 = 0
 
-    // Saved regions + cache size.
-    @State private var savedRegions: [OfflineRegion] = []
+    // Saved packs + cache size.
+    @State private var savedPacks: [OfflineMapPack] = []
     @State private var totalCacheBytes: Int64 = 0
 
     // Alerts.
@@ -63,8 +66,7 @@ struct OfflineMapsSheet: View {
             ZStack(alignment: .bottom) {
                 OfflineMapView(
                     selectedCoordinate: $selectedCoordinate,
-                    region: $region,
-                    cacheOnly: cacheOnly
+                    region: $region
                 )
                 .ignoresSafeArea()
                 .overlay(alignment: .center) {
@@ -88,13 +90,6 @@ struct OfflineMapsSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L("common.done", fallback: "Done")) { dismiss() }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Toggle(isOn: $cacheOnly) {
-                        Image(systemName: cacheOnly ? "wifi.slash" : "wifi")
-                    }
-                    .toggleStyle(.button)
-                    .accessibilityLabel(L("offline.maps.cache_only", fallback: "Offline preview"))
-                }
             }
             .alert(alertTitle, isPresented: $showAlert) {
                 Button(L("common.ok", fallback: "OK"), role: .cancel) { }
@@ -112,12 +107,7 @@ struct OfflineMapsSheet: View {
                 Button(L("common.cancel", fallback: "Cancel"), role: .cancel) { }
             }
             .onAppear {
-                refreshSavedRegions()
-                refreshEstimate()
-            }
-            .onDisappear {
-                // Don't cancel a live teleport — but a half-finished *download* is fine to stop.
-                downloadTask?.cancel()
+                refreshSavedPacks()
             }
         }
     }
@@ -134,9 +124,9 @@ struct OfflineMapsSheet: View {
 
                 downloadControls
 
-                if !savedRegions.isEmpty {
+                if !savedPacks.isEmpty {
                     Divider()
-                    savedRegionsList
+                    savedPacksList
                 }
             }
         }
@@ -168,14 +158,21 @@ struct OfflineMapsSheet: View {
     private var downloadControls: some View {
         if isDownloading {
             VStack(spacing: 8) {
-                ProgressView(
-                    value: Double(progressDone),
-                    total: Double(max(progressTotal, 1))
-                )
-                Text(L("offline.maps.downloading",
-                       fallback: "Downloading \(progressDone) / \(progressTotal) tiles…"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if progressExpected > 0 {
+                    ProgressView(
+                        value: Double(progressCompleted),
+                        total: Double(max(progressExpected, 1))
+                    )
+                    Text(L("offline.maps.downloading",
+                           fallback: "Downloading map data… \(ByteCountFormatter.string(fromByteCount: downloadBytes, countStyle: .file))"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ProgressView()
+                    Text(L("offline.maps.preparing", fallback: "Preparing download…"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Button(role: .destructive) {
                     cancelDownload()
                 } label: {
@@ -198,26 +195,13 @@ struct OfflineMapsSheet: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(maxWidth: 240)
-                    .onChange(of: downloadDepth) { _, _ in refreshEstimate() }
                 }
 
-                if let estimate {
-                    Text(estimateText(estimate))
-                        .font(.caption)
-                        .foregroundStyle(estimate.isLarge ? .orange : .secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    if estimate.isLarge {
-                        Label(
-                            L("offline.maps.large_warning",
-                              fallback: "That's a large download — it may take a while and use a lot of storage."),
-                            systemImage: "exclamationmark.triangle.fill"
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
+                Text(L("offline.maps.vector_note",
+                       fallback: "Saves the visible area as a compact vector map for offline use."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 WanderPrimaryButton(
                     title: L("offline.maps.download_area", fallback: "Download this area"),
@@ -229,7 +213,7 @@ struct OfflineMapsSheet: View {
         }
     }
 
-    private var savedRegionsList: some View {
+    private var savedPacksList: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(L("offline.maps.saved", fallback: "Saved maps"))
@@ -240,12 +224,12 @@ struct OfflineMapsSheet: View {
                     .foregroundStyle(.secondary)
             }
 
-            ForEach(savedRegions) { saved in
+            ForEach(savedPacks) { saved in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(saved.name)
                             .font(.subheadline)
-                        Text("\(saved.tileCount) tiles • \(ByteCountFormatter.string(fromByteCount: saved.bytes, countStyle: .file))")
+                        Text(ByteCountFormatter.string(fromByteCount: saved.bytes, countStyle: .file))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -293,37 +277,19 @@ struct OfflineMapsSheet: View {
         .shadow(color: .black.opacity(0.10), radius: 6, y: 2)
     }
 
-    // MARK: - Estimate
+    // MARK: - Zoom range
 
-    /// Maps the current visible map region + chosen depth into a min/max zoom range for the store.
-    private func currentZoomRange() -> (min: Int, max: Int) {
-        // Approximate the map's current zoom from the longitude span.
-        let span = max(region.span.longitudeDelta, 0.0001)
-        let approxZoom = Int((log2(360.0 / span)).rounded())
-        let baseZoom = min(max(approxZoom, 1), OfflineTileStore.maxZoomCap)
-        let maxZoom = min(baseZoom + downloadDepth, OfflineTileStore.maxZoomCap)
-        // Start a couple levels below so panning out still has tiles.
-        let minZoom = max(baseZoom - 1, 1)
-        return (minZoom, maxZoom)
-    }
-
-    private func refreshEstimate() {
-        let range = currentZoomRange()
-        estimate = store.estimate(region: region, minZoom: range.min, maxZoom: range.max)
-    }
-
-    private func estimateText(_ estimate: OfflineDownloadEstimate) -> String {
-        let size = ByteCountFormatter.string(fromByteCount: estimate.approximateBytes, countStyle: .file)
-        return L("offline.maps.estimate",
-                 fallback: "≈ \(estimate.tileCount) tiles • about \(size)")
+    /// Maps the current visible map region + chosen depth into a min/max zoom range for the pack.
+    private func currentZoomRange() -> (min: Double, max: Double) {
+        let baseZoom = OfflineMapStyle.zoomLevel(for: region)
+        let maxZoom = min(baseZoom + Double(downloadDepth), OfflineMapPackStore.maxZoomCap)
+        let minZoom = max(baseZoom - 1, 0)
+        return (minZoom, min(maxZoom, OfflineMapPackStore.maxZoomCap))
     }
 
     // MARK: - Download
 
     private func startDownload() {
-        // Refresh against the region actually on screen right now.
-        refreshEstimate()
-
         guard reachability.isOnline else {
             alert(
                 L("offline.download.offline.title", fallback: "You're offline"),
@@ -338,61 +304,50 @@ struct OfflineMapsSheet: View {
         let name = regionName(for: snapshot)
 
         isDownloading = true
-        progressDone = 0
-        progressTotal = store.estimate(region: snapshot, minZoom: range.min, maxZoom: range.max).tileCount
+        downloadBytes = 0
+        progressCompleted = 0
+        progressExpected = 0
 
-        downloadTask = Task {
-            do {
-                _ = try await store.downloadRegion(
-                    name: name,
-                    region: snapshot,
-                    minZoom: range.min,
-                    maxZoom: range.max
-                ) { done, total in
-                    Task { @MainActor in
-                        progressDone = done
-                        progressTotal = total
-                    }
+        packStore.downloadRegion(
+            name: name,
+            region: snapshot,
+            minZoom: range.min,
+            maxZoom: range.max,
+            progress: { bytes, completed, expected in
+                Task { @MainActor in
+                    downloadBytes = bytes
+                    progressCompleted = completed
+                    progressExpected = expected
                 }
-                await MainActor.run {
+            },
+            completion: { result in
+                Task { @MainActor in
                     isDownloading = false
-                    downloadTask = nil
-                    refreshSavedRegions()
-                }
-            } catch is CancellationError {
-                await MainActor.run {
-                    isDownloading = false
-                    downloadTask = nil
-                    // A partial region is still usable — keep whatever landed on disk.
-                    refreshSavedRegions()
-                }
-            } catch {
-                await MainActor.run {
-                    isDownloading = false
-                    downloadTask = nil
-                    refreshSavedRegions()
-                    if let offlineError = error as? OfflineTileError, case .offline = offlineError {
-                        alert(
-                            L("offline.download.offline.title", fallback: "You're offline"),
-                            error.localizedDescription
-                        )
-                    } else {
+                    refreshSavedPacks()
+                    if case .failure(let error) = result {
                         alert(
                             L("offline.download.failed.title", fallback: "Download interrupted"),
-                            L("offline.download.failed.body",
-                              fallback: "Some tiles couldn't be fetched. Anything downloaded is still available offline.")
+                            error.localizedDescription
                         )
                     }
                 }
             }
-        }
+        )
     }
 
     private func cancelDownload() {
-        downloadTask?.cancel()
-        downloadTask = nil
-        isDownloading = false
-        refreshSavedRegions()
+        // Cancelling mid-download = removing the just-created pack (the newest one).
+        if let newest = packStore.loadPacks().first {
+            packStore.delete(newest) {
+                Task { @MainActor in
+                    isDownloading = false
+                    refreshSavedPacks()
+                }
+            }
+        } else {
+            isDownloading = false
+        }
+        refreshSavedPacks()
     }
 
     /// A friendly default name from the region center (rounded coordinates).
@@ -400,24 +355,23 @@ struct OfflineMapsSheet: View {
         String(format: "%.3f, %.3f", region.center.latitude, region.center.longitude)
     }
 
-    // MARK: - Saved regions
+    // MARK: - Saved packs
 
-    private func refreshSavedRegions() {
-        savedRegions = store.loadRegions()
-        Task.detached(priority: .utility) {
-            let bytes = store.totalCacheBytes()
-            await MainActor.run { totalCacheBytes = bytes }
+    private func refreshSavedPacks() {
+        savedPacks = packStore.loadPacks()
+        totalCacheBytes = packStore.totalBytes()
+    }
+
+    private func delete(_ saved: OfflineMapPack) {
+        packStore.delete(saved) {
+            Task { @MainActor in refreshSavedPacks() }
         }
     }
 
-    private func delete(_ saved: OfflineRegion) {
-        store.deleteRegion(saved)
-        refreshSavedRegions()
-    }
-
     private func deleteAll() {
-        store.deleteAll()
-        refreshSavedRegions()
+        packStore.deleteAll {
+            Task { @MainActor in refreshSavedPacks() }
+        }
     }
 
     // MARK: - Teleport (same low-level path as every other mode)

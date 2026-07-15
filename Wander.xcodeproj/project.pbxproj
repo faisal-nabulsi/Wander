@@ -12,6 +12,7 @@
 		68D569BE2E1B415700A5BA36 /* CodeEditorView in Frameworks */ = {isa = PBXBuildFile; productRef = 68D569BD2E1B415700A5BA36 /* CodeEditorView */; };
 		68D569C02E1B415700A5BA36 /* LanguageSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 68D569BF2E1B415700A5BA36 /* LanguageSupport */; };
 		DFAA523A5AA5E15E1D06FAFB /* AltSign-Dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = 9D27F1765684FE95A41F6CB7 /* AltSign-Dynamic */; };
+		A1B2C3D4E5F60718293A4B5E /* MapLibre in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60718293A4B5D /* MapLibre */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -128,6 +129,7 @@
 				68D569C02E1B415700A5BA36 /* LanguageSupport in Frameworks */,
 				68D569BE2E1B415700A5BA36 /* CodeEditorView in Frameworks */,
 				DFAA523A5AA5E15E1D06FAFB /* AltSign-Dynamic in Frameworks */,
+				A1B2C3D4E5F60718293A4B5E /* MapLibre in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -226,6 +228,7 @@
 				68D569BD2E1B415700A5BA36 /* CodeEditorView */,
 				68D569BF2E1B415700A5BA36 /* LanguageSupport */,
 				9D27F1765684FE95A41F6CB7 /* AltSign-Dynamic */,
+				A1B2C3D4E5F60718293A4B5D /* MapLibre */,
 			);
 			productName = Wander;
 			productReference = DC6F1D372D94EADD0071B2B6 /* Wander.app */;
@@ -314,6 +317,7 @@
 			packageReferences = (
 				68D569BC2E1B415700A5BA36 /* XCRemoteSwiftPackageReference "CodeEditorView" */,
 				594357E3D25E096390949AE4 /* XCLocalSwiftPackageReference "AltSign" */,
+				A1B2C3D4E5F60718293A4B5C /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DC6F1D382D94EADD0071B2B6 /* Products */;
@@ -879,6 +883,14 @@
 				minimumVersion = 0.15.4;
 			};
 		};
+		A1B2C3D4E5F60718293A4B5C /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/maplibre/maplibre-gl-native-distribution";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.10.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -896,6 +908,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 594357E3D25E096390949AE4 /* XCLocalSwiftPackageReference "AltSign" */;
 			productName = "AltSign-Dynamic";
+		};
+		A1B2C3D4E5F60718293A4B5D /* MapLibre */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F60718293A4B5C /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */;
+			productName = MapLibre;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

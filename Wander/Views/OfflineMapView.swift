@@ -2,17 +2,23 @@
 //  OfflineMapView.swift
 //  Wander
 //
-//  A UIViewRepresentable wrapping a UIKit MKMapView so we can host an MKTileOverlay —
-//  SwiftUI's native Map can't do that. The overlay (WanderTileOverlay) renders OSM tiles
-//  from the on-disk cache, replacing Apple's base map entirely.
+//  A UIViewRepresentable wrapping a MapLibre Native `MLNMapView`, rendering a Protomaps
+//  vector basemap (basemap v4) out of a PMTiles archive via MapLibre's built-in `pmtiles://`
+//  protocol (native since MapLibre iOS 6.10). This fully replaces the old MKMapView +
+//  MKTileOverlay OSM raster path.
 //
 //  This view is intentionally small and self-contained: it does NOT touch the shipping
 //  SwiftUI Map in MapSelectionView. A long-press drops/moves the selection and reports the
 //  coordinate up through a @Binding; the selection shows as a single annotation.
 //
+//  The map style is loaded from the bundled `protomaps-basemap-v4.json`, with its vector
+//  source URL rewritten at runtime to `pmtiles://<OfflineMapConfig.pmTilesURL>` so we can
+//  point at our own archive without editing the JSON.
+//
 
 import SwiftUI
 import MapKit
+import MapLibre
 
 struct OfflineMapView: UIViewRepresentable {
     /// The currently-selected coordinate (long-press to set). Nil until the user picks a spot.
@@ -21,23 +27,18 @@ struct OfflineMapView: UIViewRepresentable {
     /// The region the map should show. The parent updates this to fit saved regions, etc.
     @Binding var region: MKCoordinateRegion
 
-    /// When true, the overlay serves only cached tiles (offline preview) — no network.
-    var cacheOnly: Bool
-
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
 
-    func makeUIView(context: Context) -> MKMapView {
-        let mapView = MKMapView(frame: .zero)
+    func makeUIView(context: Context) -> MLNMapView {
+        let mapView = MLNMapView(frame: .zero, styleURL: OfflineMapStyle.localStyleURL())
         mapView.delegate = context.coordinator
         mapView.showsUserLocation = false
-        mapView.setRegion(region, animated: false)
-
-        let overlay = WanderTileOverlay()
-        overlay.cacheOnly = cacheOnly
-        mapView.addOverlay(overlay, level: .aboveLabels)
-        context.coordinator.overlay = overlay
+        mapView.logoView.isHidden = false      // keep MapLibre attribution visible (OSM/Protomaps)
+        mapView.setCenter(region.center,
+                          zoomLevel: OfflineMapStyle.zoomLevel(for: region),
+                          animated: false)
 
         let longPress = UILongPressGestureRecognizer(
             target: context.coordinator,
@@ -49,46 +50,39 @@ struct OfflineMapView: UIViewRepresentable {
         return mapView
     }
 
-    func updateUIView(_ mapView: MKMapView, context: Context) {
-        // Keep the overlay's offline mode in sync with the toggle.
-        if context.coordinator.overlay?.cacheOnly != cacheOnly {
-            context.coordinator.overlay?.cacheOnly = cacheOnly
-            // Force a re-render so blank/real tiles swap when the mode flips.
-            if let overlay = context.coordinator.overlay {
-                mapView.removeOverlay(overlay)
-                mapView.addOverlay(overlay, level: .aboveLabels)
-            }
-        }
-
+    func updateUIView(_ mapView: MLNMapView, context: Context) {
         // Re-center only when the parent moved the region meaningfully (avoids fighting the
         // user's own panning while they browse).
-        if context.coordinator.shouldApplyRegion(region, on: mapView) {
-            mapView.setRegion(region, animated: true)
+        if context.coordinator.shouldApplyRegion(region) {
+            mapView.setCenter(region.center,
+                              zoomLevel: OfflineMapStyle.zoomLevel(for: region),
+                              animated: true)
         }
 
         context.coordinator.syncAnnotation(for: selectedCoordinate, on: mapView)
     }
 
-    final class Coordinator: NSObject, MKMapViewDelegate {
+    final class Coordinator: NSObject, MLNMapViewDelegate {
         private let parent: OfflineMapView
-        var overlay: WanderTileOverlay?
-        private var selectionAnnotation: MKPointAnnotation?
+        private var selectionAnnotation: MLNPointAnnotation?
         private var lastAppliedRegion: MKCoordinateRegion?
 
         init(_ parent: OfflineMapView) {
             self.parent = parent
         }
 
-        func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
-            if let tileOverlay = overlay as? MKTileOverlay {
-                return MKTileOverlayRenderer(tileOverlay: tileOverlay)
-            }
-            return MKOverlayRenderer(overlay: overlay)
+        // MARK: MLNMapViewDelegate
+
+        /// Let MapLibre render the default marker for our single selection pin.
+        func mapView(_ mapView: MLNMapView, annotationCanShowCallout annotation: MLNAnnotation) -> Bool {
+            true
         }
+
+        // MARK: Long-press to pick
 
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
             guard gesture.state == .began,
-                  let mapView = gesture.view as? MKMapView else { return }
+                  let mapView = gesture.view as? MLNMapView else { return }
             let point = gesture.location(in: mapView)
             let coordinate = mapView.convert(point, toCoordinateFrom: mapView)
             // Report up on the main actor via the binding.
@@ -98,7 +92,7 @@ struct OfflineMapView: UIViewRepresentable {
         }
 
         /// Adds/moves/removes the single selection annotation to match the binding.
-        func syncAnnotation(for coordinate: CLLocationCoordinate2D?, on mapView: MKMapView) {
+        func syncAnnotation(for coordinate: CLLocationCoordinate2D?, on mapView: MLNMapView) {
             guard let coordinate else {
                 if let existing = selectionAnnotation {
                     mapView.removeAnnotation(existing)
@@ -112,7 +106,7 @@ struct OfflineMapView: UIViewRepresentable {
                     existing.coordinate = coordinate
                 }
             } else {
-                let annotation = MKPointAnnotation()
+                let annotation = MLNPointAnnotation()
                 annotation.coordinate = coordinate
                 annotation.title = L("offline.map.selected_pin", fallback: "Selected")
                 mapView.addAnnotation(annotation)
@@ -122,7 +116,7 @@ struct OfflineMapView: UIViewRepresentable {
 
         /// Only re-apply the parent's region when it has changed by more than a tiny epsilon,
         /// so programmatic recentering doesn't stomp on the user's manual panning.
-        func shouldApplyRegion(_ requested: MKCoordinateRegion, on mapView: MKMapView) -> Bool {
+        func shouldApplyRegion(_ requested: MKCoordinateRegion) -> Bool {
             guard let last = lastAppliedRegion else {
                 lastAppliedRegion = requested
                 return false

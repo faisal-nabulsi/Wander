@@ -22,8 +22,7 @@ final class NetworkReachability: ObservableObject {
     @Published private(set) var isOnline: Bool = true
 
     /// A nonisolated, thread-safe mirror of `isOnline` for callers that run off the main actor
-    /// (e.g. `WanderTileOverlay.loadTile`, invoked on a background tile-loading queue) and can't
-    /// hop to the main actor synchronously. Kept in sync from the same path-update handler.
+    /// and can't hop to the main actor synchronously. Kept in sync from the same path-update handler.
     nonisolated(unsafe) private(set) static var isOnlineSnapshot: Bool = true
 
     private let monitor = NWPathMonitor()
