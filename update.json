@@ -1,6 +1,6 @@
 {
-  "build": 45,
+  "build": 46,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Tap a spot to preview it on the map (tap Simulate to go), PoGo tab is now Games (multi-game), tidier"
+  "notes": "Tidied the More/Tools/Settings menus — removed duplicated entries (Tools is now advanced-only; Geofences & Devices live in Settings)"
 }

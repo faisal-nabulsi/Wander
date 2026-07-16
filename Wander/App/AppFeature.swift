@@ -188,5 +188,7 @@ enum AppFeature: String, CaseIterable, Identifiable {
 
 extension AppFeature {
     static let mainTabs: [AppFeature] = [.location, .walk, .route, .pogo, .more]
-    static let toolList: [AppFeature] = [.schedule, .itinerary, .scripts, .console, .deviceInfo, .profiles, .processes, .location]
+    // Tools = advanced / diagnostic screens ONLY. Schedule, Itinerary and Location live as their
+    // own More rows / the main tab, so they're intentionally NOT here (they used to double-show).
+    static let toolList: [AppFeature] = [.scripts, .console, .deviceInfo, .profiles, .processes]
 }

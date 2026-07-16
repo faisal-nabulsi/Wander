@@ -5,9 +5,13 @@
 //  The "More" tab — a real, organized hub that REPLACES iOS's auto-generated 2-row overflow.
 //  That overflow appeared only because the bottom bar had 6 items (> the 5-tab limit): iOS
 //  shoved the last two (Places, Settings) into a bare system list and left the rest of the
-//  screen blank. Now the bar has 5 real tabs and this authored hub surfaces every secondary
-//  screen — saved spots, planning, maps, account/device, settings — grouped so the space reads
-//  as intentional.
+//  screen blank. Now the bar has 5 real tabs and this authored hub surfaces the secondary
+//  feature screens, grouped so the space reads as intentional.
+//
+//  Each screen has EXACTLY ONE home to avoid redundancy: config lives in Settings, advanced /
+//  diagnostic screens live under Tools, and everyday feature screens live here. So Geofences and
+//  Manage-Devices (which have Settings homes) and App-expiry / dev tools (under Tools) are NOT
+//  duplicated as rows here.
 //
 //  Each row opens its screen as a sheet. Every destination here brings its OWN navigation
 //  chrome (their own NavigationStack), so presenting them modally avoids the nested-stack
@@ -26,15 +30,10 @@ struct MoreView: View {
                     row(.places)
                     row(.schedule)
                     row(.itinerary)
-                    row(.geofences)
                 }
-                Section(L("more.section.maps", fallback: "Maps & travel")) {
+                Section(L("more.section.maps", fallback: "Maps & tools")) {
                     row(.offlineMaps)
                     row(.tools)
-                }
-                Section(L("more.section.account", fallback: "Account & device")) {
-                    row(.devices)
-                    row(.appExpiry)
                 }
                 Section {
                     row(.settings)
@@ -65,7 +64,7 @@ struct MoreView: View {
 
 /// The secondary screens reachable from More, presented as sheets.
 private enum MoreRoute: String, Identifiable {
-    case places, schedule, itinerary, geofences, offlineMaps, tools, devices, appExpiry, settings
+    case places, schedule, itinerary, offlineMaps, tools, settings
     var id: String { rawValue }
 
     var title: String {
@@ -73,11 +72,8 @@ private enum MoreRoute: String, Identifiable {
         case .places:      return L("tab.places", fallback: "Places")
         case .schedule:    return L("tab.schedule", fallback: "Schedule")
         case .itinerary:   return L("tab.itinerary", fallback: "Itinerary")
-        case .geofences:   return L("more.geofences", fallback: "Geofences")
         case .offlineMaps: return L("more.offline_maps", fallback: "Offline maps")
         case .tools:       return L("more.tools", fallback: "Tools")
-        case .devices:     return L("more.devices", fallback: "Manage devices")
-        case .appExpiry:   return L("more.app_expiry", fallback: "App expiry")
         case .settings:    return L("tab.settings", fallback: "Settings")
         }
     }
@@ -87,11 +83,8 @@ private enum MoreRoute: String, Identifiable {
         case .places:      return "Saved & recent spots"
         case .schedule:    return "Be at a place during set hours"
         case .itinerary:   return "Timed schedule of stops (Pro)"
-        case .geofences:   return "Resume real GPS on arrival"
         case .offlineMaps: return "Download regions for offline use"
-        case .tools:       return "Scripts, console, device info & more"
-        case .devices:     return "Your signed-in devices"
-        case .appExpiry:   return "Check app expiration dates"
+        case .tools:       return "Device info, app expiry & developer tools"
         case .settings:    return "Configure Wander"
         }
     }
@@ -101,11 +94,8 @@ private enum MoreRoute: String, Identifiable {
         case .places:      return "star.fill"
         case .schedule:    return "calendar.badge.clock"
         case .itinerary:   return "calendar.day.timeline.left"
-        case .geofences:   return "mappin.and.ellipse"
         case .offlineMaps: return "square.and.arrow.down.on.square"
         case .tools:       return "wrench.and.screwdriver"
-        case .devices:     return "laptopcomputer.and.iphone"
-        case .appExpiry:   return "calendar.badge.exclamationmark"
         case .settings:    return "gearshape.fill"
         }
     }
@@ -115,11 +105,8 @@ private enum MoreRoute: String, Identifiable {
         case .places:      PlacesView()
         case .schedule:    ScheduleView()
         case .itinerary:   ItineraryQueueView()
-        case .geofences:   NavigationStack { GeofenceListView() }
         case .offlineMaps: OfflineMapsSheet()
         case .tools:       ToolsView()
-        case .devices:     ManageDevicesView(overLimitContext: false)
-        case .appExpiry:   ProfileView()
         case .settings:    SettingsView()
         }
     }

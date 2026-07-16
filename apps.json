@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "45",
+      "buildVersion": "46",
       "versionDate": "2026-07-16",
-      "versionDescription": "Tap a spot to preview it on the map (tap Simulate to go), PoGo tab is now Games (multi-game), tidier",
+      "versionDescription": "Tidied the More/Tools/Settings menus — removed duplicated entries (Tools is now advanced-only; Geofences & Devices live in Settings)",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16725656,
+      "size": 16727646,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "45",
+          "buildVersion": "46",
           "date": "2026-07-16",
-          "localizedDescription": "Tap a spot to preview it on the map (tap Simulate to go), PoGo tab is now Games (multi-game), tidier",
+          "localizedDescription": "Tidied the More/Tools/Settings menus — removed duplicated entries (Tools is now advanced-only; Geofences & Devices live in Settings)",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16725656,
+          "size": 16727646,
           "minOSVersion": "17.0"
         }
       ],
