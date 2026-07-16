@@ -51,7 +51,31 @@ cat > update.json <<JSON
 }
 JSON
 
+# 4b) Keep the SideStore source apps.json in LOCKSTEP. SideStore installs/refreshes whatever
+#     apps.json declares; if it drifts from update.json (as it did — stale July build), new
+#     sideloads get an outdated app. Bump build/size/date/notes + point at the same payload.
+SIZE=$(stat -f%z Wander.ipa)
+TODAY=$(date +%Y-%m-%d)
+BUILD="$BUILD" VERSION="$VERSION" NOTES="$NOTES" SIZE="$SIZE" TODAY="$TODAY" python3 - <<'PY'
+import json, os
+p = "apps.json"
+d = json.load(open(p))
+build = os.environ["BUILD"]; version = os.environ["VERSION"]; notes = os.environ["NOTES"]
+size = int(os.environ["SIZE"]); today = os.environ["TODAY"]
+url = "https://wanderspoofer.com/downloads/Wander.ipa"
+app = d["apps"][0]
+minos = (app.get("versions") or [{}])[0].get("minOSVersion", "17.0")
+app["version"] = version; app["buildVersion"] = build; app["versionDate"] = today
+app["versionDescription"] = notes; app["downloadURL"] = url; app["size"] = size
+app["versions"] = [{"version": version, "buildVersion": build, "date": today,
+                    "localizedDescription": notes, "downloadURL": url, "size": size,
+                    "minOSVersion": minos}]
+json.dump(d, open(p, "w"), indent=2, ensure_ascii=False)
+open(p, "a").write("\n")
+print(f"apps.json -> build {build}, {size} bytes, {today}")
+PY
+
 echo
-echo "== IPA + manifest ready (build $BUILD). Ship it by pushing BOTH repos: =="
-echo "  cd ~/Developer/wander-ios && git add update.json Wander.xcodeproj/project.pbxproj && git commit -m \"OTA build $BUILD: $NOTES\" && git push"
+echo "== IPA + manifest + apps.json ready (build $BUILD). Ship it by pushing BOTH repos: =="
+echo "  cd ~/Developer/wander-ios && git add update.json apps.json Wander.xcodeproj/project.pbxproj && git commit -m \"OTA build $BUILD: $NOTES\" && git push"
 echo "  cd ~/Developer/wander-site/github-pages && git add downloads/Wander.ipa && git commit -m \"OTA payload build $BUILD\" && git push"
