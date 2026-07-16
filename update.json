@@ -1,6 +1,6 @@
 {
-  "build": 36,
+  "build": 37,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "New Life360 / Find My anti-detection preset (Settings) — teleports glide + your spot drifts so shared location stays believable"
+  "notes": "Real multi-game PoGo: per-game cooldown model + guidance (PoGo/MH Now share the soft-ban curve; Pikmin & Ingress correctly have no teleport cooldown)"
 }

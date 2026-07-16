@@ -83,6 +83,41 @@ enum GamePreset: String, CaseIterable, Identifiable {
         case .ingress: return "Ingress"
         }
     }
+
+    /// Whether a big teleport triggers a distance-based soft-ban cooldown for this game.
+    /// Pokémon GO and Monster Hunter Now share the same Niantic soft-ban curve; Pikmin Bloom
+    /// is step-based (no teleport cooldown) and Ingress uses a real-time speed lock instead.
+    var usesTeleportCooldown: Bool {
+        switch self {
+        case .pokemonGo, .monsterHunterNow: return true
+        case .pikminBloom, .ingress: return false
+        }
+    }
+
+    /// Community-cited max "safe" in-app travel speed before movement/spawns get throttled.
+    var maxSafeSpeedKmh: Int {
+        switch self {
+        case .pokemonGo: return 35          // ~35 km/h before the "driving" state throttles distance
+        case .monsterHunterNow: return 16   // aggressive speed lock (~10–20 km/h, community-cited)
+        case .pikminBloom: return 8         // step/route based — keep to a realistic walk
+        case .ingress: return 60            // ~60 km/h speed lock (15-min ripple)
+        }
+    }
+
+    /// Game-specific guidance shown in the PoGo tab (replaces the cooldown chart for the
+    /// games that don't use one). Grounded in community sources; kept honest about uncertainty.
+    var mechanicNote: String {
+        switch self {
+        case .pokemonGo:
+            return "Soft-ban cooldown applies: after a big jump, wait out the timer before catching or spinning. Keep in-app speed under ~35 km/h so distance still counts."
+        case .monsterHunterNow:
+            return "Uses the same soft-ban cooldown as Pokémon GO (shown below). Its speed lock is stricter, though — stay under ~16 km/h or monsters hide and gathering fails."
+        case .pikminBloom:
+            return "Step-based, not teleport-based — there's no soft-ban cooldown. Steps come from the pedometer (not GPS), so pace a realistic walk (a Route at ~8 km/h) and avoid implausible daily step counts."
+        case .ingress:
+            return "No distance cooldown — instead there's a ~60 km/h speed lock (actions fail if you move faster) and a ~5-minute per-portal hack cooldown. Keep effective speed under ~60 km/h between actions."
+        }
+    }
 }
 
 // MARK: - Cooldown math
@@ -196,23 +231,25 @@ struct PoGoModeView: View {
                 } header: {
                     Text("Game")
                 } footer: {
-                    Text("Sets the mode label. The soft-ban cooldown curve is shared across games.")
+                    Text(gamePreset.mechanicNote)
                 }
 
                 cooldownSection
 
-                Section {
-                    Toggle(isOn: $blockUntilCooldownEnds) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Block until cooldown ends")
-                            Text("Prevent teleporting while a cooldown is active, instead of just warning.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                if gamePreset.usesTeleportCooldown {
+                    Section {
+                        Toggle(isOn: $blockUntilCooldownEnds) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Block until cooldown ends")
+                                Text("Prevent teleporting while a cooldown is active, instead of just warning.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                        .tint(Wander.brand)
+                    } header: {
+                        Text("Cooldown safety")
                     }
-                    .tint(Wander.brand)
-                } header: {
-                    Text("Cooldown safety")
                 }
 
                 if !pairingExists {
@@ -435,6 +472,13 @@ struct PoGoModeView: View {
     }
 
     private func applyCooldown(from previous: CLLocationCoordinate2D?, to next: CLLocationCoordinate2D) {
+        // Pikmin Bloom is step-based and Ingress uses a real-time speed lock — neither has a
+        // distance-based teleport soft-ban, so we don't track/show a cooldown timer for them.
+        guard gamePreset.usesTeleportCooldown else {
+            lastJumpKm = 0
+            cooldownEndsAt = nil
+            return
+        }
         guard let previous else {
             // First teleport of the session: no prior coordinate, so no cooldown.
             lastJumpKm = 0

@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "36",
+      "buildVersion": "37",
       "versionDate": "2026-07-15",
-      "versionDescription": "New Life360 / Find My anti-detection preset (Settings) — teleports glide + your spot drifts so shared location stays believable",
+      "versionDescription": "Real multi-game PoGo: per-game cooldown model + guidance (PoGo/MH Now share the soft-ban curve; Pikmin & Ingress correctly have no teleport cooldown)",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16606966,
+      "size": 16608675,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "36",
+          "buildVersion": "37",
           "date": "2026-07-15",
-          "localizedDescription": "New Life360 / Find My anti-detection preset (Settings) — teleports glide + your spot drifts so shared location stays believable",
+          "localizedDescription": "Real multi-game PoGo: per-game cooldown model + guidance (PoGo/MH Now share the soft-ban curve; Pikmin & Ingress correctly have no teleport cooldown)",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16606966,
+          "size": 16608675,
           "minOSVersion": "17.0"
         }
       ],
