@@ -66,6 +66,8 @@ struct MainTabView: View {
     @ObservedObject private var gate = RemoteGate.shared
     @ObservedObject private var license = License.shared
     @ObservedObject private var session = SimulationSession.shared
+    @ObservedObject private var updater = WanderUpdater.shared
+    @ObservedObject private var tunnel = WanderTunnel.shared
     @State private var bannerVisible = false
     @State private var bannerHideWork: DispatchWorkItem?
 
@@ -156,10 +158,19 @@ struct MainTabView: View {
             .overlay(alignment: .top) { spoofingBanner }
             .overlay(alignment: .bottomTrailing) { if panicButtonEnabled { panicButton } }
             .overlay(alignment: .top) { panicToast }
+            .overlay(alignment: .top) { updateBanner }
             .animation(.easeInOut(duration: 0.25), value: bannerVisible)
             .animation(.easeInOut(duration: 0.25), value: panicToastVisible)
+            .animation(.easeInOut(duration: 0.25), value: updater.available != nil)
             .onChange(of: session.isActive) { _, active in
                 if active { flashBanner() } else { withAnimation { bannerVisible = false } }
+            }
+            .onChange(of: tunnel.status) { _, status in
+                // The tunnel is usually still connecting at launch when the first auto-install
+                // attempt runs; retry the silent install the moment it connects.
+                if status == .connected {
+                    Task { await WanderUpdater.shared.autoInstallIfAvailable() }
+                }
             }
             // One-time-per-session coaching tip: spoofing was just started while on cellular.
             // Advisory only — spoofing already started; this never blocks it. Shown at most once
@@ -254,6 +265,57 @@ struct MainTabView: View {
             .padding(.top, 52)   // clear the inline nav bar; sits over the empty top of the map
             .allowsHitTesting(false)
             .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    /// Global, tappable "Update ready" banner — surfaces an available OTA update from ANYWHERE
+    /// (not just Settings), so the user doesn't have to dig into Settings to update. Hidden while
+    /// spoofing (the spoof banner owns the top) and during the panic toast.
+    @ViewBuilder private var updateBanner: some View {
+        if updater.available != nil && !session.isActive && !panicToastVisible {
+            Button {
+                installUpdateFromBanner()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: updater.isBusy ? "arrow.triangle.2.circlepath" : "arrow.down.circle.fill")
+                        .font(.caption)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(updater.isBusy ? "Updating Wander…"
+                                            : L("update.banner", fallback: "Update ready — tap to install"))
+                            .font(.caption.weight(.semibold))
+                        if updater.isBusy && !updater.status.isEmpty {
+                            Text(updater.status).font(.caption2).opacity(0.9).lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    if !updater.isBusy {
+                        Image(systemName: "chevron.right").font(.caption2).opacity(0.8)
+                    }
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color(red: 0.094, green: 0.373, blue: 0.647), in: Capsule())
+                .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+            }
+            .buttonStyle(.plain)
+            .disabled(updater.isBusy)
+            .padding(.horizontal, 16)
+            .padding(.top, 52)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    /// Install the pending update from the banner. Reuses the exact pipeline the Settings button
+    /// uses; requires the Apple ID to be signed in (Settings) — otherwise it says so.
+    private func installUpdateFromBanner() {
+        Task {
+            guard WanderAccount.shared.isSignedIn else {
+                updater.status = "Sign in to your Apple ID in Settings, then tap again."
+                return
+            }
+            do { try await updater.installUpdate() }
+            catch { updater.status = "❌ \((error as NSError).localizedDescription)" }
         }
     }
 

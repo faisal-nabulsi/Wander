@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "55",
+      "buildVersion": "56",
       "versionDate": "2026-07-16",
-      "versionDescription": "Games: per-game speed guardrail + hotspot gating; 2-3 route options picker",
+      "versionDescription": "Reliable auto-update: tappable 'Update ready' banner on the main screen + retries when the tunnel connects. Tapping a saved Place now opens the map instead of staying on the list. Sharper 3D globe.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16817569,
+      "size": 16841363,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "55",
+          "buildVersion": "56",
           "date": "2026-07-16",
-          "localizedDescription": "Games: per-game speed guardrail + hotspot gating; 2-3 route options picker",
+          "localizedDescription": "Reliable auto-update: tappable 'Update ready' banner on the main screen + retries when the tunnel connects. Tapping a saved Place now opens the map instead of staying on the list. Sharper 3D globe.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16817569,
+          "size": 16841363,
           "minOSVersion": "17.0"
         }
       ],

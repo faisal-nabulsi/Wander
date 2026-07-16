@@ -21,6 +21,9 @@ private enum PlacesFilter: Equatable {
 
 struct PlacesView: View {
     @AppStorage("primaryTabSelection") private var selection: String = AppFeature.location.id
+    // Places is presented as a SHEET from the More tab, so switching the tab underneath isn't
+    // enough — we must dismiss this sheet too, or it stays on top covering the map.
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var store = SavedPlacesStore()
 
     @State private var filter: PlacesFilter = .all
@@ -332,7 +335,8 @@ struct PlacesView: View {
             object: nil,
             userInfo: ["lat": coordinate.latitude, "lng": coordinate.longitude]
         )
-        selection = AppFeature.location.id   // jump to the Teleport tab to preview
+        selection = AppFeature.location.id   // switch the underlying tab to the map (Teleport)
+        dismiss()                            // close the Places sheet so the map is actually revealed
     }
 }
 

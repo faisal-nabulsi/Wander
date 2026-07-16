@@ -118,18 +118,26 @@ final class WanderUpdater: ObservableObject {
         guard !didAutoInstallThisLaunch else { return }
         guard available != nil else { return }        // build check already ruled out no-op updates
         guard !isBusy else { return }
-        didAutoInstallThisLaunch = true
 
-        // Prerequisites for an unattended install mirror self-refresh: signed in + tunnel up.
+        // Never silently kill + replace the app mid-spoof — surface the tap prompt instead.
+        guard !SimulationSession.shared.isActive else {
+            promptUserToInstall("Update ready — tap to install.")
+            return
+        }
+        // Prerequisites for an unattended install mirror self-refresh: signed in + tunnel up. If
+        // they aren't ready yet (the tunnel is usually still connecting right after launch), DON'T
+        // consume the one-shot guard — surface the prompt and let a later call (once the tunnel
+        // connects — see MainTabView) actually perform the silent install.
         guard WanderAccount.shared.isSignedIn else {
             promptUserToInstall("Update ready — sign in to your Apple ID, then tap to install.")
             return
         }
         guard WanderTunnel.shared.status == .connected else {
-            promptUserToInstall("Update ready — connect the tunnel, then tap to install.")
+            promptUserToInstall("Update ready — tap to install (finishing tunnel connection…).")
             return
         }
 
+        didAutoInstallThisLaunch = true   // only now do we actually attempt — so early bails can retry
         status = "Updating Wander…"
         do {
             // Reuse the exact manual install path — no duplicated logic. Auth runs in
