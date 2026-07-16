@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "34",
+      "buildVersion": "35",
       "versionDate": "2026-07-15",
-      "versionDescription": "Route screen decluttered (secondary options collapsed), and Done now dismisses the keyboard in the AI day field",
+      "versionDescription": "Route: import GPX / KML / GeoJSON / CSV files as waypoints (parity with Android & desktop)",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16581224,
+      "size": 16610761,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "34",
+          "buildVersion": "35",
           "date": "2026-07-15",
-          "localizedDescription": "Route screen decluttered (secondary options collapsed), and Done now dismisses the keyboard in the AI day field",
+          "localizedDescription": "Route: import GPX / KML / GeoJSON / CSV files as waypoints (parity with Android & desktop)",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16581224,
+          "size": 16610761,
           "minOSVersion": "17.0"
         }
       ],

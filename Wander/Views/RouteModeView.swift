@@ -211,6 +211,8 @@ struct RouteModeView: View {
     /// Collapses the secondary route options (loop/weather/save/record/AI) to keep the
     /// screen uncluttered — the core build-and-drive flow stays visible.
     @State private var showRouteExtras = false
+    /// Presents the route-file importer (GPX / KML / GeoJSON / CSV → waypoints).
+    @State private var showRouteFileImporter = false
 
     private var manualMetersPerSecond: Double { max(manualSpeedMps, 1) }
 
@@ -341,6 +343,9 @@ struct RouteModeView: View {
                     Button { addWaypoint() } label: {
                         Label(String(format: L("route.add_point", fallback: "Add point (%d)"), waypoints.count), systemImage: Wander.Icon.add)
                     }
+                    Button { showRouteFileImporter = true } label: {
+                        Label(L("route.import_file", fallback: "Import file"), systemImage: "square.and.arrow.down")
+                    }
                     Spacer()
                     if !waypoints.isEmpty {
                         Button(role: .destructive) { clearAll() } label: {
@@ -349,6 +354,11 @@ struct RouteModeView: View {
                     }
                 }
                 .font(.subheadline)
+                .fileImporter(isPresented: $showRouteFileImporter,
+                              allowedContentTypes: RouteFileImporter.contentTypes,
+                              allowsMultipleSelection: false) { result in
+                    handleRouteFileImport(result)
+                }
 
                 if !waypoints.isEmpty {
                     Text(waypointSummary).font(.caption).foregroundStyle(.secondary)
@@ -655,6 +665,30 @@ struct RouteModeView: View {
         waypoints = []
         routeCoordinates = []
         currentPosition = nil
+    }
+
+    /// Load a GPX / KML / GeoJSON / CSV file's coordinates as waypoints (parity with Android/desktop).
+    private func handleRouteFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let error):
+            alertText = "Couldn't open that file: \(error.localizedDescription)"
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let data = try Data(contentsOf: url)
+                let coords = try RouteFileImporter.parse(data: data, filename: url.lastPathComponent)
+                waypoints.append(contentsOf: coords.map { RouteWaypoint(coordinate: $0) })
+                routeCoordinates = []
+                if let region = region(fitting: waypoints.map(\.coordinate)) {
+                    cameraPosition = .region(region)
+                }
+                alertText = "Imported \(coords.count) point\(coords.count == 1 ? "" : "s") from \(url.lastPathComponent)."
+            } catch {
+                alertText = (error as? LocalizedError)?.errorDescription ?? "Couldn't read that file."
+            }
+        }
     }
 
     // MARK: - Route computation
