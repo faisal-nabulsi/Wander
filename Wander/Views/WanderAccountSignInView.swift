@@ -13,6 +13,10 @@
 import SwiftUI
 
 struct WanderAccountSignInView: View {
+    /// "Continue with Apple" is fully BUILT but hidden until the Apple provider is enabled in
+    /// Firebase (which requires the $99/yr Apple Developer Program). Flip to `true` to show it.
+    private static let appleSignInEnabled = false
+
     /// Called after a successful sign-in/sign-up so the presenter can dismiss the whole paywall.
     var onSuccess: (() -> Void)? = nil
 
@@ -114,18 +118,20 @@ struct WanderAccountSignInView: View {
                     .disabled(busy)
                     .tint(Wander.brand)
 
-                    Button {
-                        submit { await account.signInWithApple() }
-                    } label: {
-                        HStack {
-                            Spacer()
-                            Image(systemName: "apple.logo")
-                            Text("Continue with Apple").fontWeight(.semibold)
-                            Spacer()
+                    if Self.appleSignInEnabled {
+                        Button {
+                            submit { await account.signInWithApple() }
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Image(systemName: "apple.logo")
+                                Text("Continue with Apple").fontWeight(.semibold)
+                                Spacer()
+                            }
                         }
+                        .disabled(busy)
+                        .tint(.black)
                     }
-                    .disabled(busy)
-                    .tint(.black)
                 }
 
                 Section {

@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "39",
-      "versionDate": "2026-07-15",
-      "versionDescription": "Continue with Google + Continue with Apple sign-in, and Forgot password — right in the app",
+      "buildVersion": "40",
+      "versionDate": "2026-07-16",
+      "versionDescription": "Polish: Continue with Google + Forgot password (Apple sign-in coming soon)",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16651673,
+      "size": 16646923,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "39",
-          "date": "2026-07-15",
-          "localizedDescription": "Continue with Google + Continue with Apple sign-in, and Forgot password — right in the app",
+          "buildVersion": "40",
+          "date": "2026-07-16",
+          "localizedDescription": "Polish: Continue with Google + Forgot password (Apple sign-in coming soon)",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16651673,
+          "size": 16646923,
           "minOSVersion": "17.0"
         }
       ],
