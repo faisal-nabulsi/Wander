@@ -22,17 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "versionDate": "2026-07-02",
-      "versionDescription": "First public release of Wander.",
-      "downloadURL": "https://github.com/faisal-nabulsi/Wander/releases/download/v1.0/Wander.ipa",
-      "size": 4433485,
+      "buildVersion": "29",
+      "versionDate": "2026-07-15",
+      "versionDescription": "New: PoGo data Hub, Street View teleport, Adventure Sync, 3D globe, and a smarter free tier.",
+      "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
+      "size": 15803521,
       "versions": [
         {
           "version": "1.0",
-          "date": "2026-07-02",
-          "localizedDescription": "First public release of Wander.",
-          "downloadURL": "https://github.com/faisal-nabulsi/Wander/releases/download/v1.0/Wander.ipa",
-          "size": 4433485,
+          "buildVersion": "29",
+          "date": "2026-07-15",
+          "localizedDescription": "New: PoGo data Hub, Street View teleport, Adventure Sync, 3D globe, and a smarter free tier.",
+          "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
+          "size": 15803521,
           "minOSVersion": "17.0"
         }
       ],
