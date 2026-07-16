@@ -75,7 +75,23 @@ open(p, "a").write("\n")
 print(f"apps.json -> build {build}, {size} bytes, {today}")
 PY
 
+# 4c) Update the GitHub RELEASE asset. The Wander Installer sideloads Wander from
+#     github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa (see wander-installer
+#     sideload.rs) — a new build that doesn't update the release makes the installer sideload a
+#     STALE app, even though update.json + apps.json are current.
+if command -v gh >/dev/null 2>&1; then
+  LATEST_TAG=$(gh release list --repo faisal-nabulsi/Wander --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null)
+  if [ -n "$LATEST_TAG" ] && gh release upload "$LATEST_TAG" Wander.ipa --repo faisal-nabulsi/Wander --clobber >/dev/null 2>&1; then
+    echo "GitHub release ($LATEST_TAG) Wander.ipa updated to build $BUILD."
+  else
+    echo "WARN: could not update the GitHub release asset. Run manually so the installer isn't stale:"
+    echo "  gh release upload $LATEST_TAG Wander.ipa --repo faisal-nabulsi/Wander --clobber"
+  fi
+else
+  echo "WARN: gh not installed — update the GitHub release Wander.ipa manually or the installer stays stale."
+fi
+
 echo
-echo "== IPA + manifest + apps.json ready (build $BUILD). Ship it by pushing BOTH repos: =="
+echo "== IPA + manifest + apps.json + GitHub release ready (build $BUILD). Ship it by pushing BOTH repos: =="
 echo "  cd ~/Developer/wander-ios && git add update.json apps.json Wander.xcodeproj/project.pbxproj && git commit -m \"OTA build $BUILD: $NOTES\" && git push"
 echo "  cd ~/Developer/wander-site/github-pages && git add downloads/Wander.ipa && git commit -m \"OTA payload build $BUILD\" && git push"
