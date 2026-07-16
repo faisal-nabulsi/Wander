@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "52",
+      "buildVersion": "53",
       "versionDate": "2026-07-16",
-      "versionDescription": "Games: Pokémon-GO-only spawn/raid/event spots now hidden for other games; moved Geofences into the More tab; removed the broken Processes tool",
+      "versionDescription": "Route: removed Boat (no real boat routing exists); Plane now says 'no route available' if the trip's too short to fly (~under 100 km) instead of drawing a fake straight line",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16738647,
+      "size": 16753696,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "52",
+          "buildVersion": "53",
           "date": "2026-07-16",
-          "localizedDescription": "Games: Pokémon-GO-only spawn/raid/event spots now hidden for other games; moved Geofences into the More tab; removed the broken Processes tool",
+          "localizedDescription": "Route: removed Boat (no real boat routing exists); Plane now says 'no route available' if the trip's too short to fly (~under 100 km) instead of drawing a fake straight line",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16738647,
+          "size": 16753696,
           "minOSVersion": "17.0"
         }
       ],

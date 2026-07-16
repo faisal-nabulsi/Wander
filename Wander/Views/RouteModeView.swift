@@ -41,7 +41,6 @@ private enum RouteTransportMode: String, CaseIterable, Identifiable {
     case walk
     case cycle
     case transit
-    case boat
     case plane
 
     var id: String { rawValue }
@@ -52,7 +51,6 @@ private enum RouteTransportMode: String, CaseIterable, Identifiable {
         case .walk:    return L("route.mode.walk", fallback: "Walk")
         case .cycle:   return L("route.mode.cycle", fallback: "Cycle")
         case .transit: return L("route.mode.transit", fallback: "Transit")
-        case .boat:    return L("route.mode.boat", fallback: "Boat")
         case .plane:   return L("route.mode.plane", fallback: "Plane")
         }
     }
@@ -63,7 +61,6 @@ private enum RouteTransportMode: String, CaseIterable, Identifiable {
         case .walk:    return "figure.walk"
         case .cycle:   return "bicycle"
         case .transit: return "tram.fill"
-        case .boat:    return "ferry.fill"
         case .plane:   return "airplane"
         }
     }
@@ -73,7 +70,7 @@ private enum RouteTransportMode: String, CaseIterable, Identifiable {
     var usesRoadRouting: Bool {
         switch self {
         case .drive, .walk, .cycle, .transit: return true
-        case .boat, .plane: return false
+        case .plane: return false
         }
     }
 
@@ -91,7 +88,6 @@ private enum RouteTransportMode: String, CaseIterable, Identifiable {
         case .walk:    return 5_000.0 / 3_600.0     // ~5 km/h
         case .cycle:   return 18_000.0 / 3_600.0    // ~18 km/h
         case .transit: return 40_000.0 / 3_600.0    // ~40 km/h
-        case .boat:    return 35_000.0 / 3_600.0    // ~35 km/h
         case .plane:   return 850_000.0 / 3_600.0   // ~850 km/h
         }
     }
@@ -154,6 +150,7 @@ struct RouteModeView: View {
     @State private var loopRoute = false   // Pro: re-run the route from the start when it finishes
     @State private var manualSpeedMps: Double = 50_000.0 / 3_600.0   // default 50 km/h
     @State private var routeExpectedTime: TimeInterval = 0            // real-world ETA from MKDirections
+    @State private var routeNotice: String?                          // e.g. "No route available" for a too-short plane trip
     @AppStorage("useMph") private var useMph = false
     @AppStorage("jitterEnabled") private var jitterEnabled = false
     /// "Weather-aware pace" (iOS parity with Android): when on, the destination
@@ -329,6 +326,12 @@ struct RouteModeView: View {
                     ProgressView().controlSize(.small)
                     Text(localized: "route.working", fallback: "Working…").font(.caption).foregroundStyle(.secondary)
                 }
+            }
+            if let routeNotice {
+                Label(routeNotice, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             if !isDriving {
                 AddressSearchBar(placeholder: "Search to add a point") { coord, _ in
@@ -579,8 +582,7 @@ struct RouteModeView: View {
         case .drive, .walk: return nil
         case .cycle:   return nil
         case .transit: return L("route.mode.transit_hint", fallback: "Follows the road route at transit speed with brief stops, like a bus or train.")
-        case .boat:    return L("route.mode.boat_hint", fallback: "Sails a straight line between points at boat speed — no roads.")
-        case .plane:   return L("route.mode.plane_hint", fallback: "Flies a great-circle path from the first to the last point at flight speed. Altitude can't be simulated on iOS, so only the path and speed are applied.")
+        case .plane:   return L("route.mode.plane_hint", fallback: "Flies a great-circle path from the first to the last point — only for long trips (~100 km+). Altitude can't be simulated on iOS, so only the path and speed are applied.")
         }
     }
 
@@ -700,13 +702,24 @@ struct RouteModeView: View {
     private func computeRoute() async {
         guard waypoints.count >= 2 else { return }
         isComputing = true
+        routeNotice = nil
         defer { isComputing = false }
 
-        // BOAT/PLANE bypass road snapping entirely and build a great-circle track.
+        // PLANE flies a great-circle track (no road snapping). Only draw a route for a trip long
+        // enough to actually fly — otherwise say "no route available" instead of a fake line.
         if !transportMode.usesRoadRouting {
+            let first = waypoints.first!.coordinate
+            let last = waypoints.last!.coordinate
+            let km = CLLocation(latitude: first.latitude, longitude: first.longitude)
+                .distance(from: CLLocation(latitude: last.latitude, longitude: last.longitude)) / 1000
+            if km < 100 {
+                routeCoordinates = []
+                routeExpectedTime = 0
+                routeNotice = "No route available — \(Int(km)) km is too short to fly. Plane trips need ~100 km+."
+                return
+            }
             let coords = greatCircleCoordinates()
             routeCoordinates = coords
-            // Great-circle modes have no MKDirections ETA; pace by their cruise speed.
             routeExpectedTime = 0
             if let region = region(fitting: coords) {
                 cameraPosition = .region(region)
@@ -753,20 +766,11 @@ struct RouteModeView: View {
             return min(max(Int(meters / 2000), 8), 800)
         }
 
-        switch transportMode {
-        case .plane:
-            guard let first = waypoints.first?.coordinate,
-                  let last = waypoints.last?.coordinate else { return [] }
-            return greatCirclePath(from: first, to: last, steps: stepsFor(first, last))
-        default: // .boat (and any future non-road mode)
-            var coords: [CLLocationCoordinate2D] = []
-            for (a, b) in zip(waypoints, waypoints.dropFirst()) {
-                let seg = greatCirclePath(from: a.coordinate, to: b.coordinate, steps: stepsFor(a.coordinate, b.coordinate))
-                // Avoid duplicating the shared vertex between consecutive segments.
-                coords.append(contentsOf: coords.isEmpty ? seg : Array(seg.dropFirst()))
-            }
-            return coords
-        }
+        // Only PLANE uses a great-circle track now (first waypoint → last waypoint).
+        guard transportMode == .plane,
+              let first = waypoints.first?.coordinate,
+              let last = waypoints.last?.coordinate else { return [] }
+        return greatCirclePath(from: first, to: last, steps: stepsFor(first, last))
     }
 
     /// True when the coordinate sits well inside the visible map (within the middle ~60%),

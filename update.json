@@ -1,6 +1,6 @@
 {
-  "build": 52,
+  "build": 53,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Games: Pokémon-GO-only spawn/raid/event spots now hidden for other games; moved Geofences into the More tab; removed the broken Processes tool"
+  "notes": "Route: removed Boat (no real boat routing exists); Plane now says 'no route available' if the trip's too short to fly (~under 100 km) instead of drawing a fake straight line"
 }
