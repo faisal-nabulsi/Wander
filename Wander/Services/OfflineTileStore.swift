@@ -79,8 +79,9 @@ enum OfflineTileError: LocalizedError {
 final class OfflineTileStore {
     static let shared = OfflineTileStore()
 
-    /// OSM asks every consumer to identify itself. Reused for tile fetches here and in the overlay.
-    static let userAgent = "Wander/1.0 (offline map cache)"
+    /// A descriptive User-Agent identifying the app to the tile CDN (CARTO). Reused for tile
+    /// fetches here and in WanderTileOverlay.
+    static let userAgent = "Wander/1.0 (+https://wanderspoofer.com)"
 
     /// OSM's max usable raster zoom is 19, but for an offline *region* cache we cap at 16 so a
     /// download can't explode into hundreds of thousands of tiles.
@@ -102,7 +103,11 @@ final class OfflineTileStore {
     private init() {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        rootURL = base.appendingPathComponent("wander-offline-tiles", isDirectory: true)
+        // v2 cache dir: the old "wander-offline-tiles" folder can hold OSM "Access blocked" tiles
+        // (OSM served the block image with HTTP 200, so it got cached + rendered). Purge it and
+        // start fresh under CARTO tiles so those poisoned tiles never render again.
+        try? fileManager.removeItem(at: base.appendingPathComponent("wander-offline-tiles", isDirectory: true))
+        rootURL = base.appendingPathComponent("wander-map-tiles-v2", isDirectory: true)
         manifestURL = rootURL.appendingPathComponent("manifest.json", isDirectory: false)
         try? fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
     }
@@ -291,7 +296,7 @@ final class OfflineTileStore {
     /// Fetches one tile PNG from OSM with the required User-Agent. Returns nil on any failure
     /// (network down, non-200, empty) so the download loop can keep going rather than abort.
     private func fetchTile(z: Int, x: Int, y: Int, session: URLSession) async -> Data? {
-        guard let url = URL(string: "https://tile.openstreetmap.org/\(z)/\(x)/\(y).png") else { return nil }
+        guard let url = URL(string: "https://a.basemaps.cartocdn.com/rastertiles/voyager/\(z)/\(x)/\(y).png") else { return nil }
         var request = URLRequest(url: url)
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 20

@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "46",
+      "buildVersion": "47",
       "versionDate": "2026-07-16",
-      "versionDescription": "Tidied the More/Tools/Settings menus — removed duplicated entries (Tools is now advanced-only; Geofences & Devices live in Settings)",
+      "versionDescription": "Control cards now hug their content (no more empty panel covering the map); offline map fixed — switched to CARTO tiles so it stops getting blocked",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16727646,
+      "size": 16733002,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "46",
+          "buildVersion": "47",
           "date": "2026-07-16",
-          "localizedDescription": "Tidied the More/Tools/Settings menus — removed duplicated entries (Tools is now advanced-only; Geofences & Devices live in Settings)",
+          "localizedDescription": "Control cards now hug their content (no more empty panel covering the map); offline map fixed — switched to CARTO tiles so it stops getting blocked",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16727646,
+          "size": 16733002,
           "minOSVersion": "17.0"
         }
       ],

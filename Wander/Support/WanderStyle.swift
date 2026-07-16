@@ -46,6 +46,42 @@ struct WanderCard<Content: View>: View {
     }
 }
 
+/// Measures content height so a control card can HUG its content instead of always reserving a
+/// fixed slice of the screen (which left a big empty band and covered the whole map under short
+/// content). The card only grows toward `maxHeight` — and only becomes scrollable — once the
+/// content genuinely exceeds it.
+private struct ContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+extension View {
+    /// Wrap a control card's content so the card hugs its content height, capping + scrolling only
+    /// past `maxHeight`. Replaces `ScrollView { ... }.frame(maxHeight:)`, which reserved the full
+    /// height regardless of content.
+    func hugScrollCard(maxHeight: CGFloat) -> some View {
+        modifier(HugScrollCard(maxHeight: maxHeight))
+    }
+}
+
+private struct HugScrollCard: ViewModifier {
+    let maxHeight: CGFloat
+    @State private var contentHeight: CGFloat = 0
+    func body(content: Content) -> some View {
+        ScrollView {
+            content
+                .background(GeometryReader { g in
+                    Color.clear.preference(key: ContentHeightKey.self, value: g.size.height)
+                })
+        }
+        // Until measured, fall back to the cap (matches the old behavior for one layout pass), then
+        // snap down to the real content height.
+        .frame(height: contentHeight <= 0 ? maxHeight : min(contentHeight, maxHeight))
+        .scrollBounceBehavior(.basedOnSize)
+        .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
+    }
+}
+
 /// The center placement crosshair — the one consistent "you'll drop it here" indicator.
 struct MapCrosshair: View {
     var body: some View {

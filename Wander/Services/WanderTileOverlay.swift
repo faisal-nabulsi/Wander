@@ -43,7 +43,7 @@ final class WanderTileOverlay: MKTileOverlay {
         self.session = URLSession(configuration: configuration)
 
         // A URL template is required by the initializer; loadTile overrides fetching entirely.
-        super.init(urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png")
+        super.init(urlTemplate: "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png")
         canReplaceMapContent = true
         maximumZ = OfflineTileStore.maxZoomCap
         minimumZ = 0
@@ -67,8 +67,10 @@ final class WanderTileOverlay: MKTileOverlay {
             return
         }
 
-        // 3. Online miss: fetch from OSM, return it, and cache-on-browse.
-        guard let url = URL(string: "https://tile.openstreetmap.org/\(z)/\(x)/\(y).png") else {
+        // 3. Online miss: fetch a tile, return it, and cache-on-browse. Source = CARTO's public
+        //    "Voyager" basemap CDN (OSM data under ODbL), NOT OSM's volunteer servers, which block
+        //    apps that bulk-download and serve "Access blocked" tiles. Attribution: © OSM © CARTO.
+        guard let url = URL(string: "https://a.basemaps.cartocdn.com/rastertiles/voyager/\(z)/\(x)/\(y).png") else {
             result(Self.blankTile, nil)
             return
         }

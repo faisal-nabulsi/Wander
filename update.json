@@ -1,6 +1,6 @@
 {
-  "build": 46,
+  "build": 47,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Tidied the More/Tools/Settings menus — removed duplicated entries (Tools is now advanced-only; Geofences & Devices live in Settings)"
+  "notes": "Control cards now hug their content (no more empty panel covering the map); offline map fixed — switched to CARTO tiles so it stops getting blocked"
 }

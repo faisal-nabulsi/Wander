@@ -1073,7 +1073,6 @@ struct LocationSimulationView: View {
                 Spacer()
 
                 WanderCard {
-                    ScrollView {
                     VStack(spacing: 12) {
                         if !hasRouteContext {
                             AddressSearchBar(
@@ -1097,8 +1096,7 @@ struct LocationSimulationView: View {
                             pinControls
                         }
                     }
-                    }
-                    .frame(maxHeight: UIScreen.main.bounds.height * 0.5)
+                    .hugScrollCard(maxHeight: UIScreen.main.bounds.height * 0.5)
                 }
             }
 

@@ -323,7 +323,6 @@ struct RouteModeView: View {
 
     private var controls: some View {
         WanderCard {
-        ScrollView {
         VStack(spacing: 12) {
             if isComputing {
                 HStack(spacing: 8) {
@@ -521,8 +520,7 @@ struct RouteModeView: View {
                 }
             }
         }
-        }
-        .frame(maxHeight: UIScreen.main.bounds.height * 0.55)
+        .hugScrollCard(maxHeight: UIScreen.main.bounds.height * 0.55)
         }
     }
 
