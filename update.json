@@ -1,6 +1,6 @@
 {
-  "build": 30,
+  "build": 31,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Fix: crash on launch (removed iOS HealthKit link; Adventure Sync stays Android-only)"
+  "notes": "Fix: crash on launch — embed AltSign framework (dyld could not load it)"
 }

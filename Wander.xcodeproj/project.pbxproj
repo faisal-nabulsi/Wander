@@ -12,6 +12,7 @@
 		68D569BE2E1B415700A5BA36 /* CodeEditorView in Frameworks */ = {isa = PBXBuildFile; productRef = 68D569BD2E1B415700A5BA36 /* CodeEditorView */; };
 		68D569C02E1B415700A5BA36 /* LanguageSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 68D569BF2E1B415700A5BA36 /* LanguageSupport */; };
 		DFAA523A5AA5E15E1D06FAFB /* AltSign-Dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = 9D27F1765684FE95A41F6CB7 /* AltSign-Dynamic */; };
+		FA1E00B0EEDDCCBBAA000001 /* AltSign-Dynamic in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 9D27F1765684FE95A41F6CB7 /* AltSign-Dynamic */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -48,6 +49,17 @@
 				5FBB2DDF2FF64CDE0031F477 /* TunnelProv.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FA1E00B0EEDDCCBBAA000002 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				FA1E00B0EEDDCCBBAA000001 /* AltSign-Dynamic in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -212,6 +224,7 @@
 				DC6F1D342D94EADD0071B2B6 /* Frameworks */,
 				DC6F1D352D94EADD0071B2B6 /* Resources */,
 				DCA6901F2DAF660E007C91A8 /* Embed Foundation Extensions */,
+				FA1E00B0EEDDCCBBAA000002 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -415,7 +428,7 @@
 				CODE_SIGN_ENTITLEMENTS = TunnelProv/TunnelProv.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TunnelProv/Info.plist;
@@ -444,7 +457,7 @@
 				CODE_SIGN_ENTITLEMENTS = TunnelProv/TunnelProv.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TunnelProv/Info.plist;
@@ -592,7 +605,7 @@
 				CODE_SIGN_ENTITLEMENTS = Wander/Wander.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -654,7 +667,7 @@
 				CODE_SIGN_ENTITLEMENTS = Wander/Wander.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -710,7 +723,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = SZ977XLF24;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -742,7 +755,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = SZ977XLF24;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -773,7 +786,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = SZ977XLF24;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
@@ -795,7 +808,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = SZ977XLF24;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.2;

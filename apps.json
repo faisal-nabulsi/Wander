@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "30",
+      "buildVersion": "31",
       "versionDate": "2026-07-15",
-      "versionDescription": "Fix: crash on launch (removed iOS HealthKit link; Adventure Sync stays Android-only)",
+      "versionDescription": "Fix: crash on launch — embed AltSign framework (dyld could not load it)",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 15799862,
+      "size": 16400988,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "30",
+          "buildVersion": "31",
           "date": "2026-07-15",
-          "localizedDescription": "Fix: crash on launch (removed iOS HealthKit link; Adventure Sync stays Android-only)",
+          "localizedDescription": "Fix: crash on launch — embed AltSign framework (dyld could not load it)",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 15799862,
+          "size": 16400988,
           "minOSVersion": "17.0"
         }
       ],
