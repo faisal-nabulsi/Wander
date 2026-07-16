@@ -1,6 +1,6 @@
 {
-  "build": 42,
+  "build": 43,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Accessibility: VoiceOver labels on icon buttons + reduced-motion support"
+  "notes": "Native Google sign-in — fixes the sign-in loop"
 }

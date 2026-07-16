@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "42",
+      "buildVersion": "43",
       "versionDate": "2026-07-16",
-      "versionDescription": "Accessibility: VoiceOver labels on icon buttons + reduced-motion support",
+      "versionDescription": "Native Google sign-in — fixes the sign-in loop",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16671786,
+      "size": 16693735,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "42",
+          "buildVersion": "43",
           "date": "2026-07-16",
-          "localizedDescription": "Accessibility: VoiceOver labels on icon buttons + reduced-motion support",
+          "localizedDescription": "Native Google sign-in — fixes the sign-in loop",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16671786,
+          "size": 16693735,
           "minOSVersion": "17.0"
         }
       ],

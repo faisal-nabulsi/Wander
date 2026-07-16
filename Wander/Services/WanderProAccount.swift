@@ -24,6 +24,7 @@
 
 import Foundation
 import AuthenticationServices
+import CryptoKit
 import UIKit
 
 @MainActor
@@ -306,10 +307,9 @@ final class WanderProAccount: ObservableObject {
     private var webAuthSession: ASWebAuthenticationSession?
     private let presentationContext = WebAuthPresentationContext()
 
-    /// Continue with Google via the web bridge.
-    func signInWithGoogle() async { await signIn(provider: "google") }
-
-    /// Continue with Apple via the SAME web bridge (Firebase `apple.com`), no native entitlement.
+    /// Continue with Apple via the web bridge (Firebase `apple.com`), no native entitlement.
+    /// (Google uses the NATIVE OAuth 2.0 + PKCE flow below — see `signInWithGoogle()` — because the
+    /// web `signInWithRedirect` can't complete inside an in-app browser.)
     func signInWithApple() async { await signIn(provider: "apple") }
 
     /// Shared federated web-bridge sign-in for any provider the /app-login/ page supports
@@ -394,6 +394,218 @@ final class WanderProAccount: ObservableObject {
             out[key] = val
         }
         return out
+    }
+
+    // MARK: - Continue with Google (NATIVE OAuth 2.0 + PKCE — no in-app-browser redirect fragility)
+
+    /// The iOS OAuth 2.0 client id (Google Cloud → Credentials → "iOS", bundle id com.stik.stikdebug).
+    /// PUBLIC by design: iOS OAuth clients carry NO secret and are hardened with PKCE, so shipping the
+    /// id is safe. Its "reversed client id" is registered as a CFBundleURLScheme in Info.plist so the
+    /// ASWebAuthenticationSession redirect reaches the app.
+    private static let googleIOSClientID = "537670730528-0u5m7ult24ka4rfjr60eh99mu7j0raiv.apps.googleusercontent.com"
+
+    /// The reversed-client-id custom URL scheme Google redirects back to
+    /// (com.googleusercontent.apps.<id-minus-.apps.googleusercontent.com>). MUST also be listed in
+    /// Info.plist's CFBundleURLSchemes or the redirect never returns to the app.
+    private static var googleRedirectScheme: String {
+        "com.googleusercontent.apps." +
+            googleIOSClientID.replacingOccurrences(of: ".apps.googleusercontent.com", with: "")
+    }
+    /// Full redirect URI handed to Google (scheme + a fixed, arbitrary path). Google matches on the
+    /// scheme; ASWebAuthenticationSession matches on the scheme too.
+    private static var googleRedirectURI: String { "\(googleRedirectScheme):/oauth2redirect" }
+
+    /// Continue with Google — native OAuth 2.0 Authorization Code flow with PKCE.
+    ///
+    /// Opens Google's consent page DIRECTLY in ASWebAuthenticationSession (not Firebase's web
+    /// `signInWithRedirect`, whose cross-origin handshake can't survive an in-app browser's storage
+    /// partitioning — that was the "pick account → back to chooser → never continues" loop). We get an
+    /// authorization `code`, exchange it for a Google `id_token` (PKCE, no client secret), then trade
+    /// that id_token for a Firebase session via accounts:signInWithIdp — landing in the SAME adopt(...)
+    /// path as email sign-in, so the signed-in / Pro state is identical. 2FA accounts are handled.
+    func signInWithGoogle() async {
+        status = ""
+        clearMfaChallenge()
+
+        guard !Self.googleIOSClientID.hasPrefix("__"), !Self.googleIOSClientID.isEmpty else {
+            status = "❌ Google sign-in isn't configured in this build."
+            return
+        }
+
+        // PKCE: a random verifier + its S256 challenge, plus state/nonce for CSRF + replay safety.
+        let verifier = Self.randomURLSafe(byteCount: 32)
+        let challenge = Self.base64URL(Data(SHA256.hash(data: Data(verifier.utf8))))
+        let state = Self.randomURLSafe(byteCount: 16)
+        let nonce = Self.randomURLSafe(byteCount: 16)
+
+        var comps = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
+        comps.queryItems = [
+            .init(name: "client_id", value: Self.googleIOSClientID),
+            .init(name: "redirect_uri", value: Self.googleRedirectURI),
+            .init(name: "response_type", value: "code"),
+            .init(name: "scope", value: "openid email profile"),
+            .init(name: "code_challenge", value: challenge),
+            .init(name: "code_challenge_method", value: "S256"),
+            .init(name: "state", value: state),
+            .init(name: "nonce", value: nonce),
+            .init(name: "prompt", value: "select_account"),
+        ]
+        guard let authURL = comps.url else { status = "❌ Couldn't start Google sign-in."; return }
+
+        // Present Google's consent page; await the reversed-client-id redirect.
+        let callbackURL: URL
+        do {
+            callbackURL = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<URL, Error>) in
+                let session = ASWebAuthenticationSession(
+                    url: authURL,
+                    callbackURLScheme: Self.googleRedirectScheme
+                ) { url, error in
+                    if let error { cont.resume(throwing: error) }
+                    else if let url { cont.resume(returning: url) }
+                    else { cont.resume(throwing: ASWebAuthenticationSessionError(.canceledLogin)) }
+                }
+                session.presentationContextProvider = self.presentationContext
+                // Unlike signInWithRedirect this flow keeps NO state in browser storage across the
+                // redirect (the code + verifier live in app memory), so an ephemeral-or-not session
+                // doesn't matter for correctness; non-ephemeral just avoids re-typing the Google pw.
+                session.prefersEphemeralWebBrowserSession = false
+                self.webAuthSession = session
+                if !session.start() { cont.resume(throwing: ASWebAuthenticationSessionError(.canceledLogin)) }
+            }
+        } catch {
+            webAuthSession = nil
+            // User dismissed the sheet / cancelled: stay quiet, don't nag with an error banner.
+            if let asError = error as? ASWebAuthenticationSessionError, asError.code == .canceledLogin { return }
+            status = "❌ \(error.localizedDescription)"
+            return
+        }
+        webAuthSession = nil
+
+        // Parse the redirect's QUERY (?code=…&state=… or ?error=…).
+        let params = Self.queryParams(callbackURL)
+        if let err = params["error"], !err.isEmpty {
+            // access_denied = user tapped "cancel" on Google's consent → stay silent.
+            status = (err == "access_denied") ? "" : "❌ Google sign-in failed (\(err))."
+            return
+        }
+        guard params["state"] == state else {
+            status = "❌ Google sign-in couldn't be verified. Please try again."
+            return
+        }
+        guard let code = params["code"], !code.isEmpty else {
+            status = "❌ Google sign-in didn't return a code. Please try again."
+            return
+        }
+
+        // Exchange the code for a Google id_token (PKCE; iOS clients have no secret).
+        guard let googleIdToken = await Self.exchangeCodeForIdToken(code: code, verifier: verifier) else {
+            status = "❌ Couldn't complete Google sign-in. Please try again."
+            return
+        }
+
+        // Trade the Google id_token for a Firebase session (or a 2FA challenge).
+        await finishFirebaseSignInWithGoogle(googleIdToken: googleIdToken)
+    }
+
+    /// POST oauth2.googleapis.com/token to swap the auth code for tokens; returns the `id_token`.
+    private static func exchangeCodeForIdToken(code: String, verifier: String) async -> String? {
+        let url = URL(string: "https://oauth2.googleapis.com/token")!
+        var req = URLRequest(url: url, timeoutInterval: 20)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        let form = [
+            "client_id=\(formEncode(googleIOSClientID))",
+            "code=\(formEncode(code))",
+            "code_verifier=\(formEncode(verifier))",
+            "grant_type=authorization_code",
+            "redirect_uri=\(formEncode(googleRedirectURI))",
+        ].joined(separator: "&")
+        req.httpBody = form.data(using: .utf8)
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+                  let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let idToken = obj["id_token"] as? String, !idToken.isEmpty else {
+                return nil
+            }
+            return idToken
+        } catch {
+            return nil
+        }
+    }
+
+    /// POST accounts:signInWithIdp with the Google id_token → a Firebase session. Mirrors the
+    /// email-path handling of a TOTP 2FA challenge, then adopt(...) exactly like every other path.
+    private func finishFirebaseSignInWithGoogle(googleIdToken: String) async {
+        let url = URL(string: "https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=\(Self.apiKey)")!
+        var req = URLRequest(url: url, timeoutInterval: 20)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "postBody": "id_token=\(googleIdToken)&providerId=google.com",
+            "requestUri": "https://\(Self.projectId).firebaseapp.com",
+            "returnSecureToken": true,
+            "returnIdpCredential": true,
+        ])
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                status = "❌ \(Self.authErrorMessage(obj))"
+                return
+            }
+
+            // A 2FA-enrolled account returns an MFA challenge instead of a session (same shape as the
+            // password path). Stash it and let the UI collect the 6-digit code (redeemed in submitMfaCode).
+            if obj?["idToken"] == nil,
+               let pending = obj?["mfaPendingCredential"] as? String, !pending.isEmpty,
+               let mfaInfo = obj?["mfaInfo"] as? [[String: Any]],
+               let enrollmentId = mfaInfo.first?["mfaEnrollmentId"] as? String, !enrollmentId.isEmpty {
+                mfaPendingCredential = pending
+                mfaEnrollmentId = enrollmentId
+                mfaEmail = obj?["email"] as? String
+                status = "Enter your two-factor code."
+                mfaRequired = true
+                return
+            }
+
+            guard let idToken = obj?["idToken"] as? String,
+                  let refreshToken = obj?["refreshToken"] as? String,
+                  let localId = obj?["localId"] as? String else {
+                status = "❌ Google sign-in failed. Please try again."
+                return
+            }
+            let acctEmail = (obj?["email"] as? String) ?? ""
+            await adopt(idToken: idToken, refreshToken: refreshToken, email: acctEmail, uid: localId)
+        } catch {
+            status = "❌ \(error.localizedDescription)"
+        }
+    }
+
+    /// Decode the `?a=b&c=d` QUERY of a redirect URL into a dictionary (values percent-decoded).
+    private static func queryParams(_ url: URL) -> [String: String] {
+        guard let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return [:] }
+        var out: [String: String] = [:]
+        for item in items { out[item.name] = item.value ?? "" }
+        return out
+    }
+
+    /// A random URL-safe (base64url, unpadded) string over `byteCount` cryptographically-secure
+    /// bytes (Swift's SystemRandomNumberGenerator is a CSPRNG on Apple platforms). Backs the PKCE
+    /// code_verifier, the state, and the nonce.
+    private static func randomURLSafe(byteCount: Int) -> String {
+        let bytes = (0..<byteCount).map { _ in UInt8.random(in: 0...255) }
+        return base64URL(Data(bytes))
+    }
+
+    /// base64url without padding (PKCE challenge/verifier + random tokens).
+    private static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 
     // MARK: - Refresh the id token (Secure Token REST)
