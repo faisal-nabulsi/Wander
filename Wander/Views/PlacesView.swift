@@ -82,7 +82,10 @@ struct PlacesView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showGlobe) {
+            // Full-screen (not a sheet): the sheet's swipe-down-to-dismiss fought the globe's
+            // drag-to-rotate, so a downward drag dismissed instead of spinning. Full-screen has no
+            // drag-dismiss — the globe owns every gesture; the "Done" button is the way out.
+            .fullScreenCover(isPresented: $showGlobe) {
                 GlobeSheet()
             }
             .onAppear { store.reload() }

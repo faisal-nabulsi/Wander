@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "43",
+      "buildVersion": "44",
       "versionDate": "2026-07-16",
-      "versionDescription": "Native Google sign-in — fixes the sign-in loop",
+      "versionDescription": "More-tab hub, cleaner Settings, panic toggle, Street View picks a spot first, full-screen globe",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16693735,
+      "size": 16724008,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "43",
+          "buildVersion": "44",
           "date": "2026-07-16",
-          "localizedDescription": "Native Google sign-in — fixes the sign-in loop",
+          "localizedDescription": "More-tab hub, cleaner Settings, panic toggle, Street View picks a spot first, full-screen globe",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16693735,
+          "size": 16724008,
           "minOSVersion": "17.0"
         }
       ],

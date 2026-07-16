@@ -25,6 +25,7 @@ struct SettingsView: View {
     @AppStorage("jitterEnabled") private var jitterEnabled = false
     @AppStorage("jitterRadius") private var jitterRadius = 1.5
     @AppStorage("smoothLongJumps") private var smoothLongJumps = false
+    @AppStorage("panicButtonEnabled") private var panicButtonEnabled = true
     @AppStorage(LocationPrivacyKeys.frozenHold) private var frozenHold = false
     @AppStorage(LocationPrivacyKeys.approximateLocation) private var approximateLocation = false
     @AppStorage("appearance") private var appearanceRaw = AppearanceMode.system.rawValue
@@ -241,6 +242,8 @@ struct SettingsView: View {
                     }
                 }
 
+                // SAFETY — the panic button + the manual stop, grouped so the revert-to-real-GPS
+                // controls live together instead of being buried in the Location catch-all.
                 Section {
                     Button(role: .destructive) {
                         SimulationSession.shared.stopAll()
@@ -248,6 +251,18 @@ struct SettingsView: View {
                         Label(L("settings.location.stop", fallback: "Stop simulating location"), systemImage: "stop.circle")
                     }
 
+                    Toggle(isOn: $panicButtonEnabled) {
+                        Label(L("settings.safety.panic", fallback: "Show panic button"), systemImage: "exclamationmark.octagon")
+                    }
+                    .tint(Wander.brand)
+                } header: {
+                    Text(localized: "settings.safety.header", fallback: "Safety")
+                } footer: {
+                    Text(localized: "settings.safety.panic.footer",
+                         fallback: "The floating red button on the map instantly reverts to your real GPS from anywhere. Turn it off to hide it — you can still stop above.")
+                }
+
+                Section {
                     HStack {
                         Label(L("settings.location.speed_units", fallback: "Speed units"), systemImage: "speedometer")
                         Spacer()
@@ -259,7 +274,13 @@ struct SettingsView: View {
                         .labelsHidden()
                         .frame(width: 150)
                     }
+                } header: {
+                    Text(localized: "settings.location.header", fallback: "Location")
+                }
 
+                // REALISM & PRIVACY — the movement-believability toggles, split out of the old
+                // catch-all Location section so they read as one coherent group.
+                Section {
                     Toggle(isOn: $jitterEnabled) {
                         Label(L("settings.location.jitter", fallback: "Natural drift"), systemImage: "dot.radiowaves.left.and.right")
                     }
@@ -297,7 +318,7 @@ struct SettingsView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 } header: {
-                    Text(localized: "settings.location.header", fallback: "Location")
+                    Text(localized: "settings.realism.header", fallback: "Realism & privacy")
                 }
                 .onAppear {
                     // The old "Hold perfectly still" toggle was just the inverse of jitter;

@@ -21,6 +21,7 @@ enum AppFeature: String, CaseIterable, Identifiable {
     case pogo
     case places
     case settings
+    case more
 
     var id: String {
         rawValue
@@ -58,6 +59,8 @@ enum AppFeature: String, CaseIterable, Identifiable {
             return L("tab.places", fallback: "Places")
         case .settings:
             return L("tab.settings", fallback: "Settings")
+        case .more:
+            return L("tab.more", fallback: "More")
         }
     }
 
@@ -93,6 +96,8 @@ enum AppFeature: String, CaseIterable, Identifiable {
             return "Saved & recent spots"
         case .settings:
             return "Configure Wander"
+        case .more:
+            return "Places, planning, tools & settings"
         }
     }
 
@@ -137,6 +142,8 @@ enum AppFeature: String, CaseIterable, Identifiable {
             return "star.fill"
         case .settings:
             return Wander.Icon.settings
+        case .more:
+            return "ellipsis.circle"
         }
     }
 
@@ -173,11 +180,13 @@ enum AppFeature: String, CaseIterable, Identifiable {
             PlacesView()
         case .settings:
             SettingsView()
+        case .more:
+            MoreView()
         }
     }
 }
 
 extension AppFeature {
-    static let mainTabs: [AppFeature] = [.location, .walk, .route, .pogo, .places, .settings]
+    static let mainTabs: [AppFeature] = [.location, .walk, .route, .pogo, .more]
     static let toolList: [AppFeature] = [.schedule, .itinerary, .scripts, .console, .deviceInfo, .profiles, .processes, .location]
 }

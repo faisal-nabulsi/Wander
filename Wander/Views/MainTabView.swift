@@ -51,6 +51,9 @@ private enum ExternalLocationAction: Identifiable {
 
 struct MainTabView: View {
     @AppStorage("primaryTabSelection") private var selection: String = AppFeature.location.id
+    // The floating red "panic" stop button can be hidden from Settings → Safety. Defaults on so
+    // existing users keep the always-available revert-to-real-GPS control.
+    @AppStorage("panicButtonEnabled") private var panicButtonEnabled = true
     @State private var detachedFeature: AppFeature?
     @State private var didSetInitialHome = false
     @State private var pendingLocationAction: ExternalLocationAction?
@@ -151,7 +154,7 @@ struct MainTabView: View {
                 }
             }
             .overlay(alignment: .top) { spoofingBanner }
-            .overlay(alignment: .bottomTrailing) { panicButton }
+            .overlay(alignment: .bottomTrailing) { if panicButtonEnabled { panicButton } }
             .overlay(alignment: .top) { panicToast }
             .animation(.easeInOut(duration: 0.25), value: bannerVisible)
             .animation(.easeInOut(duration: 0.25), value: panicToastVisible)

@@ -10,9 +10,12 @@ import MapKit
 import UIKit
 import UniformTypeIdentifiers
 
-private struct CoordinateSnapshot: Equatable {
+private struct CoordinateSnapshot: Equatable, Identifiable {
     let latitude: Double
     let longitude: Double
+
+    // Stable id so this can drive a `.sheet(item:)` (used by the Street View presenter).
+    var id: String { "\(latitude),\(longitude)" }
 
     init(_ coordinate: CLLocationCoordinate2D) {
         latitude = coordinate.latitude
@@ -855,7 +858,7 @@ struct LocationSimulationView: View {
     @State private var alertMessage = ""
 
     @State private var showCoordinateImporter = false
-    @State private var showStreetView = false
+    @State private var streetViewTarget: CoordinateSnapshot?
     @State private var showOfflineMaps = false
     @State private var showRouteSearch = false
     @State private var routeStartSelection: RouteSearchSelection?
@@ -1197,10 +1200,10 @@ struct LocationSimulationView: View {
                 refreshRoute()
             }
         }
-        .sheet(isPresented: $showStreetView) {
-            if let coordinate {
-                StreetViewSheet(coordinate: coordinate)
-            }
+        // Item-driven so Street View can ONLY open for a concrete, chosen pin — never on entry
+        // with a stale/ambient coordinate. Set by the Street View button from the selected pin.
+        .sheet(item: $streetViewTarget) { target in
+            StreetViewSheet(coordinate: target.coordinate)
         }
         .sheet(isPresented: $showOfflineMaps) {
             OfflineMapsSheet()
@@ -1552,7 +1555,7 @@ struct LocationSimulationView: View {
             // (with a lock affordance) so they discover it; tapping opens the paywall. The Maps key
             // is fetched from the Worker on open (Pro + quota gated) — it's no longer bundled.
             Button {
-                if !License.shared.isLicensed { showPaywall = true } else { showStreetView = true }
+                if !License.shared.isLicensed { showPaywall = true } else if let coordinate { streetViewTarget = CoordinateSnapshot(coordinate) }
             } label: {
                 Label(L("map.street_view", fallback: "Street View"),
                       systemImage: License.shared.isLicensed ? "binoculars.fill" : "lock.fill")
