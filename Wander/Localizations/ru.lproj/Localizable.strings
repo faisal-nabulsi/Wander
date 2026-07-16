@@ -95,8 +95,8 @@
 "settings.pro.active" = "Wander Pro — активен";
 "settings.pro.get" = "Получить Wander Pro";
 "settings.pro.footer_active" = "Спасибо за поддержку Wander — все ограничения сняты.";
-"settings.pro.footer_free" = "Бесплатный период: 5 телепортов, 30 минут джойстика и 3 маршрута. Снимите ограничения с помощью лицензии.";
-"settings.trial.teleports" = "Телепорты";
+"settings.pro.footer_free" = "Бесплатный период: 1 телепорт в день, плюс 15 минут джойстика и 3 маршрута в месяц. Снимите ограничения с помощью лицензии.";
+"settings.trial.teleports_today" = "Телепорты сегодня";
 "settings.trial.joystick" = "Джойстик";
 "settings.trial.routes" = "Маршруты";
 
@@ -145,7 +145,7 @@
 "paywall.buy_hint" = "Купите Wander Pro на wanderspoofer.com, затем войдите ниже — ваш Pro откроется на iPhone, Android и компьютере и сохранится после переустановки.";
 "paywall.get_pro" = "Получить Wander Pro";
 "paywall.already_bought" = "Уже купили? Войдите, чтобы разблокировать";
-"paywall.teleports" = "Телепорты";
+"paywall.teleports_today" = "Телепорты сегодня";
 "paywall.joystick" = "Джойстик";
 "paywall.routes" = "Маршруты";
 

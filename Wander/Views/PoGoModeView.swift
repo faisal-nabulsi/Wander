@@ -150,7 +150,8 @@ struct PoGoModeView: View {
     @State private var alertTitle = ""
     @State private var alertMessage = ""
 
-    // Current raids / eggs / events overlay (free, read-only community data from the Worker).
+    // PoGo Hub overlay: raids / eggs / events / research / rocket (free, read-only community
+    // data from the Worker).
     @State private var showEventsSheet = false
 
     // When ON, teleports are blocked (not just warned) while a cooldown is active.
@@ -254,7 +255,8 @@ struct PoGoModeView: View {
                     } label: {
                         Image(systemName: "calendar.badge.clock")
                     }
-                    .accessibilityLabel("Current raids, eggs & events")
+                    .accessibilityLabel(L("pogo.hub.open",
+                                          fallback: "PoGo Hub: raids, eggs, events, research & rocket"))
                 }
             }
             .onAppear(perform: loadData)

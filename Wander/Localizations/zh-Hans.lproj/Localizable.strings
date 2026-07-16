@@ -95,8 +95,8 @@
 "settings.pro.active" = "Wander Pro — 已激活";
 "settings.pro.get" = "获取 Wander Pro";
 "settings.pro.footer_active" = "感谢你支持 Wander — 所有限制均已解除。";
-"settings.pro.footer_free" = "免费试用：5 次瞬移、30 分钟摇杆和 3 条路线。使用许可证解锁无限使用。";
-"settings.trial.teleports" = "瞬移";
+"settings.pro.footer_free" = "免费试用：每天 1 次瞬移，外加每月 15 分钟摇杆和 3 条路线。使用许可证解锁无限使用。";
+"settings.trial.teleports_today" = "今日瞬移";
 "settings.trial.joystick" = "摇杆";
 "settings.trial.routes" = "路线";
 
@@ -145,7 +145,7 @@
 "paywall.buy_hint" = "在 wanderspoofer.com 购买 Wander Pro，然后在下方登录 — 你的 Pro 会在 iPhone、Android 和桌面端解锁，并在重装后依然有效。";
 "paywall.get_pro" = "获取 Wander Pro";
 "paywall.already_bought" = "已购买？登录解锁";
-"paywall.teleports" = "瞬移";
+"paywall.teleports_today" = "今日瞬移";
 "paywall.joystick" = "摇杆";
 "paywall.routes" = "路线";
 

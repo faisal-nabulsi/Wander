@@ -95,8 +95,8 @@
 "settings.pro.active" = "Wander Pro — 활성화됨";
 "settings.pro.get" = "Wander Pro 받기";
 "settings.pro.footer_active" = "Wander를 후원해 주셔서 감사합니다. 모든 제한이 해제되었습니다.";
-"settings.pro.footer_free" = "무료 체험: 텔레포트 5회, 조이스틱 30분, 경로 3개. 라이선스로 무제한 이용을 잠금 해제하세요.";
-"settings.trial.teleports" = "텔레포트";
+"settings.pro.footer_free" = "무료 체험: 하루 텔레포트 1회, 여기에 매달 조이스틱 15분과 경로 3개. 라이선스로 무제한 이용을 잠금 해제하세요.";
+"settings.trial.teleports_today" = "오늘 텔레포트";
 "settings.trial.joystick" = "조이스틱";
 "settings.trial.routes" = "경로";
 
@@ -145,7 +145,7 @@
 "paywall.buy_hint" = "wanderspoofer.com에서 Wander Pro를 구매한 뒤 아래에서 로그인하세요. Pro는 iPhone, Android, 데스크톱에서 잠금 해제되며 재설치 후에도 유지됩니다.";
 "paywall.get_pro" = "Wander Pro 받기";
 "paywall.already_bought" = "이미 구매하셨나요? 로그인해 잠금 해제";
-"paywall.teleports" = "텔레포트";
+"paywall.teleports_today" = "오늘 텔레포트";
 "paywall.joystick" = "조이스틱";
 "paywall.routes" = "경로";
 

@@ -95,8 +95,8 @@
 "settings.pro.active" = "Wander Pro — 有効";
 "settings.pro.get" = "Wander Pro を入手";
 "settings.pro.footer_active" = "Wander をご支援いただきありがとうございます。すべての制限が解除されました。";
-"settings.pro.footer_free" = "無料トライアル：テレポート5回、ジョイスティック30分、ルート3回。ライセンスで無制限に利用できます。";
-"settings.trial.teleports" = "テレポート";
+"settings.pro.footer_free" = "無料トライアル：テレポートは1日1回、さらに毎月ジョイスティック15分とルート3回。ライセンスで無制限に利用できます。";
+"settings.trial.teleports_today" = "本日のテレポート";
 "settings.trial.joystick" = "ジョイスティック";
 "settings.trial.routes" = "ルート";
 
@@ -145,7 +145,7 @@
 "paywall.buy_hint" = "wanderspoofer.com で Wander Pro を購入し、下からサインインしてください。Pro は iPhone・Android・デスクトップで解除され、再インストールしても維持されます。";
 "paywall.get_pro" = "Wander Pro を入手";
 "paywall.already_bought" = "購入済みですか？ サインインして解除";
-"paywall.teleports" = "テレポート";
+"paywall.teleports_today" = "本日のテレポート";
 "paywall.joystick" = "ジョイスティック";
 "paywall.routes" = "ルート";
 

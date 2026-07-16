@@ -967,6 +967,9 @@ struct RouteModeView: View {
             visibleRegion = region
         }
         SimulationSession.shared.started()
+        // Adventure Sync: open a fresh walk window for this drive (no-op unless
+        // opted in). Per-sample deltas below feed the incremental Health writer.
+        AdventureSyncManager.shared.beginWalk()
         if !License.shared.isLicensed { TrialManager.shared.chargeRoute() }
 
         let totalPlanned = samples.reduce(0) { $0 + $1.delayFromPrevious }
@@ -994,6 +997,10 @@ struct RouteModeView: View {
                     let outgoing = (!frozen && jitterEnabled) ? LocationJitter.apply(sample.coordinate) : sample.coordinate
                     send(outgoing)
                     currentPosition = sample.coordinate
+                    // Adventure Sync: mirror the SIMULATED movement (true path
+                    // coordinate, not the jittered one) into Health incrementally as
+                    // the drive advances. No-op unless the user opted in.
+                    AdventureSyncManager.shared.recordSimulatedMovement(to: sample.coordinate)
                     // Follow without hijacking zoom: only recenter (keeping the user's current span)
                     // when the pin drifts near the edge of what's on screen.
                     if followCamera, !regionComfortablyContains(sample.coordinate) {
@@ -1016,6 +1023,8 @@ struct RouteModeView: View {
     private func localReset() {
         playbackTask?.cancel()
         playbackTask = nil
+        // Adventure Sync: flush the tail of the drive and clear accumulation.
+        AdventureSyncManager.shared.endWalk()
         isDriving = false
         isPaused = false
         progress = 0

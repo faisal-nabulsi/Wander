@@ -95,8 +95,8 @@
 "settings.pro.active" = "Wander Pro — actif";
 "settings.pro.get" = "Obtenir Wander Pro";
 "settings.pro.footer_active" = "Merci de soutenir Wander — toutes les limites sont levées.";
-"settings.pro.footer_free" = "Essai gratuit : 5 téléportations, 30 minutes de joystick et 3 itinéraires. Débloquez une utilisation illimitée avec une licence.";
-"settings.trial.teleports" = "Téléportations";
+"settings.pro.footer_free" = "Essai gratuit : 1 téléportation par jour, plus 15 minutes de joystick et 3 itinéraires par mois. Débloquez une utilisation illimitée avec une licence.";
+"settings.trial.teleports_today" = "Téléportations aujourd'hui";
 "settings.trial.joystick" = "Joystick";
 "settings.trial.routes" = "Itinéraires";
 
@@ -145,7 +145,7 @@
 "paywall.buy_hint" = "Achetez Wander Pro sur wanderspoofer.com, puis connectez-vous ci-dessous — votre Pro se débloque sur iPhone, Android et ordinateur, et survit aux réinstallations.";
 "paywall.get_pro" = "Obtenir Wander Pro";
 "paywall.already_bought" = "Déjà acheté ? Connectez-vous pour débloquer";
-"paywall.teleports" = "Téléportations";
+"paywall.teleports_today" = "Téléportations aujourd'hui";
 "paywall.joystick" = "Joystick";
 "paywall.routes" = "Itinéraires";
 

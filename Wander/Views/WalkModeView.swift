@@ -173,6 +173,9 @@ struct WalkModeView: View {
         }
         isWalking = true
         SimulationSession.shared.started()
+        // Adventure Sync: start a fresh walk window so the first tick isn't measured
+        // against a stale coordinate from an earlier run (no-op unless opted in).
+        AdventureSyncManager.shared.beginWalk()
         send(coordinate)
         startTimer()
     }
@@ -184,6 +187,8 @@ struct WalkModeView: View {
 
     private func localReset() {
         stopTimer()
+        // Adventure Sync: flush the tail of the walk and clear accumulation.
+        AdventureSyncManager.shared.endWalk()
         isWalking = false
         knobOffset = .zero
         coordinate = nil          // back to "set a new start" state
@@ -233,6 +238,9 @@ struct WalkModeView: View {
         coordinate = coord
         recenter(on: coord)
         send(coord)
+        // Adventure Sync: mirror this simulated step into Health (no-op unless opted
+        // in). Derived from the ACTUAL per-tick movement, at a human cadence.
+        AdventureSyncManager.shared.recordSimulatedMovement(to: coord)
     }
 
     private func recenter(on coord: CLLocationCoordinate2D) {

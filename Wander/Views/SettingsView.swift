@@ -50,6 +50,7 @@ struct SettingsView: View {
     @ObservedObject private var selfRefresh = SelfRefreshService.shared
     @ObservedObject private var proAccount = WanderProAccount.shared
     @ObservedObject private var deviceActivation = WanderDeviceActivation.shared
+    @ObservedObject private var adventureSync = AdventureSyncManager.shared
     @State private var showProSignIn = false
     @State private var showManageDevices = false
     @EnvironmentObject private var localization: LocalizationManager
@@ -102,7 +103,7 @@ struct SettingsView: View {
                                 .foregroundStyle(.orange)
                             manageDevicesRow
                         }
-                        trialRow(L("settings.trial.teleports", fallback: "Teleports"), trial.teleportsUsed, TrialManager.maxTeleports)
+                        trialRow(L("settings.trial.teleports_today", fallback: "Teleports today"), trial.teleportsUsed, TrialManager.maxTeleports)
                         trialRow(L("settings.trial.joystick", fallback: "Joystick"), trial.joystickSecondsUsed / 60, TrialManager.maxJoystickSeconds / 60, unit: " min")
                         trialRow(L("settings.trial.routes", fallback: "Routes"), trial.routesUsed, TrialManager.maxRoutes)
                         Button {
@@ -116,7 +117,7 @@ struct SettingsView: View {
                 } footer: {
                     Text(license.isLicensed
                          ? L("settings.pro.footer_active", fallback: "Thanks for supporting Wander — all limits are lifted.")
-                         : L("settings.pro.footer_free", fallback: "Free trial: 5 teleports, 30 minutes of joystick, and 3 routes. Unlock unlimited use with a license."))
+                         : L("settings.pro.footer_free", fallback: "Free trial: 1 teleport a day, plus 15 minutes of joystick and 3 routes a month. Unlock unlimited use with a license."))
                 }
 
                 languageSection
@@ -300,6 +301,8 @@ struct SettingsView: View {
                 } header: {
                     Text(localized: "settings.location.header", fallback: "Location")
                 }
+
+                adventureSyncSection
 
                 Section {
                     HStack {
@@ -592,6 +595,76 @@ struct SettingsView: View {
             Text(license.isLicensed
                  ? "When on, your saved places are mirrored to your Wander account and merged across your devices. Places are only ever added — nothing is deleted from any device. Off by default."
                  : "Wander Pro syncs your saved places across all your devices. Places are only ever added, never deleted.")
+        }
+    }
+
+    // MARK: - Adventure Sync (Pro) — mirror simulated walking into Apple Health
+
+    /// Writes step + walking-distance samples into Apple Health that MIRROR the
+    /// app's simulated movement, so fitness-reading games (Pokémon GO Adventure
+    /// Sync, Pikmin Bloom, …) can credit the spoofed walk. Pro-gated like the other
+    /// power features; default OFF; permission-gated; honest best-effort labelling.
+    @ViewBuilder private var adventureSyncSection: some View {
+        Section {
+            if !license.isLicensed {
+                // Free / unlicensed: locked, routes to the paywall (matches Sync/Loop).
+                Button {
+                    showPaywall = true
+                } label: {
+                    HStack {
+                        Label(L("settings.adventuresync.toggle", fallback: "Adventure Sync (write steps to Health)"),
+                              systemImage: "figure.walk.motion")
+                        Spacer()
+                        Image(systemName: "lock.fill").foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Toggle(isOn: Binding(
+                    get: { adventureSync.isEnabled },
+                    set: { adventureSync.setEnabled($0) }
+                )) {
+                    Label(L("settings.adventuresync.toggle", fallback: "Adventure Sync (write steps to Health)"),
+                          systemImage: "figure.walk.motion")
+                }
+                .tint(Wander.brand)
+
+                if adventureSync.isEnabled {
+                    switch adventureSync.status {
+                    case .authorized:
+                        Label(L("settings.adventuresync.status.on",
+                                fallback: "Writing steps to Apple Health while you move."),
+                              systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    case .denied:
+                        Label(L("settings.adventuresync.status.denied",
+                                fallback: "Health write access is off. Enable it in Settings → Health → Data Access & Devices → Wander."),
+                              systemImage: "exclamationmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    case .unavailable:
+                        Label(L("settings.adventuresync.status.unavailable",
+                                fallback: "Apple Health isn't available on this install. Writing steps needs a HealthKit-enabled (paid-signing) build."),
+                              systemImage: "xmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    case .idle:
+                        Label(L("settings.adventuresync.status.idle",
+                                fallback: "Grant Apple Health write access when prompted to start mirroring steps."),
+                              systemImage: "hourglass")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: {
+            Text(localized: "settings.adventuresync.header", fallback: "Adventure Sync")
+        } footer: {
+            Text(license.isLicensed
+                 ? L("settings.adventuresync.footer",
+                     fallback: "Best-effort: writes step + walking-distance samples to Apple Health that mirror your simulated walk, so games like Pokémon GO's Adventure Sync can credit the distance. Steps are paced realistically from your actual movement — only while the Joystick or a Route drive is moving. Teleports write nothing. Off by default.")
+                 : L("settings.adventuresync.footer_locked",
+                     fallback: "Wander Pro mirrors your simulated walk into Apple Health as steps + distance, so fitness-reading games can credit it. Best-effort, paced realistically, off by default."))
         }
     }
 

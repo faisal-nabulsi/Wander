@@ -178,7 +178,7 @@ struct PaywallView: View {
 
     private var trialSummary: some View {
         VStack(spacing: 6) {
-            usageRow(L("paywall.teleports", fallback: "Teleports"), trial.teleportsUsed, TrialManager.maxTeleports)
+            usageRow(L("paywall.teleports_today", fallback: "Teleports today"), trial.teleportsUsed, TrialManager.maxTeleports)
             usageRow(L("paywall.joystick", fallback: "Joystick"), trial.joystickSecondsUsed / 60, TrialManager.maxJoystickSeconds / 60, unit: " min")
             usageRow(L("paywall.routes", fallback: "Routes"), trial.routesUsed, TrialManager.maxRoutes)
         }
