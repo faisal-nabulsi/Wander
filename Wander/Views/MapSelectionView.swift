@@ -1270,6 +1270,14 @@ struct LocationSimulationView: View {
                 showAlert = true
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .previewLocationRequested)) { note in
+            guard let lat = note.userInfo?["lat"] as? Double,
+                  let lng = note.userInfo?["lng"] as? Double else { return }
+            // Preview ONLY: center the map, drop/move the pin, refresh its info. Do NOT simulate —
+            // the user presses Simulate / "Set pin here" to actually teleport. Shared by a tapped
+            // saved Place and a tapped PoGo hotspot so both behave identically.
+            applySelection(CLLocationCoordinate2D(latitude: lat, longitude: lng))
+        }
         .onReceive(NotificationCenter.default.publisher(for: .placesDidChange)) { _ in
             loadBookmarks()
         }
@@ -1676,6 +1684,7 @@ struct LocationSimulationView: View {
             beginBackgroundTask()
             startResendLoop(with: coord)
             SimulationSession.shared.started()
+            SimulationSession.shared.noteTeleport(to: coord)
             if !License.shared.isLicensed { TrialManager.shared.chargeTeleport() }
         }
     }
@@ -1702,6 +1711,7 @@ struct LocationSimulationView: View {
         ) {
             beginBackgroundTask()
             SimulationSession.shared.started()
+            SimulationSession.shared.noteTeleport(to: coord)
             if !License.shared.isLicensed { TrialManager.shared.chargeTeleport() }
             simulatedCoordinate = nil
             routePlaybackSamples = samples

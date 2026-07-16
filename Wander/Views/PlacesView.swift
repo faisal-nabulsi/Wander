@@ -324,13 +324,15 @@ struct PlacesView: View {
     }
 
     private func teleport(to coordinate: CLLocationCoordinate2D, name: String) {
-        SavedPlacesStore.recordRecent(coordinate, name: name)
+        // Preview, don't teleport: jump to the Teleport tab and center + pin the spot. The user
+        // presses Simulate there to actually move (which records the recent). This makes a tapped
+        // Place behave the same as a tapped PoGo hotspot — select → preview → explicit Teleport.
         NotificationCenter.default.post(
-            name: .teleportToRequested,
+            name: .previewLocationRequested,
             object: nil,
             userInfo: ["lat": coordinate.latitude, "lng": coordinate.longitude]
         )
-        selection = AppFeature.location.id   // jump to the Teleport tab
+        selection = AppFeature.location.id   // jump to the Teleport tab to preview
     }
 }
 

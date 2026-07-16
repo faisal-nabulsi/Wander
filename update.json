@@ -1,6 +1,6 @@
 {
-  "build": 44,
+  "build": 45,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "More-tab hub, cleaner Settings, panic toggle, Street View picks a spot first, full-screen globe"
+  "notes": "Tap a spot to preview it on the map (tap Simulate to go), PoGo tab is now Games (multi-game), tidier"
 }

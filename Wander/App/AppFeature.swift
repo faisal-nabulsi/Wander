@@ -54,7 +54,7 @@ enum AppFeature: String, CaseIterable, Identifiable {
         case .schedule:
             return L("tab.schedule", fallback: "Schedule")
         case .pogo:
-            return L("tab.pogo", fallback: "PoGo")
+            return L("tab.pogo", fallback: "Games")
         case .places:
             return L("tab.places", fallback: "Places")
         case .settings:
@@ -91,7 +91,7 @@ enum AppFeature: String, CaseIterable, Identifiable {
         case .schedule:
             return "Be at a place during set hours"
         case .pogo:
-            return "Pokémon GO hotspots & cooldown"
+            return "Location-game hotspots & cooldown"
         case .places:
             return "Saved & recent spots"
         case .settings:

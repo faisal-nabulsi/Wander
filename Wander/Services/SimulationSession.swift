@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import CoreLocation
 import UserNotifications
 
 extension Notification.Name {
@@ -25,6 +26,19 @@ final class SimulationSession: ObservableObject {
     /// banner: iOS 18+ clears the spoof the moment the app/tunnel dies, so the user must
     /// keep Wander foregrounded.
     @Published private(set) var isActive = false
+
+    /// A monotonically-increasing tick that changes on every CONFIRMED teleport, plus the
+    /// destination coordinate of that teleport. PoGo mode observes `teleportTick` (Equatable,
+    /// unlike a raw coordinate) to drive its soft-ban cooldown — so the cooldown now reflects
+    /// EVERY teleport (a PoGo hotspot, the Places list, or the map), not just PoGo-tab taps.
+    @Published private(set) var teleportTick: Int = 0
+    private(set) var lastTeleportCoordinate: CLLocationCoordinate2D?
+
+    /// Record a confirmed teleport destination. Called from the Teleport tab's simulate paths.
+    func noteTeleport(to coordinate: CLLocationCoordinate2D) {
+        lastTeleportCoordinate = coordinate
+        teleportTick &+= 1
+    }
 
     /// Set to `true` for one run-loop tick when spoofing starts while on cellular, to ask the
     /// UI (MainTabView) to present the one-time "spoofing on cellular" coaching alert. The UI

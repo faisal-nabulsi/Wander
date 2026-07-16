@@ -15,6 +15,12 @@ extension Notification.Name {
     /// screen to jump to — and start simulating — a coordinate.
     static let teleportToRequested = Notification.Name("wander.teleportToRequested")
 
+    /// Posted with userInfo ["lat": Double, "lng": Double] to ask the Teleport screen to CENTER +
+    /// PREVIEW a coordinate (drop the pin, show its info) WITHOUT teleporting — the user then
+    /// presses Simulate / "Set pin here" to actually move. Unifies how a tapped saved Place and a
+    /// tapped PoGo hotspot behave (both preview first, neither teleports on tap).
+    static let previewLocationRequested = Notification.Name("wander.previewLocationRequested")
+
     /// Posted whenever the saved-places or recents store changes, so any live
     /// view (Places tab, Teleport bookmarks) can reload from the shared store.
     static let placesDidChange = Notification.Name("wander.placesDidChange")

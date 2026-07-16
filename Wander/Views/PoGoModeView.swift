@@ -196,6 +196,12 @@ struct PoGoModeView: View {
     @AppStorage("pogoGamePreset") private var gamePresetRaw = GamePreset.pokemonGo.rawValue
     private var gamePreset: GamePreset { GamePreset(rawValue: gamePresetRaw) ?? .pokemonGo }
 
+    // Tapping a spot now PREVIEWS it on the Teleport tab (unified with saved Places) instead of
+    // teleporting in place; `primaryTab` switches tabs. `session.teleportTick` lets us start the
+    // cooldown when the user actually confirms the teleport there.
+    @AppStorage("primaryTabSelection") private var primaryTab = AppFeature.location.id
+    @ObservedObject private var session = SimulationSession.shared
+
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private var pairingFileURL: URL { PairingFileStore.prepareURL() }
@@ -279,24 +285,35 @@ struct PoGoModeView: View {
                     } header: {
                         Text("Premade routes")
                     } footer: {
-                        Text("Teleports to the route's start point. Use the Route tab to play a full path.")
+                        Text("Previews the route's start point on the map. Use the Route tab to play a full path.")
                     }
                 }
             }
             .navigationTitle("\(gamePreset.shortTitle) Mode")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showEventsSheet = true
-                    } label: {
-                        Image(systemName: "calendar.badge.clock")
+                // The events hub is LeekDuck/ScrapedDuck data — Pokémon GO ONLY. Hide the calendar
+                // for the other game presets, where it would just show irrelevant PoGo raids/eggs.
+                if gamePreset == .pokemonGo {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showEventsSheet = true
+                        } label: {
+                            Image(systemName: "calendar.badge.clock")
+                        }
+                        .accessibilityLabel(L("pogo.hub.open",
+                                              fallback: "PoGo Hub: raids, eggs, events, research & rocket"))
                     }
-                    .accessibilityLabel(L("pogo.hub.open",
-                                          fallback: "PoGo Hub: raids, eggs, events, research & rocket"))
                 }
             }
             .onAppear(perform: loadData)
+            .onChange(of: session.teleportTick) { _, _ in
+                // A teleport was just confirmed (from a PoGo preview, the Places list, or the map).
+                // Start/refresh the soft-ban cooldown from the previous spot to the new destination.
+                guard let dest = session.lastTeleportCoordinate else { return }
+                applyCooldown(from: lastCoordinate, to: dest)
+                lastCoordinate = dest
+            }
             .onReceive(ticker) { date in
                 // Only drive the countdown while a cooldown is pending.
                 if cooldownEndsAt != nil { now = date }
@@ -377,7 +394,7 @@ struct PoGoModeView: View {
                     Text(spot.area).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Label("Teleport", systemImage: Wander.Icon.simulate)
+                Label("Preview", systemImage: "map")
                     .labelStyle(.titleAndIcon)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(pairingExists ? Wander.brand : .secondary)
@@ -408,7 +425,7 @@ struct PoGoModeView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Label("Teleport", systemImage: Wander.Icon.simulate)
+                Label("Preview", systemImage: "map")
                     .labelStyle(.titleAndIcon)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(pairingExists ? Wander.brand : .secondary)
@@ -443,32 +460,15 @@ struct PoGoModeView: View {
             }
         }
 
-        // Compute the PoGo cooldown from the previous spoofed coordinate.
-        let previous = lastCoordinate
-        let path = pairingFileURL.path
-
-        SavedPlacesStore.recordRecent(coordinate, name: label)
-
-        LocationSimulationCommandQueue.shared.async {
-            let code = simulate_location(
-                DeviceConnectionContext.targetIPAddress,
-                coordinate.latitude,
-                coordinate.longitude,
-                path
-            )
-            DispatchQueue.main.async {
-                if code == 0 {
-                    SimulationSession.shared.started()   // starts BackgroundLocationManager + banner
-                    applyCooldown(from: previous, to: coordinate)
-                    lastCoordinate = coordinate
-                } else {
-                    present(
-                        title: "Teleport Failed",
-                        message: "Could not simulate location (error \(code)). Make sure the device is connected and the DDI is mounted."
-                    )
-                }
-            }
-        }
+        // Preview, don't teleport: jump to the Teleport tab and center + pin this spot. The user
+        // presses Simulate there to actually move — matching how a tapped saved Place behaves. The
+        // cooldown then starts on that confirm (see the `session.teleportTick` observer above).
+        NotificationCenter.default.post(
+            name: .previewLocationRequested,
+            object: nil,
+            userInfo: ["lat": coordinate.latitude, "lng": coordinate.longitude]
+        )
+        primaryTab = AppFeature.location.id
     }
 
     private func applyCooldown(from previous: CLLocationCoordinate2D?, to next: CLLocationCoordinate2D) {

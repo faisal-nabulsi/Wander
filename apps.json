@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "44",
+      "buildVersion": "45",
       "versionDate": "2026-07-16",
-      "versionDescription": "More-tab hub, cleaner Settings, panic toggle, Street View picks a spot first, full-screen globe",
+      "versionDescription": "Tap a spot to preview it on the map (tap Simulate to go), PoGo tab is now Games (multi-game), tidier",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16724008,
+      "size": 16725656,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "44",
+          "buildVersion": "45",
           "date": "2026-07-16",
-          "localizedDescription": "More-tab hub, cleaner Settings, panic toggle, Street View picks a spot first, full-screen globe",
+          "localizedDescription": "Tap a spot to preview it on the map (tap Simulate to go), PoGo tab is now Games (multi-game), tidier",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16724008,
+          "size": 16725656,
           "minOSVersion": "17.0"
         }
       ],
