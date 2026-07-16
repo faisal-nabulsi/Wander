@@ -16,6 +16,17 @@ private struct RouteWaypoint: Identifiable {
     var coordinate: CLLocationCoordinate2D
 }
 
+/// One candidate route for the "2–3 options" picker (Google-Maps style). Populated only for
+/// point-to-point trips (start + end, no intermediate stops), since neither Apple's alternate
+/// routes nor Google's `computeAlternativeRoutes` combine with intermediate waypoints.
+private struct RouteOption: Identifiable {
+    let id = UUID()
+    let coordinates: [CLLocationCoordinate2D]
+    let expectedTime: TimeInterval   // seconds; 0 when unknown (great-circle / re-paced modes)
+    let distanceMeters: Double
+    let label: String                // e.g. "I-80 W" (Apple) or "via US-101" (Google) — may be ""
+}
+
 private enum RouteSpeedMode: String, CaseIterable, Identifiable {
     case realistic
     case speedLimit
@@ -151,6 +162,10 @@ struct RouteModeView: View {
     @State private var manualSpeedMps: Double = 50_000.0 / 3_600.0   // default 50 km/h
     @State private var routeExpectedTime: TimeInterval = 0            // real-world ETA from MKDirections
     @State private var routeNotice: String?                          // e.g. "No route available" for a too-short plane trip
+    /// The 2–3 route options for the current point-to-point trip and which one is selected.
+    /// Empty for multi-stop / great-circle routes (the single previewed path is used directly).
+    @State private var routeAlternatives: [RouteOption] = []
+    @State private var selectedRouteIndex = 0
     @AppStorage("useMph") private var useMph = false
     @AppStorage("jitterEnabled") private var jitterEnabled = false
     // Avoid options (Pro, Google Routes API) — only meaningful for Drive.
@@ -270,7 +285,22 @@ struct RouteModeView: View {
                 Marker(waypointLabel(index), coordinate: wp.coordinate)
                     .tint(index == 0 ? .green : (index == waypoints.count - 1 ? .red : .orange))
             }
-            if routeCoordinates.count > 1 {
+            // Draw the unselected alternatives faded and the chosen one bold, so the picker
+            // selection is visible on the map (Google-Maps style). Falls back to the single
+            // previewed path for multi-stop / great-circle routes.
+            if routeAlternatives.count > 1 {
+                ForEach(Array(routeAlternatives.enumerated()), id: \.element.id) { idx, opt in
+                    if idx != selectedRouteIndex && opt.coordinates.count > 1 {
+                        MapPolyline(coordinates: opt.coordinates)
+                            .stroke(.gray.opacity(0.5), lineWidth: 4)
+                    }
+                }
+                if routeAlternatives.indices.contains(selectedRouteIndex),
+                   routeAlternatives[selectedRouteIndex].coordinates.count > 1 {
+                    MapPolyline(coordinates: routeAlternatives[selectedRouteIndex].coordinates)
+                        .stroke(.blue, lineWidth: 5)
+                }
+            } else if routeCoordinates.count > 1 {
                 MapPolyline(coordinates: routeCoordinates)
                     .stroke(.blue, lineWidth: 4)
             }
@@ -339,7 +369,7 @@ struct RouteModeView: View {
             if !isDriving {
                 AddressSearchBar(placeholder: "Search to add a point") { coord, _ in
                     waypoints.append(RouteWaypoint(coordinate: coord))
-                    routeCoordinates = []
+                    routeCoordinates = []; routeAlternatives = []
                     if let region = region(fitting: waypoints.map(\.coordinate)) {
                         cameraPosition = .region(region)
                     }
@@ -373,6 +403,12 @@ struct RouteModeView: View {
                 reorderableStopsList
 
                 modePicker
+
+                // 2–3 route options (Google-Maps style) for point-to-point trips. Only shown
+                // once a preview has produced more than one alternative.
+                if routeAlternatives.count > 1 {
+                    routeOptionsPicker
+                }
 
                 // The realistic/speed-limit/manual pacing picker only applies to the
                 // road-following DRIVE/WALK modes. The other modes run at their own cruise
@@ -571,7 +607,7 @@ struct RouteModeView: View {
             return
         }
         waypoints.append(RouteWaypoint(coordinate: center))
-        routeCoordinates = []
+        routeCoordinates = []; routeAlternatives = []
     }
 
     // MARK: - Transport mode UI
@@ -592,7 +628,7 @@ struct RouteModeView: View {
             .onChange(of: transportMode) { _, _ in
                 // The old path was built for a different engine/speed — clear it so the
                 // user re-previews (or a saved run re-computes) for the new mode.
-                routeCoordinates = []
+                routeCoordinates = []; routeAlternatives = []
                 routeExpectedTime = 0
             }
         }
@@ -661,13 +697,13 @@ struct RouteModeView: View {
     /// re-routes to follow the new order.
     private func moveWaypoints(from source: IndexSet, to destination: Int) {
         waypoints.move(fromOffsets: source, toOffset: destination)
-        routeCoordinates = []
+        routeCoordinates = []; routeAlternatives = []
         routeExpectedTime = 0
     }
 
     private func deleteWaypoints(at offsets: IndexSet) {
         waypoints.remove(atOffsets: offsets)
-        routeCoordinates = []
+        routeCoordinates = []; routeAlternatives = []
         routeExpectedTime = 0
     }
 
@@ -677,7 +713,7 @@ struct RouteModeView: View {
     private func reverseWaypoints() {
         guard waypoints.count >= 2 else { return }
         waypoints.reverse()
-        routeCoordinates = []
+        routeCoordinates = []; routeAlternatives = []
         routeExpectedTime = 0
         if let region = region(fitting: waypoints.map(\.coordinate)) {
             cameraPosition = .region(region)
@@ -686,7 +722,7 @@ struct RouteModeView: View {
 
     private func clearAll() {
         waypoints = []
-        routeCoordinates = []
+        routeCoordinates = []; routeAlternatives = []
         currentPosition = nil
     }
 
@@ -703,7 +739,7 @@ struct RouteModeView: View {
                 let data = try Data(contentsOf: url)
                 let coords = try RouteFileImporter.parse(data: data, filename: url.lastPathComponent)
                 waypoints.append(contentsOf: coords.map { RouteWaypoint(coordinate: $0) })
-                routeCoordinates = []
+                routeCoordinates = []; routeAlternatives = []
                 if let region = region(fitting: waypoints.map(\.coordinate)) {
                     cameraPosition = .region(region)
                 }
@@ -726,6 +762,8 @@ struct RouteModeView: View {
         guard waypoints.count >= 2 else { return }
         isComputing = true
         routeNotice = nil
+        routeAlternatives = []
+        selectedRouteIndex = 0
         defer { isComputing = false }
 
         // PLANE flies a great-circle track (no road snapping). Only draw a route for a trip long
@@ -736,7 +774,7 @@ struct RouteModeView: View {
             let km = CLLocation(latitude: first.latitude, longitude: first.longitude)
                 .distance(from: CLLocation(latitude: last.latitude, longitude: last.longitude)) / 1000
             if km < 100 {
-                routeCoordinates = []
+                routeCoordinates = []; routeAlternatives = []
                 routeExpectedTime = 0
                 routeNotice = "No route available — \(Int(km)) km is too short to fly. Plane trips need ~100 km+."
                 return
@@ -756,7 +794,7 @@ struct RouteModeView: View {
             || (transportMode == .drive && (avoidHighways || avoidTolls))
         if needsGoogle {
             if !License.shared.isLicensed {
-                routeCoordinates = []
+                routeCoordinates = []; routeAlternatives = []
                 routeNotice = "Real cycling, transit and avoid-highways/tolls are a Pro feature."
                 showPaywall = true
                 return
@@ -776,27 +814,55 @@ struct RouteModeView: View {
                 waypoints: inter,
                 mode: modeStr,
                 avoidHighways: avoidHighways,
-                avoidTolls: avoidTolls
+                avoidTolls: avoidTolls,
+                alternatives: inter.isEmpty   // 2–3 options only for point-to-point trips
             )
             switch res {
             case .success(let routes):
-                if let best = routes.first, best.points.count >= 2 {
-                    routeCoordinates = best.points
-                    routeExpectedTime = best.durationSeconds
-                    if let region = region(fitting: best.points) { cameraPosition = .region(region) }
+                let opts = routes
+                    .filter { $0.points.count >= 2 }
+                    .map { RouteOption(coordinates: $0.points,
+                                       expectedTime: $0.durationSeconds,
+                                       distanceMeters: $0.distanceMeters,
+                                       label: $0.summary) }
+                if opts.isEmpty {
+                    routeCoordinates = []; routeAlternatives = []; routeNotice = "No route available for this trip."
                 } else {
-                    routeCoordinates = []; routeNotice = "No route available for this trip."
+                    applyAlternatives(opts)
                 }
             case .noRoute:
-                routeCoordinates = []; routeNotice = "No route available for this trip."
+                routeCoordinates = []; routeAlternatives = []; routeNotice = "No route available for this trip."
             case .proRequired:
-                routeCoordinates = []
+                routeCoordinates = []; routeAlternatives = []
                 routeNotice = "Sign in with your Pro account to use cycling/transit routing."
                 showPaywall = true
             case .failed(let msg):
-                routeCoordinates = []; routeNotice = msg
+                routeCoordinates = []; routeAlternatives = []; routeNotice = msg
             }
             return
+        }
+
+        // Point-to-point (start + end): ask Apple for alternate routes so the user gets
+        // 2–3 options to choose from, like Google Maps. Intermediate stops fall through to
+        // the single concatenated route below (alternates don't combine with waypoints).
+        if waypoints.count == 2 {
+            let request = MKDirections.Request()
+            request.source = MKMapItem(placemark: MKPlacemark(coordinate: waypoints[0].coordinate))
+            request.destination = MKMapItem(placemark: MKPlacemark(coordinate: waypoints[1].coordinate))
+            request.transportType = transportMode.mapKitTransportType
+            request.requestsAlternateRoutes = true
+            if let response = try? await MKDirections(request: request).calculate(), !response.routes.isEmpty {
+                let pacesToEta = (transportMode == .drive || transportMode == .walk)
+                let opts = response.routes.prefix(3).map { r in
+                    RouteOption(coordinates: coordinates(from: r.polyline),
+                                expectedTime: pacesToEta ? r.expectedTravelTime : 0,
+                                distanceMeters: r.distance,
+                                label: r.name)
+                }
+                applyAlternatives(Array(opts))
+                return
+            }
+            // MKDirections failed → fall through to the straight-line fallback below.
         }
 
         var coords: [CLLocationCoordinate2D] = []
@@ -823,6 +889,91 @@ struct RouteModeView: View {
         routeExpectedTime = (transportMode == .drive || transportMode == .walk) ? totalTime : 0
         if let region = region(fitting: coords) {
             cameraPosition = .region(region)
+        }
+    }
+
+    // MARK: - Route options (2–3 alternatives)
+
+    /// Store the computed options, select the fastest (index 0), and frame all of them so the
+    /// user can compare. `routeCoordinates`/`routeExpectedTime` mirror the selected option, so
+    /// Preview/Drive keep using them unchanged.
+    private func applyAlternatives(_ opts: [RouteOption]) {
+        routeAlternatives = opts
+        selectedRouteIndex = 0
+        guard let first = opts.first else { routeCoordinates = []; routeAlternatives = []; return }
+        routeCoordinates = first.coordinates
+        routeExpectedTime = first.expectedTime
+        let all = opts.flatMap { $0.coordinates }
+        if let region = region(fitting: all) { cameraPosition = .region(region) }
+    }
+
+    /// Pick a different option — swap the active path + ETA so Preview/Drive use it.
+    private func selectRoute(_ i: Int) {
+        guard routeAlternatives.indices.contains(i) else { return }
+        selectedRouteIndex = i
+        let opt = routeAlternatives[i]
+        routeCoordinates = opt.coordinates
+        routeExpectedTime = opt.expectedTime
+    }
+
+    /// The selectable list of 2–3 route options (shown only when more than one exists).
+    @ViewBuilder private var routeOptionsPicker: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(localized: "route.options", fallback: "Routes")
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(Array(routeAlternatives.enumerated()), id: \.element.id) { idx, opt in
+                Button { selectRoute(idx) } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: idx == selectedRouteIndex ? "largecircle.fill.circle" : "circle")
+                            .foregroundStyle(idx == selectedRouteIndex ? Wander.brand : .secondary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 6) {
+                                Text(routeOptionPrimary(idx: idx, opt: opt))
+                                    .font(.subheadline.weight(idx == selectedRouteIndex ? .semibold : .regular))
+                                if idx == 0 && routeAlternatives.count > 1 {
+                                    Text(L("route.fastest", fallback: "Fastest"))
+                                        .font(.caption2.weight(.semibold))
+                                        .padding(.horizontal, 6).padding(.vertical, 1)
+                                        .background(Wander.brand.opacity(0.15), in: Capsule())
+                                        .foregroundStyle(Wander.brand)
+                                }
+                            }
+                            if !opt.label.isEmpty {
+                                Text(opt.label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                        }
+                        Spacer()
+                        Text(routeDistanceLabel(opt.distanceMeters))
+                            .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+                if idx < routeAlternatives.count - 1 { Divider() }
+            }
+        }
+    }
+
+    /// Primary label for an option: the ETA when known ("23 min"), else "Route N".
+    private func routeOptionPrimary(idx: Int, opt: RouteOption) -> String {
+        if opt.expectedTime > 0 {
+            let mins = Int((opt.expectedTime / 60).rounded())
+            return mins >= 60
+                ? String(format: "%dh %dm", mins / 60, mins % 60)
+                : "\(max(mins, 1)) min"
+        }
+        return String(format: L("route.option_n", fallback: "Route %d"), idx + 1)
+    }
+
+    /// Distance formatted in the user's unit (mi/km) for the trailing metric.
+    private func routeDistanceLabel(_ meters: Double) -> String {
+        guard meters > 0 else { return "" }
+        if useMph {
+            let miles = meters / 1609.34
+            return miles < 0.1 ? String(format: "%.0f ft", meters * 3.28084) : String(format: "%.1f mi", miles)
+        } else {
+            return meters < 1000 ? String(format: "%.0f m", meters) : String(format: "%.1f km", meters / 1000)
         }
     }
 
@@ -1448,7 +1599,7 @@ struct RouteModeView: View {
 
         // Builder route: route between the saved waypoints, then drive as usual.
         waypoints = coords.map { RouteWaypoint(coordinate: $0) }
-        routeCoordinates = []
+        routeCoordinates = []; routeAlternatives = []
         Task {
             await computeRoute()
             guard routeCoordinates.count > 1 else {
@@ -1472,7 +1623,7 @@ struct RouteModeView: View {
             RouteWaypoint(coordinate: departure.coordinate),
             RouteWaypoint(coordinate: arrival.coordinate)
         ]
-        routeCoordinates = []
+        routeCoordinates = []; routeAlternatives = []
         routeExpectedTime = 0
         Task {
             await computeRoute()
@@ -1669,7 +1820,7 @@ struct RouteModeView: View {
         }
         showAIRoutine = false
         waypoints = coords.map { RouteWaypoint(coordinate: $0) }
-        routeCoordinates = []
+        routeCoordinates = []; routeAlternatives = []
         Task {
             await computeRoute()
             guard routeCoordinates.count > 1 else {
