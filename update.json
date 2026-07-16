@@ -1,6 +1,6 @@
 {
-  "build": 29,
+  "build": 30,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "New: PoGo data Hub, Street View teleport, Adventure Sync, 3D globe, and a smarter free tier"
+  "notes": "Fix: crash on launch (removed iOS HealthKit link; Adventure Sync stays Android-only)"
 }
