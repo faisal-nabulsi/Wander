@@ -27,9 +27,16 @@ struct MoreView: View {
                 }
                 Section(L("more.section.maps", fallback: "Maps & tools")) {
                     row(.offlineMaps)
+                    row(.backup)
                     row(.tools)
                 }
+                Section(L("more.section.features", fallback: "Features")) {
+                    row(.adventureSync)
+                    row(.matchIP)
+                }
                 Section {
+                    row(.whatsNew)
+                    row(.community)
                     row(.settings)
                 }
             }
@@ -58,54 +65,75 @@ struct MoreView: View {
 
 /// The secondary screens reachable from More, presented as sheets.
 private enum MoreRoute: String, Identifiable {
-    case places, schedule, itinerary, geofences, offlineMaps, tools, settings
+    case places, schedule, itinerary, geofences, offlineMaps, backup, tools,
+         adventureSync, matchIP, whatsNew, community, settings
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .places:      return L("tab.places", fallback: "Places")
-        case .schedule:    return L("tab.schedule", fallback: "Schedule")
-        case .itinerary:   return L("tab.itinerary", fallback: "Itinerary")
-        case .geofences:   return L("more.geofences", fallback: "Geofences")
-        case .offlineMaps: return L("more.offline_maps", fallback: "Offline maps")
-        case .tools:       return L("more.tools", fallback: "Tools")
-        case .settings:    return L("tab.settings", fallback: "Settings")
+        case .places:        return L("tab.places", fallback: "Places")
+        case .schedule:      return L("tab.schedule", fallback: "Schedule")
+        case .itinerary:     return L("tab.itinerary", fallback: "Itinerary")
+        case .geofences:     return L("more.geofences", fallback: "Geofences")
+        case .offlineMaps:   return L("more.offline_maps", fallback: "Offline maps")
+        case .backup:        return L("settings.backup.header", fallback: "Backup")
+        case .tools:         return L("more.tools", fallback: "Tools")
+        case .adventureSync: return L("settings.adventuresync.header", fallback: "Adventure Sync")
+        case .matchIP:       return L("more.match_ip", fallback: "Match your IP")
+        case .whatsNew:      return L("whatsnew.title", fallback: "What's New")
+        case .community:     return L("settings.community.header", fallback: "Community")
+        case .settings:      return L("tab.settings", fallback: "Settings")
         }
     }
 
     var subtitle: String {
         switch self {
-        case .places:      return "Saved & recent spots"
-        case .schedule:    return "Be at a place during set hours"
-        case .itinerary:   return "Timed schedule of stops (Pro)"
-        case .geofences:   return "Resume real GPS when you actually arrive"
-        case .offlineMaps: return "Download regions for offline use"
-        case .tools:       return "Device info, app expiry & developer tools"
-        case .settings:    return "Configure Wander"
+        case .places:        return "Saved & recent spots"
+        case .schedule:      return "Be at a place during set hours"
+        case .itinerary:     return "Timed schedule of stops (Pro)"
+        case .geofences:     return "Resume real GPS when you actually arrive"
+        case .offlineMaps:   return "Download regions for offline use"
+        case .backup:        return "Back up & restore your data"
+        case .tools:         return "Device info, app expiry & developer tools"
+        case .adventureSync: return "Write simulated steps to Apple Health (Pro)"
+        case .matchIP:       return "Line your IP up with your spoofed country"
+        case .whatsNew:      return "See what changed in this version"
+        case .community:     return "Star on GitHub & join our Discord"
+        case .settings:      return "Configure Wander"
         }
     }
 
     var icon: String {
         switch self {
-        case .places:      return "star.fill"
-        case .schedule:    return "calendar.badge.clock"
-        case .itinerary:   return "calendar.day.timeline.left"
-        case .geofences:   return "mappin.and.ellipse"
-        case .offlineMaps: return "square.and.arrow.down.on.square"
-        case .tools:       return "wrench.and.screwdriver"
-        case .settings:    return "gearshape.fill"
+        case .places:        return "star.fill"
+        case .schedule:      return "calendar.badge.clock"
+        case .itinerary:     return "calendar.day.timeline.left"
+        case .geofences:     return "mappin.and.ellipse"
+        case .offlineMaps:   return "square.and.arrow.down.on.square"
+        case .backup:        return "externaldrive.badge.timemachine"
+        case .tools:         return "wrench.and.screwdriver"
+        case .adventureSync: return "figure.walk.motion"
+        case .matchIP:       return "network.badge.shield.half.filled"
+        case .whatsNew:      return "sparkles"
+        case .community:     return "bubble.left.and.bubble.right.fill"
+        case .settings:      return "gearshape.fill"
         }
     }
 
     @ViewBuilder var destination: some View {
         switch self {
-        case .places:      PlacesView()
-        case .schedule:    ScheduleView()
-        case .itinerary:   ItineraryQueueView()
-        case .geofences:   NavigationStack { GeofenceListView() }
-        case .offlineMaps: OfflineMapsSheet()
-        case .tools:       ToolsView()
-        case .settings:    SettingsView()
+        case .places:        PlacesView()
+        case .schedule:      ScheduleView()
+        case .itinerary:     ItineraryQueueView()
+        case .geofences:     NavigationStack { GeofenceListView() }
+        case .offlineMaps:   OfflineMapsSheet()
+        case .backup:        BackupView()
+        case .tools:         ToolsView()
+        case .adventureSync: AdventureSyncView()
+        case .matchIP:       MatchIPView()
+        case .whatsNew:      WhatsNewView()
+        case .community:     CommunityView()
+        case .settings:      SettingsView()
         }
     }
 }

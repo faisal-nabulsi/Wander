@@ -35,11 +35,6 @@ struct SettingsView: View {
     @State private var isShowingPairingFilePicker = false
     @State private var pairingImportResult: (text: String, isError: Bool)?
 
-    // Backup / Restore (free): export all saved data to JSON, restore by additive merge.
-    @State private var isExportingBackup = false
-    @State private var isImportingBackup = false
-    @State private var backupDocument: WanderBackupDocument?
-    @State private var backupResult: (text: String, isError: Bool)?
     @State private var showSetupCheck = false
     @State private var showLogin = false
     @State private var twoFactorCode = ""
@@ -349,8 +344,6 @@ struct SettingsView: View {
                          fallback: "Anti-detection for Life360, Find My and iMessage: your spot drifts naturally (never a frozen fake) and a teleport glides smoothly instead of an impossible jump, so your shared location stays believable. Turns on Natural drift + Smooth long jumps together.")
                 }
 
-                adventureSyncSection
-
                 Section {
                     HStack {
                         Label(L("settings.appearance.title", fallback: "Appearance"), systemImage: "circle.lefthalf.filled")
@@ -412,8 +405,6 @@ struct SettingsView: View {
                     Text(localized: "settings.keepalive.header", fallback: "Keep simulation alive")
                 }
 
-                vpnSection
-
                 Section {
                     Link(destination: SettingsLinks.localDevVPN) {
                         Label(L("settings.help.download_vpn", fallback: "Download LocalDevVPN"), systemImage: "arrow.down.circle")
@@ -423,8 +414,6 @@ struct SettingsView: View {
                 } footer: {
                     Text("The tunnel connects Wander to your device. Use the LocalDevVPN app — on Wi-Fi, or without Wi-Fi by turning on Airplane Mode first, then connecting LocalDevVPN.")
                 }
-
-                backupSection
 
                 Section {
                     Button {
@@ -439,27 +428,6 @@ struct SettingsView: View {
                     }
                 } footer: {
                     Text("Only needed if pairing didn't set up automatically — import this device's pairing file by hand.")
-                }
-
-                Section {
-                    Link(destination: SettingsLinks.githubRepo) {
-                        Label(L("settings.community.star", fallback: "⭐ Star Wander on GitHub"), systemImage: "star.fill")
-                    }
-                    Link(destination: SettingsLinks.discordInvite) {
-                        Label(L("settings.community.discord", fallback: "💬 Join our Discord"), systemImage: "bubble.left.and.bubble.right.fill")
-                            .foregroundStyle(Color(red: 0x58 / 255, green: 0x65 / 255, blue: 0xF2 / 255))
-                    }
-                    // Required CC BY 4.0 credit for the bundled offline place data (GeoNames),
-                    // which powers natural-language teleport when the device is offline.
-                    Link(destination: SettingsLinks.geonamesLicense) {
-                        Text("Offline place data © GeoNames (CC BY 4.0)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                } header: {
-                    Text(localized: "settings.community.header", fallback: "Community")
-                } footer: {
-                    Text("Wander is open source. Star the repo on GitHub to help others find it, and join our Discord to share tips and get help.")
                 }
 
                 Section {
@@ -479,27 +447,6 @@ struct SettingsView: View {
             allowsMultipleSelection: false
         ) { result in
             handlePairingImport(result)
-        }
-        .fileExporter(
-            isPresented: $isExportingBackup,
-            document: backupDocument,
-            contentType: .json,
-            defaultFilename: WanderBackup.suggestedFileName()
-        ) { result in
-            switch result {
-            case .success:
-                backupResult = ("Backup saved.", false)
-            case .failure(let error):
-                backupResult = ("Backup failed: \(error.localizedDescription)", true)
-            }
-            backupDocument = nil
-        }
-        .fileImporter(
-            isPresented: $isImportingBackup,
-            allowedContentTypes: [.json],
-            allowsMultipleSelection: false
-        ) { result in
-            handleBackupImport(result)
         }
         .sheet(isPresented: $showSetupCheck) {
             SetupChecklistView()
@@ -642,95 +589,6 @@ struct SettingsView: View {
             .background(Capsule().fill(Color.orange.opacity(0.18)))
     }
 
-    @ViewBuilder private var adventureSyncSection: some View {
-        Section {
-            if !license.isLicensed {
-                // Free / unlicensed: locked, routes to the paywall (matches Sync/Loop).
-                Button {
-                    showPaywall = true
-                } label: {
-                    HStack {
-                        Label(L("settings.adventuresync.toggle", fallback: "Adventure Sync (write steps to Health)"),
-                              systemImage: "figure.walk.motion")
-                        Spacer()
-                        Image(systemName: "lock.fill").foregroundStyle(.secondary)
-                    }
-                }
-            } else {
-                Toggle(isOn: Binding(
-                    get: { adventureSync.isEnabled },
-                    set: { adventureSync.setEnabled($0) }
-                )) {
-                    Label(L("settings.adventuresync.toggle", fallback: "Adventure Sync (write steps to Health)"),
-                          systemImage: "figure.walk.motion")
-                }
-                .tint(Wander.brand)
-
-                if adventureSync.isEnabled {
-                    switch adventureSync.status {
-                    case .authorized:
-                        Label(L("settings.adventuresync.status.on",
-                                fallback: "Writing steps to Apple Health while you move."),
-                              systemImage: "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.green)
-                    case .denied:
-                        Label(L("settings.adventuresync.status.denied",
-                                fallback: "Health write access is off. Enable it in Settings → Health → Data Access & Devices → Wander."),
-                              systemImage: "exclamationmark.circle")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    case .unavailable:
-                        Label(L("settings.adventuresync.status.unavailable",
-                                fallback: "Apple Health isn't available on this install. Writing steps needs a HealthKit-enabled (paid-signing) build."),
-                              systemImage: "xmark.circle")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    case .idle:
-                        Label(L("settings.adventuresync.status.idle",
-                                fallback: "Grant Apple Health write access when prompted to start mirroring steps."),
-                              systemImage: "hourglass")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        } header: {
-            HStack(spacing: 6) {
-                Text(localized: "settings.adventuresync.header", fallback: "Adventure Sync")
-                wipBadge
-            }
-        } footer: {
-            Text(license.isLicensed
-                 ? L("settings.adventuresync.footer",
-                     fallback: "Best-effort: writes step + walking-distance samples to Apple Health that mirror your simulated walk, so games like Pokémon GO's Adventure Sync can credit the distance. Steps are paced realistically from your actual movement — only while the Joystick or a Route drive is moving. Teleports write nothing. Off by default.")
-                 : L("settings.adventuresync.footer_locked",
-                     fallback: "Wander Pro mirrors your simulated walk into Apple Health as steps + distance, so fitness-reading games can credit it. Best-effort, paced realistically, off by default."))
-        }
-    }
-
-    // MARK: - Match your IP (VPN) — free info card
-
-    private var vpnSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Match your IP", systemImage: "network.badge.shield.half.filled")
-                    .font(.body.weight(.semibold))
-                Text("Some dating and Pokémon GO-style apps compare your IP address against your GPS location. A VPN in the same region keeps them consistent.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Link(destination: SettingsLinks.vpn) {
-                    Label("Get a matching VPN", systemImage: "arrow.up.right.square")
-                }
-                .font(.callout.weight(.medium))
-                .padding(.top, 2)
-            }
-            .padding(.vertical, 4)
-        } header: {
-            Text("Match your IP")
-        }
-    }
-
     private func runUpdate() {
         Task {
             guard wanderAccount.isSignedIn else {
@@ -751,73 +609,6 @@ struct SettingsView: View {
             Spacer()
             Text("\(min(used, maximum))/\(maximum)\(unit)")
                 .foregroundStyle(.secondary).monospacedDigit()
-        }
-    }
-
-    // MARK: - Backup / Restore (free)
-
-    @ViewBuilder private var backupSection: some View {
-        Section {
-            Button {
-                startBackupExport()
-            } label: {
-                Label(L("settings.backup.back_up", fallback: "Back up my data"), systemImage: "square.and.arrow.up")
-            }
-            Button {
-                backupResult = nil
-                isImportingBackup = true
-            } label: {
-                Label(L("settings.backup.restore", fallback: "Restore from backup"), systemImage: "square.and.arrow.down")
-            }
-            if let msg = backupResult {
-                Label(msg.text, systemImage: msg.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(msg.isError ? .red : .green)
-            }
-        } header: {
-            Text(localized: "settings.backup.header", fallback: "Backup")
-        } footer: {
-            Text("Exports all your favorites, saved & recorded routes, and teleport history to one file. Restore merges a backup back in — it never deletes what you already have, and re-importing the same file won't create duplicates.")
-        }
-    }
-
-    private func startBackupExport() {
-        backupResult = nil
-        do {
-            let data = try WanderBackup.exportData()
-            backupDocument = WanderBackupDocument(data: data)
-            isExportingBackup = true
-        } catch {
-            backupResult = ("Couldn't prepare backup: \(error.localizedDescription)", true)
-        }
-    }
-
-    private func handleBackupImport(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            guard let url = urls.first else { return }
-            // Security-scoped access is required for files picked outside the sandbox.
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            do {
-                let data = try Data(contentsOf: url)
-                // Decode + validate the WHOLE file before writing anything: a malformed or
-                // partial file throws here, leaving existing data completely untouched.
-                let envelope = try WanderBackup.decodeEnvelope(data)
-                let summary = WanderBackup.restore(envelope)
-                if summary.totalAdded == 0 {
-                    backupResult = ("Restore complete — everything in that backup was already here.", false)
-                } else {
-                    backupResult = ("Restored \(summary.totalAdded) item(s): "
-                        + "\(summary.bookmarksAdded) favorites, "
-                        + "\(summary.routesAdded) routes, "
-                        + "\(summary.recentsAdded) recents.", false)
-                }
-            } catch {
-                backupResult = ("Restore failed: \(error.localizedDescription)", true)
-            }
-        case .failure(let error):
-            backupResult = ("Restore failed: \(error.localizedDescription)", true)
         }
     }
 

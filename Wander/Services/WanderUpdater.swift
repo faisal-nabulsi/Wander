@@ -25,6 +25,9 @@ final class WanderUpdater: ObservableObject {
     }
 
     @Published private(set) var available: Manifest?
+    /// The last manifest fetched by `check()`, regardless of whether it's newer than this build.
+    /// When its `build` equals the installed build, its `notes` drive the "What's New" card.
+    @Published private(set) var latestManifest: Manifest?
     @Published private(set) var isBusy = false
     @Published var status: String = ""
 
@@ -46,6 +49,18 @@ final class WanderUpdater: ObservableObject {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
     }
 
+    /// Release notes for the CURRENTLY INSTALLED build — i.e. the fetched manifest is for this
+    /// build (you're on the latest). Drives the "What's New" card. Nil while an update is still
+    /// pending (that's the "Update ready" banner's job) or the manifest hasn't loaded.
+    var currentBuildNotes: String? {
+        guard let m = latestManifest, m.build == currentBuild,
+              let n = m.notes, !n.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return n
+    }
+
+    /// "v1.0 (56)" — shown under the What's New title.
+    var currentBuildVersionLabel: String { "v\(currentVersion) (\(currentBuild))" }
+
     /// Fetch the manifest; record whether a newer build than this one is published.
     func check() async {
         var req = URLRequest(url: Self.manifestURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
@@ -54,6 +69,7 @@ final class WanderUpdater: ObservableObject {
               let m = try? JSONDecoder().decode(Manifest.self, from: data) else {
             return   // no manifest / offline == no update
         }
+        latestManifest = m
         available = (m.build > currentBuild) ? m : nil
     }
 

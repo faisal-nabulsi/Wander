@@ -54,6 +54,10 @@ struct MainTabView: View {
     // The floating red "panic" stop button can be hidden from Settings → Safety. Defaults on so
     // existing users keep the always-available revert-to-real-GPS control.
     @AppStorage("panicButtonEnabled") private var panicButtonEnabled = true
+    // What's New: the last build whose changelog we've shown, so the card auto-pops exactly once
+    // after each update — and NOT on a fresh install (seeded silently the first time).
+    @AppStorage("lastWhatsNewBuild") private var lastWhatsNewBuild = 0
+    @State private var showWhatsNew = false
     @State private var detachedFeature: AppFeature?
     @State private var didSetInitialHome = false
     @State private var pendingLocationAction: ExternalLocationAction?
@@ -97,6 +101,7 @@ struct MainTabView: View {
                     setupChecker.check()
                 }
                 gate.refresh()
+                maybeShowWhatsNew()
             }
             .onChange(of: setupChecker.hasRunOnce) { _, ran in
                 // After the first launch check, nudge the setup sheet only if something's missing.
@@ -104,6 +109,9 @@ struct MainTabView: View {
             }
             .sheet(isPresented: $showSetup) {
                 SetupChecklistView()
+            }
+            .sheet(isPresented: $showWhatsNew) {
+                WhatsNewView()
             }
             .fullScreenCover(isPresented: Binding(get: { gate.locked && !license.isLicensed }, set: { _ in })) {
                 PaywallView()
@@ -171,6 +179,9 @@ struct MainTabView: View {
                 if status == .connected {
                     Task { await WanderUpdater.shared.autoInstallIfAvailable() }
                 }
+            }
+            .onChange(of: updater.latestManifest?.build) { _, _ in
+                maybeShowWhatsNew()
             }
             // One-time-per-session coaching tip: spoofing was just started while on cellular.
             // Advisory only — spoofing already started; this never blocks it. Shown at most once
@@ -316,6 +327,18 @@ struct MainTabView: View {
             }
             do { try await updater.installUpdate() }
             catch { updater.status = "❌ \((error as NSError).localizedDescription)" }
+        }
+    }
+
+    /// Present the "What's New" changelog once per new build. On a FRESH install (lastWhatsNewBuild
+    /// == 0) seed silently so the very first launch doesn't pop it; only real UPDATES pop it.
+    private func maybeShowWhatsNew() {
+        guard updater.currentBuildNotes != nil else { return }
+        if lastWhatsNewBuild == 0 {
+            lastWhatsNewBuild = updater.currentBuild
+        } else if lastWhatsNewBuild < updater.currentBuild {
+            lastWhatsNewBuild = updater.currentBuild
+            showWhatsNew = true
         }
     }
 

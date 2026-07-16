@@ -1,6 +1,6 @@
 {
-  "build": 56,
+  "build": 57,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Reliable auto-update: tappable 'Update ready' banner on the main screen + retries when the tunnel connects. Tapping a saved Place now opens the map instead of staying on the list. Sharper 3D globe."
+  "notes": "What's New: a changelog card now pops after each update (and lives in More) so you always see what changed. Tidied Settings — moved features (Backup, Match your IP, Adventure Sync, Community) into the More tab."
 }
