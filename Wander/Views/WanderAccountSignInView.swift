@@ -24,6 +24,10 @@ struct WanderAccountSignInView: View {
     @State private var busy = false
     @State private var errorText = ""
 
+    // Forgot-password alert (used only when the email field is empty and we need to ask for one).
+    @State private var showResetPrompt = false
+    @State private var resetEmail = ""
+
     var body: some View {
         NavigationStack {
             Form {
@@ -36,6 +40,20 @@ struct WanderAccountSignInView: View {
 
                     SecureField("Password", text: $password)
                         .textContentType(.password)
+
+                    Button("Forgot password?") {
+                        let typed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if typed.isEmpty {
+                            // No email typed yet — ask for one via an alert prompt.
+                            resetEmail = ""
+                            showResetPrompt = true
+                        } else {
+                            sendReset(to: typed)
+                        }
+                    }
+                    .font(.footnote)
+                    .tint(Wander.brand)
+                    .disabled(busy)
                 } header: {
                     Text("Wander account")
                 } footer: {
@@ -72,6 +90,45 @@ struct WanderAccountSignInView: View {
                 .tint(Wander.brand)
 
                 Section {
+                    // "or" divider between the email form and the Google button.
+                    HStack {
+                        VStack { Divider() }
+                        Text("or")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                        VStack { Divider() }
+                    }
+                    .listRowBackground(Color.clear)
+
+                    Button {
+                        submit { await account.signInWithGoogle() }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Image(systemName: "g.circle.fill")
+                            Text("Continue with Google").fontWeight(.semibold)
+                            Spacer()
+                        }
+                    }
+                    .disabled(busy)
+                    .tint(Wander.brand)
+
+                    Button {
+                        submit { await account.signInWithApple() }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Image(systemName: "apple.logo")
+                            Text("Continue with Apple").fontWeight(.semibold)
+                            Spacer()
+                        }
+                    }
+                    .disabled(busy)
+                    .tint(.black)
+                }
+
+                Section {
                     Text("Manage your account at wanderspoofer.com")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -86,6 +143,31 @@ struct WanderAccountSignInView: View {
                     Button("Cancel") { dismiss() }.disabled(busy)
                 }
             }
+            .alert("Reset password", isPresented: $showResetPrompt) {
+                TextField("Email", text: $resetEmail)
+                    .keyboardType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                Button("Send reset link") {
+                    sendReset(to: resetEmail.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                .disabled(resetEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Enter your account email and we'll send a password reset link.")
+            }
+        }
+    }
+
+    /// Fire the password reset for `mail`, surfacing the service's confirmation/error in the footer.
+    private func sendReset(to mail: String) {
+        guard !mail.isEmpty else { return }
+        errorText = ""
+        busy = true
+        Task {
+            _ = await account.sendPasswordReset(email: mail)
+            busy = false
+            // Show whatever the service reported (confirmation or error), stripped of the ❌ marker.
+            errorText = account.status.replacingOccurrences(of: "❌ ", with: "")
         }
     }
 
@@ -101,11 +183,18 @@ struct WanderAccountSignInView: View {
             if account.isPro {
                 onSuccess?()
                 dismiss()
-            } else {
-                // Show whatever the service reported (wrong password, not-pro, network, …).
+            } else if account.isSignedIn {
+                // Credentials were valid but this account simply isn't Pro yet — say so.
                 let status = account.status
                 errorText = status.isEmpty
-                    ? "Couldn't unlock Pro with that account."
+                    ? "Signed in, but this account isn't Pro yet."
+                    : status.replacingOccurrences(of: "❌ ", with: "")
+            } else {
+                // Not signed in. Show whatever the service reported (wrong password, network, a
+                // Google error…). An EMPTY status here means a quiet cancel — leave it silent.
+                let status = account.status
+                errorText = status.isEmpty
+                    ? ""
                     : status.replacingOccurrences(of: "❌ ", with: "")
             }
         }

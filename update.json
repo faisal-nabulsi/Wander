@@ -1,6 +1,6 @@
 {
-  "build": 37,
+  "build": 39,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Real multi-game PoGo: per-game cooldown model + guidance (PoGo/MH Now share the soft-ban curve; Pikmin & Ingress correctly have no teleport cooldown)"
+  "notes": "Continue with Google + Continue with Apple sign-in, and Forgot password — right in the app"
 }

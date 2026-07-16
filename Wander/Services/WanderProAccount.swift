@@ -23,6 +23,8 @@
 //
 
 import Foundation
+import AuthenticationServices
+import UIKit
 
 @MainActor
 final class WanderProAccount: ObservableObject {
@@ -105,26 +107,186 @@ final class WanderProAccount: ObservableObject {
             }
             let acctEmail = (obj?["email"] as? String) ?? mail
 
-            self.idToken = idToken
-            self.refreshToken = refreshToken
-            self.uid = localId
-            self.email = acctEmail
-            persistSession()
-
-            // Read entitlement now so the UI can dismiss straight into a Pro state.
-            await fetchEntitlement()
-            // Register THIS device against the account's 5-device cap (server-enforced). This is
-            // fully fail-safe: on any error it leaves the cached state and never locks the user
-            // out. Effective Pro = account plan pro AND this device registered (within the cap).
-            await WanderDeviceActivation.shared.activate()
-            if isPro {
-                status = "✅ Signed in — Wander Pro unlocked."
-            } else {
-                status = "Signed in. This account isn't Pro yet."
-            }
+            await adopt(idToken: idToken, refreshToken: refreshToken, email: acctEmail, uid: localId)
         } catch {
             status = "❌ \(error.localizedDescription)"
         }
+    }
+
+    /// POST accounts:sendOobCode with requestType PASSWORD_RESET — asks Firebase to email a reset
+    /// link to `email`. Reuses the same public web apiKey as sign-in. Returns true on HTTP 200 and
+    /// sets a friendly confirmation in `status`; on failure it sets a readable error and returns false.
+    func sendPasswordReset(email rawEmail: String) async -> Bool {
+        let mail = rawEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !mail.isEmpty else {
+            status = "Enter your email first."
+            return false
+        }
+
+        let url = URL(string: "https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=\(Self.apiKey)")!
+        var req = URLRequest(url: url, timeoutInterval: 20)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "requestType": "PASSWORD_RESET",
+            "email": mail,
+        ])
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                status = "Check your inbox for a reset link."
+                return true
+            }
+            let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            status = "❌ \(Self.authErrorMessage(obj))"
+            return false
+        } catch {
+            status = "❌ \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// Store a freshly-minted session (idToken + refreshToken + email + uid) and fold it into the
+    /// signed-in / Pro state EXACTLY the way the email/password flow does. Shared by the email
+    /// path and the Google web-bridge path so both yield an identical signed-in state:
+    ///   persist to Keychain → read the Firestore entitlement → register this device → set status.
+    private func adopt(idToken: String, refreshToken: String, email: String, uid: String) async {
+        self.idToken = idToken
+        self.refreshToken = refreshToken
+        self.uid = uid
+        self.email = email
+        persistSession()
+
+        // Read entitlement now so the UI can dismiss straight into a Pro state.
+        await fetchEntitlement()
+        // Register THIS device against the account's 5-device cap (server-enforced). This is
+        // fully fail-safe: on any error it leaves the cached state and never locks the user
+        // out. Effective Pro = account plan pro AND this device registered (within the cap).
+        await WanderDeviceActivation.shared.activate()
+        if isPro {
+            status = "✅ Signed in — Wander Pro unlocked."
+        } else {
+            status = "Signed in. This account isn't Pro yet."
+        }
+    }
+
+    // MARK: - Continue with Google / Apple (config-free web bridge)
+
+    /// Sign in via the website's already-working federated OAuth, no provider SDK and no new iOS
+    /// OAuth client (or Apple entitlement) required. We open
+    /// https://wanderspoofer.com/app-login/?provider=<provider> inside an ASWebAuthenticationSession;
+    /// that page runs Firebase `signInWithRedirect` for the requested provider, then redirects to
+    /// `wander-auth://callback#idToken=…&refreshToken=…&email=…&uid=…` (or `#error=…`). We parse the
+    /// fragment and ADOPT the tokens through the same path the email flow uses, so the resulting
+    /// signed-in / Pro state is identical — regardless of which provider was used.
+    ///
+    /// Apple sign-in deliberately rides this SAME web flow (Firebase `apple.com` provider) rather
+    /// than native `ASAuthorizationAppleIDProvider`, which would require the "Sign in with Apple"
+    /// capability/entitlement — the free-Apple-ID sideload path strips exactly that kind of
+    /// entitlement, so the web bridge is the only route that survives an unsigned install.
+    private static func loginURL(provider: String) -> URL {
+        // Percent-encode the provider for a query VALUE (drop &, =, +, ? from urlQueryAllowed so a
+        // value can never break out of the query component). Providers are simple ("google"/"apple").
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+?/")
+        let p = provider.addingPercentEncoding(withAllowedCharacters: allowed) ?? provider
+        return URL(string: "https://wanderspoofer.com/app-login/?provider=\(p)")!
+    }
+    private static let callbackScheme = "wander-auth"
+
+    // Kept alive for the lifetime of the session so it isn't deallocated mid-flow.
+    private var webAuthSession: ASWebAuthenticationSession?
+    private let presentationContext = WebAuthPresentationContext()
+
+    /// Continue with Google via the web bridge.
+    func signInWithGoogle() async { await signIn(provider: "google") }
+
+    /// Continue with Apple via the SAME web bridge (Firebase `apple.com`), no native entitlement.
+    func signInWithApple() async { await signIn(provider: "apple") }
+
+    /// Shared federated web-bridge sign-in for any provider the /app-login/ page supports
+    /// ("google", "apple", …). Opens the page for `provider`, waits for the `wander-auth://` callback,
+    /// then adopts the handed-off tokens exactly like the email flow.
+    private func signIn(provider: String) async {
+        status = ""
+
+        // Bridge the callback (delegate-style completion) into async/await.
+        let callbackURL: URL
+        do {
+            callbackURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+                let session = ASWebAuthenticationSession(
+                    url: Self.loginURL(provider: provider),
+                    callbackURLScheme: Self.callbackScheme
+                ) { url, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else if let url {
+                        continuation.resume(returning: url)
+                    } else {
+                        continuation.resume(throwing: ASWebAuthenticationSessionError(.canceledLogin))
+                    }
+                }
+                session.presentationContextProvider = self.presentationContext
+                // Non-ephemeral by necessity: signInWithRedirect stores state before bouncing to
+                // Google and reads it back via getRedirectResult, which an ephemeral session would
+                // wipe. Account freshness is enforced web-side instead — the /app-login/ page forces
+                // Google's account chooser (prompt=select_account) and only hands off an EXPLICIT
+                // sign-in (getRedirectResult), never a passively-restored session.
+                session.prefersEphemeralWebBrowserSession = false
+                self.webAuthSession = session
+                if !session.start() {
+                    continuation.resume(throwing: ASWebAuthenticationSessionError(.canceledLogin))
+                }
+            }
+        } catch {
+            webAuthSession = nil
+            // User dismissed the sheet / cancelled: stay quiet, don't nag with an error banner.
+            if let asError = error as? ASWebAuthenticationSessionError,
+               asError.code == .canceledLogin {
+                return
+            }
+            status = "❌ \(error.localizedDescription)"
+            return
+        }
+        webAuthSession = nil
+
+        // Parse the URL fragment (after '#') for the handed-off tokens or an error.
+        let params = Self.fragmentParams(callbackURL)
+        if let message = params["error"], !message.isEmpty {
+            status = "❌ \(message)"
+            return
+        }
+        guard let idToken = params["idToken"], !idToken.isEmpty,
+              let refreshToken = params["refreshToken"], !refreshToken.isEmpty,
+              let uid = params["uid"], !uid.isEmpty else {
+            status = "❌ Sign-in didn't return a usable session. Please try again."
+            return
+        }
+        let acctEmail = params["email"] ?? ""
+
+        // Adopt exactly like the email flow → identical signed-in + Pro state.
+        await adopt(idToken: idToken, refreshToken: refreshToken, email: acctEmail, uid: uid)
+    }
+
+    /// Decode the `#a=b&c=d` fragment of the callback URL into a dictionary, percent-decoding
+    /// each value (tokens are URLSearchParams-encoded on the web side).
+    private static func fragmentParams(_ url: URL) -> [String: String] {
+        // Read the STILL-ENCODED fragment: `.fragment` is already percent-decoded, so decoding it
+        // again below (below) would corrupt any value containing %2F/%2B/%3D (refresh tokens, +emails).
+        guard let fragment = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedFragment,
+              !fragment.isEmpty else { return [:] }
+        var out: [String: String] = [:]
+        for pair in fragment.split(separator: "&") {
+            let kv = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard let rawKey = kv.first else { continue }
+            let key = String(rawKey).removingPercentEncoding ?? String(rawKey)
+            let rawVal = kv.count > 1 ? String(kv[1]) : ""
+            // URLSearchParams encodes spaces as '+'; restore them before percent-decoding.
+            let val = rawVal.replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? rawVal
+            out[key] = val
+        }
+        return out
     }
 
     // MARK: - Refresh the id token (Secure Token REST)
@@ -409,5 +571,26 @@ final class WanderProAccount: ObservableObject {
 
     private static func pathEncode(_ s: String) -> String {
         s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? s
+    }
+}
+
+/// Supplies the anchor window ASWebAuthenticationSession presents its sheet from. We hand back the
+/// app's active key window (falling back to any window / a fresh one) so the auth sheet always has
+/// a valid presenter regardless of which scene is foregrounded.
+@MainActor
+private final class WebAuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+        // Prefer the foreground key window; otherwise any window; otherwise a new one.
+        if let keyWindow = scenes
+            .flatMap({ $0.windows })
+            .first(where: { $0.isKeyWindow }) {
+            return keyWindow
+        }
+        if let anyWindow = scenes.flatMap({ $0.windows }).first {
+            return anyWindow
+        }
+        return ASPresentationAnchor()
     }
 }

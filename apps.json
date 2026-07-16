@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "37",
+      "buildVersion": "39",
       "versionDate": "2026-07-15",
-      "versionDescription": "Real multi-game PoGo: per-game cooldown model + guidance (PoGo/MH Now share the soft-ban curve; Pikmin & Ingress correctly have no teleport cooldown)",
+      "versionDescription": "Continue with Google + Continue with Apple sign-in, and Forgot password — right in the app",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16608675,
+      "size": 16651673,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "37",
+          "buildVersion": "39",
           "date": "2026-07-15",
-          "localizedDescription": "Real multi-game PoGo: per-game cooldown model + guidance (PoGo/MH Now share the soft-ban curve; Pikmin & Ingress correctly have no teleport cooldown)",
+          "localizedDescription": "Continue with Google + Continue with Apple sign-in, and Forgot password — right in the app",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16608675,
+          "size": 16651673,
           "minOSVersion": "17.0"
         }
       ],

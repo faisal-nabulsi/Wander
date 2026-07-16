@@ -19,6 +19,16 @@
 				<string>stikjit</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.wander.auth.callback</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>wander-auth</string>
+			</array>
+		</dict>
 	</array>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Wander writes step and walking-distance samples that mirror your simulated movement, so fitness-reading games (like Pokémon GO's Adventure Sync) can credit the distance. This is opt-in and off by default.</string>
