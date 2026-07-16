@@ -283,25 +283,36 @@ struct PoGoModeView: View {
                     }
                 }
 
-                ForEach(hotspotsByCategory, id: \.category) { group in
-                    Section {
-                        ForEach(group.spots) { spot in
-                            hotspotRow(spot)
+                // Spawn hotspots / raid hubs / event spots are Pokémon-GO-specific concepts, so only
+                // show them for the PoGo preset. Other games get a note (curated per-game spots TBD).
+                if gamePreset == .pokemonGo {
+                    ForEach(hotspotsByCategory, id: \.category) { group in
+                        Section {
+                            ForEach(group.spots) { spot in
+                                hotspotRow(spot)
+                            }
+                        } header: {
+                            Text(group.category)
                         }
-                    } header: {
-                        Text(group.category)
                     }
-                }
 
-                if !routes.isEmpty {
-                    Section {
-                        ForEach(routes) { route in
-                            routeRow(route)
+                    if !routes.isEmpty {
+                        Section {
+                            ForEach(routes) { route in
+                                routeRow(route)
+                            }
+                        } header: {
+                            Text("Premade routes")
+                        } footer: {
+                            Text("Previews the route's start point on the map. Use the Route tab to play a full path.")
                         }
-                    } header: {
-                        Text("Premade routes")
-                    } footer: {
-                        Text("Previews the route's start point on the map. Use the Route tab to play a full path.")
+                    }
+                } else {
+                    Section {
+                        Label("Spawn hotspots, raid hubs and event spots are Pokémon GO-specific. Curated \(gamePreset.shortTitle) spots are coming soon — the speed + cooldown guidance above applies now.",
+                              systemImage: "mappin.slash")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }

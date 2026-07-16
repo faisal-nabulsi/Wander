@@ -1,6 +1,6 @@
 {
-  "build": 51,
+  "build": 52,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Optional per-game speed guardrail — turn it on in Games and the Joystick warns you if you exceed that game's safe speed (off by default, never forced)"
+  "notes": "Games: Pokémon-GO-only spawn/raid/event spots now hidden for other games; moved Geofences into the More tab; removed the broken Processes tool"
 }

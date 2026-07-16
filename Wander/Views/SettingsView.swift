@@ -386,25 +386,6 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    NavigationLink {
-                        GeofenceListView()
-                    } label: {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(localized: "geofence.title", fallback: "Geofences")
-                                Text(localized: "geofence.settings.subtitle",
-                                     fallback: "Auto-stop spoofing when you really arrive")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        } icon: {
-                            Image(systemName: "mappin.and.ellipse")
-                        }
-                    }
-                } header: {
-                    Text(localized: "geofence.section.header", fallback: "Geofence triggers")
-                }
-
-                Section {
                     Toggle(isOn: $keepAliveAudio) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(localized: "settings.keepalive.audio", fallback: "Silent Audio")

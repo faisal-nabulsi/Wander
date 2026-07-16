@@ -190,5 +190,7 @@ extension AppFeature {
     static let mainTabs: [AppFeature] = [.location, .walk, .route, .pogo, .more]
     // Tools = advanced / diagnostic screens ONLY. Schedule, Itinerary and Location live as their
     // own More rows / the main tab, so they're intentionally NOT here (they used to double-show).
-    static let toolList: [AppFeature] = [.scripts, .console, .deviceInfo, .profiles, .processes]
+    // `.processes` removed: its device-side service isn't available in normal (non-debug) use, so
+    // it only ever showed "failed to load processes: ServiceNotFound".
+    static let toolList: [AppFeature] = [.scripts, .console, .deviceInfo, .profiles]
 }
