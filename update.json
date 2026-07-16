@@ -1,6 +1,6 @@
 {
-  "build": 57,
+  "build": 58,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "What's New: a changelog card now pops after each update (and lives in More) so you always see what changed. Tidied Settings — moved features (Backup, Match your IP, Adventure Sync, Community) into the More tab."
+  "notes": "Games now has spots for every game: Monster Hunter Now, Pikmin Bloom and Ingress get a shared 'popular play areas' list + game-specific extras + a link to each game's live community tool."
 }

@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "57",
+      "buildVersion": "58",
       "versionDate": "2026-07-16",
-      "versionDescription": "What's New: a changelog card now pops after each update (and lives in More) so you always see what changed. Tidied Settings — moved features (Backup, Match your IP, Adventure Sync, Community) into the More tab.",
+      "versionDescription": "Games now has spots for every game: Monster Hunter Now, Pikmin Bloom and Ingress get a shared 'popular play areas' list + game-specific extras + a link to each game's live community tool.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16888003,
+      "size": 16902003,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "57",
+          "buildVersion": "58",
           "date": "2026-07-16",
-          "localizedDescription": "What's New: a changelog card now pops after each update (and lives in More) so you always see what changed. Tidied Settings — moved features (Backup, Match your IP, Adventure Sync, Community) into the More tab.",
+          "localizedDescription": "Games now has spots for every game: Monster Hunter Now, Pikmin Bloom and Ingress get a shared 'popular play areas' list + game-specific extras + a link to each game's live community tool.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16888003,
+          "size": 16902003,
           "minOSVersion": "17.0"
         }
       ],

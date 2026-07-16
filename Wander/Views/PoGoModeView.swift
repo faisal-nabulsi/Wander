@@ -48,9 +48,17 @@ struct PoGoRoute: Codable, Identifiable {
     }
 }
 
+/// A community-tool link for a non-PoGo game (spawns/portals rotate → link out to live data).
+struct CommunityLink: Codable {
+    let label: String
+    let url: String
+}
+
 private struct PoGoData: Codable {
     let hotspots: [PoGoHotspot]
     let routes: [PoGoRoute]
+    let gameExtras: [String: [PoGoHotspot]]?
+    let communityLinks: [String: CommunityLink]?
 }
 
 // MARK: - Game presets (free, additive)
@@ -172,6 +180,10 @@ enum PoGoCooldown {
 struct PoGoModeView: View {
     @State private var hotspots: [PoGoHotspot] = []
     @State private var routes: [PoGoRoute] = []
+    // Per-game flavored extras + live-community links (keyed by GamePreset.title). Shared spots
+    // work for every game; these add game-specific spots + a link out to live data.
+    @State private var gameExtras: [String: [PoGoHotspot]] = [:]
+    @State private var communityLinks: [String: CommunityLink] = [:]
     @State private var loadError: String?
 
     // Cooldown tracking.
@@ -217,6 +229,15 @@ struct PoGoModeView: View {
         return grouped
             .map { (category: $0.key, spots: $0.value) }
             .sorted { $0.category < $1.category }
+    }
+
+    /// Curated spots for a NON-PoGo game: the shared popular play areas (PoGo-only category badges
+    /// genericized to "Popular spot") plus that game's flavored extras.
+    private var sharedDisplaySpots: [PoGoHotspot] {
+        let shared = hotspots.map {
+            PoGoHotspot(name: $0.name, area: $0.area, cat: "Popular spot", lat: $0.lat, lng: $0.lng)
+        }
+        return shared + (gameExtras[gamePreset.title] ?? [])
     }
 
     var body: some View {
@@ -283,8 +304,10 @@ struct PoGoModeView: View {
                     }
                 }
 
-                // Spawn hotspots / raid hubs / event spots are Pokémon-GO-specific concepts, so only
-                // show them for the PoGo preset. Other games get a note (curated per-game spots TBD).
+                // The curated spots double as a SHARED "popular play areas" list for every game
+                // (these Niantic-style games are played in the same public spaces). Pokémon GO keeps
+                // its category badges (Spawn/Raid/Event) + the Hub; other games get the shared list
+                // plus a few flavored extras and a link to their live community tool.
                 if gamePreset == .pokemonGo {
                     ForEach(hotspotsByCategory, id: \.category) { group in
                         Section {
@@ -295,24 +318,38 @@ struct PoGoModeView: View {
                             Text(group.category)
                         }
                     }
-
-                    if !routes.isEmpty {
-                        Section {
-                            ForEach(routes) { route in
-                                routeRow(route)
-                            }
-                        } header: {
-                            Text("Premade routes")
-                        } footer: {
-                            Text("Previews the route's start point on the map. Use the Route tab to play a full path.")
-                        }
-                    }
                 } else {
                     Section {
-                        Label("Spawn hotspots, raid hubs and event spots are Pokémon GO-specific. Curated \(gamePreset.shortTitle) spots are coming soon — the speed + cooldown guidance above applies now.",
-                              systemImage: "mappin.slash")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        ForEach(sharedDisplaySpots) { spot in
+                            hotspotRow(spot)
+                        }
+                    } header: {
+                        Text("Popular play areas")
+                    } footer: {
+                        Text("Popular public spots that work for any location game. Tap to preview, then Teleport.")
+                    }
+
+                    if let link = communityLinks[gamePreset.title], let url = URL(string: link.url) {
+                        Section {
+                            Link(destination: url) {
+                                Label(link.label, systemImage: "arrow.up.right.square")
+                            }
+                        } footer: {
+                            Text("Live spawns/portals for \(gamePreset.shortTitle) rotate — the community keeps the up-to-date spots.")
+                        }
+                    }
+                }
+
+                // Premade walk/spin routes — good for every game.
+                if !routes.isEmpty {
+                    Section {
+                        ForEach(routes) { route in
+                            routeRow(route)
+                        }
+                    } header: {
+                        Text("Premade routes")
+                    } footer: {
+                        Text("Previews the route's start point on the map. Use the Route tab to play a full path.")
                     }
                 }
             }
@@ -536,6 +573,8 @@ struct PoGoModeView: View {
             let decoded = try JSONDecoder().decode(PoGoData.self, from: data)
             hotspots = decoded.hotspots
             routes = decoded.routes
+            gameExtras = decoded.gameExtras ?? [:]
+            communityLinks = decoded.communityLinks ?? [:]
             loadError = nil
         } catch {
             loadError = "Could not load PoGo data: \(error.localizedDescription)"

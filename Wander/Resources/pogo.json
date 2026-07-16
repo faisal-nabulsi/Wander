@@ -1,5 +1,5 @@
 {
-  "_note": "Curated Pokemon GO location packs for Wander PoGo Mode. These are well-known high-activity public spots (dense PokeStops/Gyms + spawns) — stable coordinates, not live nest data (nests rotate). Shared by iOS + desktop.",
+  "_note": "Curated location packs for Wander's Games mode. `hotspots` + `routes` are well-known high-activity PUBLIC play areas (dense POIs, big parks, waterfronts) — stable coordinates, not live nest/spawn data (those rotate). They double as the SHARED list for every location game (Pokémon GO, Monster Hunter Now, Pikmin Bloom, Ingress) since these games are all played in the same public spaces. `gameExtras` adds a few game-flavored spots per game; `communityLinks` points non-PoGo games at their live community tools (spawns/portals rotate, so we link out instead of shipping stale pins). Shared by iOS + Android + desktop.",
   "hotspots": [
     { "name": "Santa Monica Pier",        "area": "Los Angeles, USA",   "cat": "Spawn hotspot", "lat": 34.0094,  "lng": -118.4973 },
     { "name": "Central Park",              "area": "New York, USA",      "cat": "Spawn hotspot", "lat": 40.7829,  "lng": -73.9654 },
@@ -52,5 +52,30 @@
         [35.7175, 139.7695], [35.7150, 139.7700], [35.7148, 139.7730]
       ]
     }
-  ]
+  ],
+  "communityLinks": {
+    "Monster Hunter Now": { "label": "Monster Hunter Now community", "url": "https://community.monsterhunternow.com" },
+    "Pikmin Bloom":       { "label": "Pikmin Bloom community",       "url": "https://community.pikminbloom.com" },
+    "Ingress":            { "label": "Ingress Intel map",           "url": "https://intel.ingress.com" }
+  },
+  "gameExtras": {
+    "Pikmin Bloom": [
+      { "name": "Golden Gate Park", "area": "San Francisco, USA",     "cat": "Big walking park", "lat": 37.7694, "lng": -122.4862 },
+      { "name": "Vondelpark",       "area": "Amsterdam, Netherlands", "cat": "Big walking park", "lat": 52.3580, "lng": 4.8686 },
+      { "name": "Stanley Park",     "area": "Vancouver, Canada",      "cat": "Big walking park", "lat": 49.3017, "lng": -123.1417 },
+      { "name": "Lumphini Park",    "area": "Bangkok, Thailand",      "cat": "Big walking park", "lat": 13.7307, "lng": 100.5418 }
+    ],
+    "Monster Hunter Now": [
+      { "name": "Shibuya Crossing",        "area": "Tokyo, Japan",     "cat": "Dense urban",    "lat": 35.6595, "lng": 139.7004 },
+      { "name": "Griffith Park",           "area": "Los Angeles, USA", "cat": "Varied terrain", "lat": 34.1365, "lng": -118.2942 },
+      { "name": "Tsim Sha Tsui Promenade", "area": "Hong Kong",        "cat": "Waterfront",     "lat": 22.2937, "lng": 114.1722 },
+      { "name": "Tiergarten",              "area": "Berlin, Germany",  "cat": "Varied terrain", "lat": 52.5145, "lng": 13.3501 }
+    ],
+    "Ingress": [
+      { "name": "Trafalgar Square",    "area": "London, UK",             "cat": "Portal-dense", "lat": 51.5080, "lng": -0.1281 },
+      { "name": "Balboa Park",         "area": "San Diego, USA",         "cat": "Portal-dense", "lat": 32.7341, "lng": -117.1446 },
+      { "name": "Stanford University", "area": "California, USA",        "cat": "Campus",       "lat": 37.4275, "lng": -122.1697 },
+      { "name": "Museumplein",         "area": "Amsterdam, Netherlands", "cat": "Portal-dense", "lat": 52.3579, "lng": 4.8816 }
+    ]
+  }
 }
