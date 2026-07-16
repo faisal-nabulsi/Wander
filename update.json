@@ -1,6 +1,6 @@
 {
-  "build": 31,
+  "build": 32,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Fix: crash on launch — embed AltSign framework (dyld could not load it)"
+  "notes": "New penguin logo in-app, WIP tags on Adventure Sync + Tunnel, simpler drift setting, map no longer covered by the panel"
 }

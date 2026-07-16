@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "31",
+      "buildVersion": "32",
       "versionDate": "2026-07-15",
-      "versionDescription": "Fix: crash on launch — embed AltSign framework (dyld could not load it)",
+      "versionDescription": "New penguin logo in-app, WIP tags on Adventure Sync + Tunnel, simpler drift setting, map no longer covered by the panel",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16400988,
+      "size": 16549473,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "31",
+          "buildVersion": "32",
           "date": "2026-07-15",
-          "localizedDescription": "Fix: crash on launch — embed AltSign framework (dyld could not load it)",
+          "localizedDescription": "New penguin logo in-app, WIP tags on Adventure Sync + Tunnel, simpler drift setting, map no longer covered by the panel",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16400988,
+          "size": 16549473,
           "minOSVersion": "17.0"
         }
       ],

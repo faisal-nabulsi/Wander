@@ -228,7 +228,10 @@ struct SettingsView: View {
                         Label(L("settings.tunnel.checklist", fallback: "Setup checklist"), systemImage: "checklist")
                     }
                 } header: {
-                    Text(localized: "settings.tunnel.header", fallback: "Wander Tunnel")
+                    HStack(spacing: 6) {
+                        Text(localized: "settings.tunnel.header", fallback: "Wander Tunnel")
+                        wipBadge
+                    }
                 } footer: {
                     if let e = tunnel.lastError {
                         Text("Couldn't start the built-in tunnel (\(e)).\n\niOS restricts VPNs to paid Apple accounts, so on a free install this can't activate — use the LocalDevVPN app instead. No Wi-Fi? Turn on Airplane Mode, then connect LocalDevVPN.")
@@ -258,7 +261,7 @@ struct SettingsView: View {
                     }
 
                     Toggle(isOn: $jitterEnabled) {
-                        Label(L("settings.location.jitter", fallback: "Simulated jitter (natural drift)"), systemImage: "dot.radiowaves.left.and.right")
+                        Label(L("settings.location.jitter", fallback: "Natural drift"), systemImage: "dot.radiowaves.left.and.right")
                     }
                     if jitterEnabled {
                         HStack {
@@ -267,6 +270,11 @@ struct SettingsView: View {
                             Text(String(format: "%.1f m", jitterRadius))
                                 .font(.caption).monospacedDigit().frame(width: 52, alignment: .trailing)
                         }
+                    } else {
+                        Text(localized: "settings.location.jitter.off.footer",
+                             fallback: "Off — your spot is held perfectly still. On adds a subtle natural drift, like a real GPS reading.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
                     Toggle(isOn: $smoothLongJumps) {
@@ -275,16 +283,6 @@ struct SettingsView: View {
                     if smoothLongJumps {
                         Text(localized: "settings.location.smooth_jumps.footer",
                              fallback: "A big teleport glides to the new spot over a few seconds instead of jumping instantly, so apps that flag an impossible jump (dating apps, Life360) see a fast but continuous move. Short jumps stay instant.")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    Toggle(isOn: $frozenHold) {
-                        Label(L("settings.location.frozen", fallback: "Hold perfectly still"), systemImage: "pause.circle")
-                    }
-                    if frozenHold {
-                        Text(localized: "settings.location.frozen.footer",
-                             fallback: "Turns off the natural drift so a held spot stays rock-steady — a deliberately parked, stationary look.")
                             .font(.caption).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -300,6 +298,12 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text(localized: "settings.location.header", fallback: "Location")
+                }
+                .onAppear {
+                    // The old "Hold perfectly still" toggle was just the inverse of jitter;
+                    // migrate anyone who had it on to jitter-off (still) and retire the flag,
+                    // so the single Natural-drift toggle now fully controls stillness.
+                    if frozenHold { jitterEnabled = false; frozenHold = false }
                 }
 
                 adventureSyncSection
@@ -604,6 +608,16 @@ struct SettingsView: View {
     /// app's simulated movement, so fitness-reading games (Pokémon GO Adventure
     /// Sync, Pikmin Bloom, …) can credit the spoofed walk. Pro-gated like the other
     /// power features; default OFF; permission-gated; honest best-effort labelling.
+    /// Small "work in progress" pill for section headers (Tunnel, Adventure Sync).
+    private var wipBadge: some View {
+        Text(verbatim: "WIP")
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.orange)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(Capsule().fill(Color.orange.opacity(0.18)))
+    }
+
     @ViewBuilder private var adventureSyncSection: some View {
         Section {
             if !license.isLicensed {
@@ -658,7 +672,10 @@ struct SettingsView: View {
                 }
             }
         } header: {
-            Text(localized: "settings.adventuresync.header", fallback: "Adventure Sync")
+            HStack(spacing: 6) {
+                Text(localized: "settings.adventuresync.header", fallback: "Adventure Sync")
+                wipBadge
+            }
         } footer: {
             Text(license.isLicensed
                  ? L("settings.adventuresync.footer",
