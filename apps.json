@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "50",
+      "buildVersion": "51",
       "versionDate": "2026-07-16",
-      "versionDescription": "Offline map now auto-loads when you lose connection — falls back to cached tiles instead of a blank grid",
+      "versionDescription": "Optional per-game speed guardrail — turn it on in Games and the Joystick warns you if you exceed that game's safe speed (off by default, never forced)",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16737926,
+      "size": 16752180,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "50",
+          "buildVersion": "51",
           "date": "2026-07-16",
-          "localizedDescription": "Offline map now auto-loads when you lose connection — falls back to cached tiles instead of a blank grid",
+          "localizedDescription": "Optional per-game speed guardrail — turn it on in Games and the Joystick warns you if you exceed that game's safe speed (off by default, never forced)",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16737926,
+          "size": 16752180,
           "minOSVersion": "17.0"
         }
       ],

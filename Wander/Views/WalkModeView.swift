@@ -23,6 +23,11 @@ struct WalkModeView: View {
 
     @State private var speedMps: Double = 6_000.0 / 3_600.0   // default 6 km/h
     @AppStorage("useMph") private var useMph = false
+    // Optional per-game speed nudge (OFF by default): warn — never clamp — if the joystick speed
+    // exceeds the selected game's community-cited safe ceiling. Reads the same prefs as the Games tab.
+    @AppStorage("gameSpeedWarn") private var gameSpeedWarn = false
+    @AppStorage("pogoGamePreset") private var gamePresetRaw = GamePreset.pokemonGo.rawValue
+    private var gamePreset: GamePreset { GamePreset(rawValue: gamePresetRaw) ?? .pokemonGo }
     @State private var knobOffset: CGSize = .zero
     @State private var isWalking = false
     @State private var moveTimer: Timer?
@@ -112,6 +117,13 @@ struct WalkModeView: View {
                         in: SpeedFormat.sliderRange(useMph: useMph),
                         step: 1
                     )
+                    if gameSpeedWarn, speedMps * 3.6 > Double(gamePreset.maxSafeSpeedKmh) {
+                        Label("Above \(gamePreset.shortTitle)'s safe speed (~\(Int(SpeedFormat.fromMps(Double(gamePreset.maxSafeSpeedKmh) / 3.6, useMph: useMph))) \(SpeedFormat.unitLabel(useMph: useMph)))",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     WanderPrimaryButton(title: "Stop", icon: Wander.Icon.stop, role: .destructive) {
                         stop()
                     }

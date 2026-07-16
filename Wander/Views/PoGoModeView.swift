@@ -191,6 +191,8 @@ struct PoGoModeView: View {
 
     // When ON, teleports are blocked (not just warned) while a cooldown is active.
     @AppStorage("pogoBlockUntilCooldownEnds") private var blockUntilCooldownEnds = false
+    // Optional per-game speed nudge (OFF by default) — warns on the Joystick, never clamps. See WalkModeView.
+    @AppStorage("gameSpeedWarn") private var gameSpeedWarn = false
 
     // Selected location-based game (free preset). Only changes labels; cooldown curve is shared.
     @AppStorage("pogoGamePreset") private var gamePresetRaw = GamePreset.pokemonGo.rawValue
@@ -256,6 +258,20 @@ struct PoGoModeView: View {
                     } header: {
                         Text("Cooldown safety")
                     }
+                }
+
+                Section {
+                    Toggle(isOn: $gameSpeedWarn) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Warn if I exceed the safe speed")
+                            Text("A nudge on the Joystick if your speed goes over \(gamePreset.shortTitle)'s ~\(gamePreset.maxSafeSpeedKmh) km/h — never forced.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .tint(Wander.brand)
+                } header: {
+                    Text("Speed guardrail (optional)")
                 }
 
                 if !pairingExists {
