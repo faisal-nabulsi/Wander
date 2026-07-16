@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "40",
+      "buildVersion": "41",
       "versionDate": "2026-07-16",
-      "versionDescription": "Polish: Continue with Google + Forgot password (Apple sign-in coming soon)",
+      "versionDescription": "Two-factor authentication (2FA) via authenticator apps",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16646923,
+      "size": 16670818,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "40",
+          "buildVersion": "41",
           "date": "2026-07-16",
-          "localizedDescription": "Polish: Continue with Google + Forgot password (Apple sign-in coming soon)",
+          "localizedDescription": "Two-factor authentication (2FA) via authenticator apps",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16646923,
+          "size": 16670818,
           "minOSVersion": "17.0"
         }
       ],

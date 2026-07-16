@@ -32,6 +32,11 @@ struct WanderAccountSignInView: View {
     @State private var showResetPrompt = false
     @State private var resetEmail = ""
 
+    // Two-factor code alert — shown when a 2FA-enrolled account signs in and the service asks for
+    // the current 6-digit authenticator code (WanderProAccount.mfaRequired).
+    @State private var showMfaPrompt = false
+    @State private var mfaCode = ""
+
     var body: some View {
         NavigationStack {
             Form {
@@ -161,6 +166,28 @@ struct WanderAccountSignInView: View {
             } message: {
                 Text("Enter your account email and we'll send a password reset link.")
             }
+            .alert("Two-factor code", isPresented: $showMfaPrompt) {
+                TextField("6-digit code", text: $mfaCode)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                Button("Verify") {
+                    verifyMfa(code: mfaCode)
+                }
+                .disabled(mfaCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Cancel", role: .cancel) {
+                    account.cancelMfa()
+                    mfaCode = ""
+                }
+            } message: {
+                Text("Enter the 6-digit code from your authenticator app.")
+            }
+            // When the service raises the 2FA challenge (or a retry reopens it), show the prompt.
+            .onChange(of: account.mfaRequired) { _, required in
+                if required {
+                    mfaCode = ""
+                    showMfaPrompt = true
+                }
+            }
         }
     }
 
@@ -177,6 +204,37 @@ struct WanderAccountSignInView: View {
         }
     }
 
+    /// Submit the 6-digit 2FA code entered in the prompt. On success the account adopts a real
+    /// session (handled below); on failure the service keeps `mfaRequired` true and sets a friendly
+    /// status, so we surface it in the footer and re-open the code prompt for another try.
+    private func verifyMfa(code: String) {
+        errorText = ""
+        busy = true
+        Task {
+            await account.submitMfaCode(code)
+            busy = false
+            mfaCode = ""
+            if account.isPro {
+                onSuccess?()
+                dismiss()
+            } else if account.isSignedIn {
+                // Verified, but this account simply isn't Pro yet.
+                let status = account.status
+                errorText = status.isEmpty
+                    ? "Signed in, but this account isn't Pro yet."
+                    : status.replacingOccurrences(of: "❌ ", with: "")
+            } else if account.mfaRequired {
+                // Wrong/expired code — the challenge is still open. Show why and let them retry.
+                errorText = account.status.replacingOccurrences(of: "❌ ", with: "")
+                showMfaPrompt = true
+            } else {
+                // Challenge was dropped (e.g. session expired) — surface the reason.
+                let status = account.status
+                errorText = status.isEmpty ? "" : status.replacingOccurrences(of: "❌ ", with: "")
+            }
+        }
+    }
+
     /// Run an auth action, then decide success by whether the account is now Pro. If the
     /// credentials were valid but the account simply isn't Pro yet, we surface that instead of
     /// dismissing into an unchanged (still-locked) app.
@@ -186,6 +244,12 @@ struct WanderAccountSignInView: View {
         Task {
             await action()
             busy = false
+            // A 2FA-enrolled account isn't signed in yet — the service raised an MFA challenge and
+            // the .onChange(of: account.mfaRequired) handler opens the code prompt. Don't treat this
+            // as a failure or clobber the "enter your code" status.
+            if account.mfaRequired {
+                return
+            }
             if account.isPro {
                 onSuccess?()
                 dismiss()

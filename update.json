@@ -1,6 +1,6 @@
 {
-  "build": 40,
+  "build": 41,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Polish: Continue with Google + Forgot password (Apple sign-in coming soon)"
+  "notes": "Two-factor authentication (2FA) via authenticator apps"
 }

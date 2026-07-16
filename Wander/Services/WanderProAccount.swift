@@ -40,6 +40,20 @@ final class WanderProAccount: ObservableObject {
     /// A short human-readable status the sign-in UI can surface (mirrors WanderAccount's style).
     @Published var status: String = ""
 
+    /// True when accounts:signInWithPassword returned an MFA challenge instead of a session
+    /// (the account has TOTP 2FA enrolled). The sign-in UI observes this to present the
+    /// "Two-factor code" prompt; it flips back to false once the challenge is finalized,
+    /// cancelled, or a fresh sign-in attempt starts.
+    @Published var mfaRequired: Bool = false
+
+    // The in-flight TOTP challenge handed back by signInWithPassword. `mfaPendingCredential` is a
+    // short-lived server credential that, together with the enrollment id and the user's current
+    // 6-digit code, is redeemed at mfaSignIn:finalize for a real session. `mfaEmail` is carried so
+    // the finalized session adopts the same account email the sign-in used.
+    private var mfaPendingCredential: String?
+    private var mfaEnrollmentId: String?
+    private var mfaEmail: String?
+
     // In-memory session tokens. The refreshToken is long-lived and persisted; the idToken is
     // short-lived (≈1h) and re-minted from the refreshToken as needed.
     private var idToken: String?
@@ -81,6 +95,9 @@ final class WanderProAccount: ObservableObject {
             return
         }
 
+        // A fresh sign-in attempt supersedes any half-finished 2FA challenge.
+        clearMfaChallenge()
+
         let url = URL(string: "https://identitytoolkit.googleapis.com/v1/\(endpoint)?key=\(Self.apiKey)")!
         var req = URLRequest(url: url, timeoutInterval: 20)
         req.httpMethod = "POST"
@@ -99,6 +116,24 @@ final class WanderProAccount: ObservableObject {
                 status = "❌ \(Self.authErrorMessage(obj))"
                 return
             }
+
+            // A 2FA-enrolled account returns NO idToken; instead the response carries a
+            // short-lived `mfaPendingCredential` plus an `mfaInfo` array of the enrolled
+            // second factors. Detect that, stash the challenge, and let the UI collect the
+            // 6-digit code (redeemed in submitMfaCode). Only the email/password path can hit
+            // this — the federated web bridge finalizes 2FA inside the web page.
+            if obj?["idToken"] == nil,
+               let pending = obj?["mfaPendingCredential"] as? String, !pending.isEmpty,
+               let mfaInfo = obj?["mfaInfo"] as? [[String: Any]],
+               let enrollmentId = mfaInfo.first?["mfaEnrollmentId"] as? String, !enrollmentId.isEmpty {
+                mfaPendingCredential = pending
+                mfaEnrollmentId = enrollmentId
+                mfaEmail = (obj?["email"] as? String) ?? mail
+                status = "Enter your two-factor code."
+                mfaRequired = true
+                return
+            }
+
             guard let idToken = obj?["idToken"] as? String,
                   let refreshToken = obj?["refreshToken"] as? String,
                   let localId = obj?["localId"] as? String else {
@@ -145,6 +180,78 @@ final class WanderProAccount: ObservableObject {
             status = "❌ \(error.localizedDescription)"
             return false
         }
+    }
+
+    // MARK: - Two-factor (TOTP) sign-in challenge
+
+    /// Finalize a TOTP 2FA sign-in with the user's current 6-digit authenticator code. Called only
+    /// while `mfaRequired` is true (a pending challenge from signInWithPassword is stashed). POSTs
+    /// to the v2 mfaSignIn:finalize endpoint; on success it hands the returned idToken/refreshToken
+    /// into the SAME adopt(...) path the normal password sign-in uses, so the resulting signed-in /
+    /// Pro state is identical. On INVALID_TOTP (or any other error) it sets a friendly status and
+    /// KEEPS the challenge open so the user can retype the code.
+    func submitMfaCode(_ rawCode: String) async {
+        let code = rawCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let pending = mfaPendingCredential, let enrollmentId = mfaEnrollmentId else {
+            // No challenge in flight (already finalized/cancelled) — nothing to do.
+            status = "❌ Your sign-in session expired. Please sign in again."
+            mfaRequired = false
+            return
+        }
+        guard !code.isEmpty else {
+            status = "Enter your six-digit code."
+            return
+        }
+
+        let url = URL(string: "https://identitytoolkit.googleapis.com/v2/accounts/mfaSignIn:finalize?key=\(Self.apiKey)")!
+        var req = URLRequest(url: url, timeoutInterval: 20)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "mfaPendingCredential": pending,
+            "mfaEnrollmentId": enrollmentId,
+            "totpVerificationInfo": ["verificationCode": code],
+        ])
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                // Keep the challenge open so the user can retry with a fresh code.
+                status = "❌ \(Self.mfaErrorMessage(obj))"
+                return
+            }
+            guard let idToken = obj?["idToken"] as? String,
+                  let refreshToken = obj?["refreshToken"] as? String else {
+                status = "❌ Two-factor verification failed. Please try again."
+                return
+            }
+            // localId/email may be absent on the finalize response — fall back to the sign-in email
+            // and the uid embedded in the idToken so adopt(...) still gets a real user id.
+            let acctEmail = (obj?["email"] as? String) ?? mfaEmail ?? ""
+            let localId = (obj?["localId"] as? String) ?? Self.uid(fromIdToken: idToken) ?? ""
+
+            clearMfaChallenge()
+            await adopt(idToken: idToken, refreshToken: refreshToken, email: acctEmail, uid: localId)
+        } catch {
+            status = "❌ \(error.localizedDescription)"
+        }
+    }
+
+    /// Abandon an in-flight 2FA challenge (user tapped Cancel on the code prompt). Drops the pending
+    /// credential and lowers `mfaRequired` without signing in.
+    func cancelMfa() {
+        clearMfaChallenge()
+        status = ""
+    }
+
+    /// Drop any stashed TOTP challenge and lower the `mfaRequired` flag.
+    private func clearMfaChallenge() {
+        mfaPendingCredential = nil
+        mfaEnrollmentId = nil
+        mfaEmail = nil
+        if mfaRequired { mfaRequired = false }
     }
 
     /// Store a freshly-minted session (idToken + refreshToken + email + uid) and fold it into the
@@ -477,6 +584,7 @@ final class WanderProAccount: ObservableObject {
     // MARK: - Sign out
 
     func signOut() {
+        clearMfaChallenge()
         idToken = nil
         refreshToken = nil
         uid = nil
@@ -561,6 +669,41 @@ final class WanderProAccount: ObservableObject {
         default:
             return code.replacingOccurrences(of: "_", with: " ").capitalized
         }
+    }
+
+    /// Human-readable message for an mfaSignIn:finalize error payload (mostly INVALID_TOTP).
+    private static func mfaErrorMessage(_ obj: [String: Any]?) -> String {
+        let code = ((obj?["error"] as? [String: Any])?["message"] as? String) ?? ""
+        if code.isEmpty {
+            return "Two-factor verification failed. Please try again."
+        }
+        if code.hasPrefix("INVALID_TOTP") {
+            return "That code isn't right. Check your authenticator and try again."
+        }
+        if code.hasPrefix("SESSION_EXPIRED") || code.hasPrefix("MFA_PENDING_CREDENTIAL") {
+            return "Your sign-in session expired. Please sign in again."
+        }
+        if code.hasPrefix("TOO_MANY_ATTEMPTS_TRY_LATER") {
+            return "Too many attempts. Please try again later."
+        }
+        return code.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    /// Extract the Firebase `user_id`/`sub` claim from an idToken's JWT payload (base64url middle
+    /// segment). Used only as a fallback when mfaSignIn:finalize omits `localId`.
+    private static func uid(fromIdToken token: String) -> String? {
+        let parts = token.split(separator: ".")
+        guard parts.count >= 2 else { return nil }
+        var b64 = String(parts[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        // Pad to a multiple of 4 for Foundation's base64 decoder.
+        while b64.count % 4 != 0 { b64 += "=" }
+        guard let data = Data(base64Encoded: b64),
+              let claims = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return nil
+        }
+        return (claims["user_id"] as? String) ?? (claims["sub"] as? String)
     }
 
     private static func formEncode(_ s: String) -> String {
