@@ -89,6 +89,7 @@ struct ConsoleLogsView: View {
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
+                    .accessibilityLabel("More options")
                 }
             }
             .alert(alertTitle, isPresented: $showingCustomAlert) {
@@ -202,6 +203,7 @@ struct ConsoleLogsView: View {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.secondary)
                     }
+                    .accessibilityLabel("Clear filter")
                 }
             }
             .padding(8)

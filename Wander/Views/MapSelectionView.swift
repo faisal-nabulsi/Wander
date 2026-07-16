@@ -1130,12 +1130,14 @@ struct LocationSimulationView: View {
                 } label: {
                     Image(systemName: "bookmark.fill")
                 }
+                .accessibilityLabel(L("map.bookmarks", fallback: "Bookmarks"))
 
                 Button {
                     showRouteSearch = true
                 } label: {
                     Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
                 }
+                .accessibilityLabel(L("map.route_search", fallback: "Search routes"))
                 .disabled(isBusy || isRouteRunning)
 
                 Button {

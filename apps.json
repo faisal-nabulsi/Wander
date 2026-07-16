@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "41",
+      "buildVersion": "42",
       "versionDate": "2026-07-16",
-      "versionDescription": "Two-factor authentication (2FA) via authenticator apps",
+      "versionDescription": "Accessibility: VoiceOver labels on icon buttons + reduced-motion support",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16670818,
+      "size": 16671786,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "41",
+          "buildVersion": "42",
           "date": "2026-07-16",
-          "localizedDescription": "Two-factor authentication (2FA) via authenticator apps",
+          "localizedDescription": "Accessibility: VoiceOver labels on icon buttons + reduced-motion support",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16670818,
+          "size": 16671786,
           "minOSVersion": "17.0"
         }
       ],

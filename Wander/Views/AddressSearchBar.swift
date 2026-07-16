@@ -69,6 +69,7 @@ struct AddressSearchBar: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                     }
+                    .accessibilityLabel("Clear search")
                 }
             }
             .padding(10)

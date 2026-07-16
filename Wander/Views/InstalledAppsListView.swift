@@ -147,6 +147,7 @@ struct InstalledAppsListView: View {
                 Button(action: onImportPairingFile) {
                     Image(systemName: "doc.badge.plus")
                 }
+                .accessibilityLabel("Import pairing file".localized)
             }
         }
     }
@@ -165,6 +166,7 @@ struct InstalledAppsListView: View {
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
+                .accessibilityLabel("Refresh app list".localized)
                 .disabled(viewModel.isLoading)
             }
         }

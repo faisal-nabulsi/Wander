@@ -40,6 +40,7 @@ struct ScheduleView: View {
                     } label: {
                         Image(systemName: Wander.Icon.add)
                     }
+                    .accessibilityLabel(L("schedule.add", fallback: "Add schedule"))
                 }
             }
             .sheet(isPresented: $showAdd) {

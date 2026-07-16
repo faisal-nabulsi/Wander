@@ -100,6 +100,7 @@ struct PaywallView: View {
                                     .font(.title2)
                                     .foregroundStyle(.white.opacity(0.8))
                             }
+                            .accessibilityLabel(L("action.close", fallback: "Close"))
                         }
                     }
 

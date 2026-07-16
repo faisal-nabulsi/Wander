@@ -40,6 +40,7 @@ struct ItineraryQueueView: View {
                     } label: {
                         Image(systemName: Wander.Icon.add)
                     }
+                    .accessibilityLabel(L("itinerary.add_step", fallback: "Add step"))
                     .disabled(runner.isRunning)
                 }
                 if !store.steps.isEmpty {
