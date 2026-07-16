@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "32",
+      "buildVersion": "33",
       "versionDate": "2026-07-15",
-      "versionDescription": "New penguin logo in-app, WIP tags on Adventure Sync + Tunnel, simpler drift setting, map no longer covered by the panel",
+      "versionDescription": "Street View hardened: Maps key moved server-side (Pro + daily cap), no longer shipped in the app",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16549473,
+      "size": 16564648,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "32",
+          "buildVersion": "33",
           "date": "2026-07-15",
-          "localizedDescription": "New penguin logo in-app, WIP tags on Adventure Sync + Tunnel, simpler drift setting, map no longer covered by the panel",
+          "localizedDescription": "Street View hardened: Maps key moved server-side (Pro + daily cap), no longer shipped in the app",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16549473,
+          "size": 16564648,
           "minOSVersion": "17.0"
         }
       ],

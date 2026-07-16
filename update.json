@@ -1,6 +1,6 @@
 {
-  "build": 32,
+  "build": 33,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "New penguin logo in-app, WIP tags on Adventure Sync + Tunnel, simpler drift setting, map no longer covered by the panel"
+  "notes": "Street View hardened: Maps key moved server-side (Pro + daily cap), no longer shipped in the app"
 }

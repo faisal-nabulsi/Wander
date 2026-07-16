@@ -2,42 +2,78 @@
 //  StreetViewSheet.swift
 //  Wander
 //
-//  Street View teleport — mirrors the desktop app (wander-desktop/src/templates/map.html):
-//  a WKWebView loads the Google Maps JavaScript API and creates a StreetViewPanorama at
-//  the selected coordinate. Tapping "Teleport here" reuses the app's existing teleport flow
-//  (the `.teleportToRequested` notification that LocationSimulationView already handles),
-//  so there is no duplicated simulate_location logic here.
+//  Street View teleport. The Google Maps key is NO LONGER bundled in the app — it lives as a
+//  Cloudflare Worker secret. On open, this sheet asks the Worker (POST /streetview/key,
+//  authenticated with the account's Firebase idToken) for the key; the Worker returns it ONLY
+//  to a Pro account that is under the daily cap. So a free user never receives the key, the
+//  per-user/day quota caps the paid Maps API bill, and the key never ships in the binary.
 //
-//  Dependency-light by design: no GoogleMaps SDK, no SPM/CocoaPods — just a WKWebView
-//  loading remote JS, exactly like the desktop build.
+//  The panorama itself is still a dependency-light WKWebView loading the Maps JS API (no
+//  GoogleMaps SDK / SPM / CocoaPods), exactly like the desktop build — only the key's origin
+//  changed (server-fetched instead of bundled).
 //
 
 import SwiftUI
 import WebKit
 import CoreLocation
 
-// MARK: - Maps API key configuration
+// MARK: - Server-side key provider (Pro + quota gated)
 
-/// Reads the Google Maps JavaScript API key from a gitignored config file bundled with the app.
-/// Mirrors the desktop app's pattern: `Resources/config.json` -> `{ "google_maps_key": "..." }`.
-/// A committed `config.example.json` documents the shape; the real `config.json` is gitignored.
-enum WanderMapsConfig {
-    private struct Payload: Decodable {
-        let google_maps_key: String?
+/// The result of asking the Worker for the Street View key.
+enum StreetViewAccess: Equatable {
+    case key(String)            // authorized — render the panorama
+    case proRequired            // 403 — Pro-only feature
+    case dailyLimit(String)     // 429 — used today's allowance
+    case unavailable(String)    // 503 / transport / other, with a friendly message
+
+    private static let baseURL = "https://wander-payments.wanderlocation.workers.dev"
+
+    /// Ask the Worker for the Maps key. Pro-only + quota-capped, enforced server-side.
+    static func fetchKey() async -> StreetViewAccess {
+        guard await NetworkReachability.shared.isOnline else {
+            return .unavailable("Street View needs an internet connection.")
+        }
+        // Same idToken path the trial/AI/sync features use. No sign-in → not Pro → upsell.
+        guard let token = await WanderProAccount.shared.currentIdToken() else {
+            return .proRequired
+        }
+        var out = await post(idToken: token)
+        // A 401 means the short-lived idToken expired mid-flight — mint a fresh one, retry once.
+        if out.status == 401, let fresh = await WanderProAccount.shared.refreshedIdToken() {
+            out = await post(idToken: fresh)
+        }
+        return out.access
     }
 
-    /// The configured key, trimmed. Empty string when unset (which HIDES the Street View entry point).
-    static let googleMapsKey: String = {
-        guard let url = Bundle.main.url(forResource: "config", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let payload = try? JSONDecoder().decode(Payload.self, from: data) else {
-            return ""
+    private static func post(idToken: String) async -> (access: StreetViewAccess, status: Int) {
+        guard let url = URL(string: "\(baseURL)/streetview/key"),
+              let httpBody = try? JSONSerialization.data(withJSONObject: ["idToken": idToken]) else {
+            return (.unavailable("Couldn't build the Street View request."), -1)
         }
-        return (payload.google_maps_key ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    }()
-
-    /// True only when a non-blank key is available.
-    static var hasGoogleMapsKey: Bool { !googleMapsKey.isEmpty }
+        var req = URLRequest(url: url, timeoutInterval: 30)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = httpBody
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+            let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            switch status {
+            case 200:
+                if let key = (obj?["key"] as? String), !key.isEmpty {
+                    return (.key(key), 200)
+                }
+                return (.unavailable("Street View is temporarily unavailable."), 200)
+            case 403: return (.proRequired, 403)
+            case 429: return (.dailyLimit("You've reached today's Street View limit — try again tomorrow."), 429)
+            case 401: return (.unavailable("Please sign in again."), 401)
+            case 503: return (.unavailable("Street View isn't available right now."), 503)
+            default:  return (.unavailable("Street View is temporarily unavailable."), status)
+            }
+        } catch {
+            return (.unavailable("Couldn't reach Street View — check your connection."), -1)
+        }
+    }
 }
 
 // MARK: - WKWebView wrapper
@@ -49,7 +85,6 @@ private struct StreetViewWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        // Enable JavaScript (Google Maps JS API requires it).
         let preferences = WKWebpagePreferences()
         preferences.allowsContentJavaScript = true
         configuration.defaultWebpagePreferences = preferences
@@ -64,15 +99,10 @@ private struct StreetViewWebView: UIViewRepresentable {
         return webView
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {
-        // The sheet is presented per-selection, so the coordinate is fixed for a given
-        // presentation. Nothing to update here.
-    }
+    func updateUIView(_ webView: WKWebView, context: Context) {}
 
     /// Builds the self-contained HTML that loads the Maps JS API and shows the panorama.
-    /// Mirrors the desktop app's Street View block (getPanorama + StreetViewPanorama).
     private func html(for coordinate: CLLocationCoordinate2D, apiKey: String) -> String {
-        // JSON-encode values so they are safely embedded in the JS source.
         let lat = coordinate.latitude
         let lng = coordinate.longitude
         let keyJS = jsString(apiKey)
@@ -108,7 +138,6 @@ private struct StreetViewWebView: UIViewRepresentable {
               msgEl.style.display = 'flex';
             }
 
-            // Called by the Google Maps script tag once the API has loaded.
             window.init = function() {
               try {
                 var svc = new google.maps.StreetViewService();
@@ -136,9 +165,6 @@ private struct StreetViewWebView: UIViewRepresentable {
             };
 
             (function() {
-              // Safety net for flaky/offline networks where a stalled script never fires onerror:
-              // if the Maps API hasn't invoked our callback within 15s, show the offline note
-              // instead of spinning on "Loading Street View…" forever.
               var loaded = false;
               var timeout = setTimeout(function() {
                 if (!loaded) {
@@ -172,7 +198,6 @@ private struct StreetViewWebView: UIViewRepresentable {
     private func jsString(_ value: String) -> String {
         let data = (try? JSONSerialization.data(withJSONObject: [value]))
             .flatMap { String(data: $0, encoding: .utf8) }
-        // JSONSerialization gives us `["..."]`; strip the array brackets to get the literal.
         if let data, data.hasPrefix("["), data.hasSuffix("]") {
             return String(data.dropFirst().dropLast())
         }
@@ -182,17 +207,20 @@ private struct StreetViewWebView: UIViewRepresentable {
 
 // MARK: - Sheet
 
-/// A sheet showing the Street View panorama for `coordinate`, with a "Teleport here" action
-/// that reuses the app's existing simulate flow via `.teleportToRequested`.
+/// A sheet showing the Street View panorama for `coordinate`. The Maps key is fetched from the
+/// Worker on appear (Pro + quota gated); a "Teleport here" action reuses the app's simulate flow.
 struct StreetViewSheet: View {
     let coordinate: CLLocationCoordinate2D
 
     @Environment(\.dismiss) private var dismiss
+    /// nil while the key request is in flight; set once the Worker responds.
+    @State private var access: StreetViewAccess?
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                StreetViewWebView(coordinate: coordinate, apiKey: WanderMapsConfig.googleMapsKey)
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(edges: .bottom)
 
                 WanderCard {
@@ -216,10 +244,37 @@ struct StreetViewSheet: View {
                 }
             }
         }
+        .task {
+            if access == nil { access = await StreetViewAccess.fetchKey() }
+        }
     }
 
-    /// Reuse the existing teleport path: LocationSimulationView listens for `.teleportToRequested`
-    /// and runs the same `simulate_location(...)` flow (applySelection + simulate).
+    @ViewBuilder private var content: some View {
+        switch access {
+        case .none:
+            ProgressView("Loading Street View…")
+        case .key(let key):
+            StreetViewWebView(coordinate: coordinate, apiKey: key)
+        case .proRequired:
+            statusView("Street View is a Wander Pro feature.", systemImage: "lock.fill")
+        case .dailyLimit(let message), .unavailable(let message):
+            statusView(message, systemImage: "exclamationmark.triangle")
+        }
+    }
+
+    private func statusView(_ text: String, systemImage: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text(text)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 32)
+        }
+    }
+
+    /// Reuse the existing teleport path (LocationSimulationView handles `.teleportToRequested`).
     private func teleport() {
         NotificationCenter.default.post(
             name: .teleportToRequested,

@@ -1546,19 +1546,18 @@ struct LocationSimulationView: View {
                 .disabled(hasActiveSimulation || isBusy)
             }
 
-            // Street View — Pro-only (it hits the paid Google Maps API) and only when a key is configured.
-            // Shown to free users too (with a lock affordance) so they discover it; tapping opens the paywall.
-            if WanderMapsConfig.hasGoogleMapsKey {
-                Button {
-                    if !License.shared.isLicensed { showPaywall = true } else { showStreetView = true }
-                } label: {
-                    Label(L("map.street_view", fallback: "Street View"),
-                          systemImage: License.shared.isLicensed ? "binoculars.fill" : "lock.fill")
-                        .frame(maxWidth: .infinity).frame(height: 30)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
+            // Street View — Pro-only (it hits the paid Google Maps API). Shown to free users too
+            // (with a lock affordance) so they discover it; tapping opens the paywall. The Maps key
+            // is fetched from the Worker on open (Pro + quota gated) — it's no longer bundled.
+            Button {
+                if !License.shared.isLicensed { showPaywall = true } else { showStreetView = true }
+            } label: {
+                Label(L("map.street_view", fallback: "Street View"),
+                      systemImage: License.shared.isLicensed ? "binoculars.fill" : "lock.fill")
+                    .frame(maxWidth: .infinity).frame(height: 30)
             }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
 
             HStack(spacing: 10) {
                 Button(action: clear) {
