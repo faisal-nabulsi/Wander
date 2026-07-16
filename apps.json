@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "54",
+      "buildVersion": "55",
       "versionDate": "2026-07-16",
-      "versionDescription": "Route: real cycling + combined transit + avoid-highways/tolls via Google routing (Pro); free Drive/Walk stay on Apple. Lights up once the Routes key is set on the Worker.",
+      "versionDescription": "Games: per-game speed guardrail + hotspot gating; 2-3 route options picker",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16774462,
+      "size": 16817569,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "54",
+          "buildVersion": "55",
           "date": "2026-07-16",
-          "localizedDescription": "Route: real cycling + combined transit + avoid-highways/tolls via Google routing (Pro); free Drive/Walk stay on Apple. Lights up once the Routes key is set on the Worker.",
+          "localizedDescription": "Games: per-game speed guardrail + hotspot gating; 2-3 route options picker",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16774462,
+          "size": 16817569,
           "minOSVersion": "17.0"
         }
       ],

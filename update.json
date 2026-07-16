@@ -1,6 +1,6 @@
 {
-  "build": 54,
+  "build": 55,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Route: real cycling + combined transit + avoid-highways/tolls via Google routing (Pro); free Drive/Walk stay on Apple. Lights up once the Routes key is set on the Worker."
+  "notes": "Games: per-game speed guardrail + hotspot gating; 2-3 route options picker"
 }
