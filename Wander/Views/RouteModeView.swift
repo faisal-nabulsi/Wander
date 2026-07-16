@@ -153,6 +153,9 @@ struct RouteModeView: View {
     @State private var routeNotice: String?                          // e.g. "No route available" for a too-short plane trip
     @AppStorage("useMph") private var useMph = false
     @AppStorage("jitterEnabled") private var jitterEnabled = false
+    // Avoid options (Pro, Google Routes API) — only meaningful for Drive.
+    @AppStorage("routeAvoidHighways") private var avoidHighways = false
+    @AppStorage("routeAvoidTolls") private var avoidTolls = false
     /// "Weather-aware pace" (iOS parity with Android): when on, the destination
     /// weather (read once at route start) applies a speed multiplier — clear 1.0,
     /// rain/drizzle 0.85, snow 0.70. Calm no-op when weather is unavailable.
@@ -456,6 +459,26 @@ struct RouteModeView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
 
+                        // Avoid options (Pro, Google routing) — apply to Drive routes.
+                        if transportMode == .drive {
+                            Toggle(isOn: $avoidHighways) {
+                                Label(L("route.avoid_highways", fallback: "Avoid highways"), systemImage: "road.lanes")
+                                    .font(.subheadline)
+                            }
+                            .tint(Wander.brand)
+                            Toggle(isOn: $avoidTolls) {
+                                Label(L("route.avoid_tolls", fallback: "Avoid tolls"), systemImage: "dollarsign.circle")
+                                    .font(.subheadline)
+                            }
+                            .tint(Wander.brand)
+                            if avoidHighways || avoidTolls {
+                                Text(localized: "route.avoid.footer",
+                                     fallback: "Uses Google routing (Pro) to honor these — tap Preview.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+
                         saveLoopControls
 
                         recordControls
@@ -723,6 +746,55 @@ struct RouteModeView: View {
             routeExpectedTime = 0
             if let region = region(fitting: coords) {
                 cameraPosition = .region(region)
+            }
+            return
+        }
+
+        // GOOGLE (Pro) path — the routing Apple can't do (real cycling, combined transit) or when
+        // avoid-highways/tolls is set. Basic Drive/Walk (no avoid) stay on Apple MKDirections below.
+        let needsGoogle = transportMode == .cycle || transportMode == .transit
+            || (transportMode == .drive && (avoidHighways || avoidTolls))
+        if needsGoogle {
+            if !License.shared.isLicensed {
+                routeCoordinates = []
+                routeNotice = "Real cycling, transit and avoid-highways/tolls are a Pro feature."
+                showPaywall = true
+                return
+            }
+            let modeStr: String
+            switch transportMode {
+            case .cycle:   modeStr = "bicycling"
+            case .transit: modeStr = "transit"
+            case .walk:    modeStr = "walking"
+            default:       modeStr = "driving"
+            }
+            let inter = waypoints.count > 2
+                ? Array(waypoints[1..<(waypoints.count - 1)]).map(\.coordinate) : []
+            let res = await WanderDirections.fetch(
+                origin: waypoints.first!.coordinate,
+                destination: waypoints.last!.coordinate,
+                waypoints: inter,
+                mode: modeStr,
+                avoidHighways: avoidHighways,
+                avoidTolls: avoidTolls
+            )
+            switch res {
+            case .success(let routes):
+                if let best = routes.first, best.points.count >= 2 {
+                    routeCoordinates = best.points
+                    routeExpectedTime = best.durationSeconds
+                    if let region = region(fitting: best.points) { cameraPosition = .region(region) }
+                } else {
+                    routeCoordinates = []; routeNotice = "No route available for this trip."
+                }
+            case .noRoute:
+                routeCoordinates = []; routeNotice = "No route available for this trip."
+            case .proRequired:
+                routeCoordinates = []
+                routeNotice = "Sign in with your Pro account to use cycling/transit routing."
+                showPaywall = true
+            case .failed(let msg):
+                routeCoordinates = []; routeNotice = msg
             }
             return
         }

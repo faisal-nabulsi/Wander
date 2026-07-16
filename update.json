@@ -1,6 +1,6 @@
 {
-  "build": 53,
+  "build": 54,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Route: removed Boat (no real boat routing exists); Plane now says 'no route available' if the trip's too short to fly (~under 100 km) instead of drawing a fake straight line"
+  "notes": "Route: real cycling + combined transit + avoid-highways/tolls via Google routing (Pro); free Drive/Walk stay on Apple. Lights up once the Routes key is set on the Worker."
 }

@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "53",
+      "buildVersion": "54",
       "versionDate": "2026-07-16",
-      "versionDescription": "Route: removed Boat (no real boat routing exists); Plane now says 'no route available' if the trip's too short to fly (~under 100 km) instead of drawing a fake straight line",
+      "versionDescription": "Route: real cycling + combined transit + avoid-highways/tolls via Google routing (Pro); free Drive/Walk stay on Apple. Lights up once the Routes key is set on the Worker.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16753696,
+      "size": 16774462,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "53",
+          "buildVersion": "54",
           "date": "2026-07-16",
-          "localizedDescription": "Route: removed Boat (no real boat routing exists); Plane now says 'no route available' if the trip's too short to fly (~under 100 km) instead of drawing a fake straight line",
+          "localizedDescription": "Route: real cycling + combined transit + avoid-highways/tolls via Google routing (Pro); free Drive/Walk stay on Apple. Lights up once the Routes key is set on the Worker.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16753696,
+          "size": 16774462,
           "minOSVersion": "17.0"
         }
       ],
