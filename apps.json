@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "47",
+      "buildVersion": "50",
       "versionDate": "2026-07-16",
-      "versionDescription": "Control cards now hug their content (no more empty panel covering the map); offline map fixed — switched to CARTO tiles so it stops getting blocked",
+      "versionDescription": "Offline map now auto-loads when you lose connection — falls back to cached tiles instead of a blank grid",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16733002,
+      "size": 16737926,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "47",
+          "buildVersion": "50",
           "date": "2026-07-16",
-          "localizedDescription": "Control cards now hug their content (no more empty panel covering the map); offline map fixed — switched to CARTO tiles so it stops getting blocked",
+          "localizedDescription": "Offline map now auto-loads when you lose connection — falls back to cached tiles instead of a blank grid",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16733002,
+          "size": 16737926,
           "minOSVersion": "17.0"
         }
       ],

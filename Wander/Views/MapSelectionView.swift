@@ -860,6 +860,10 @@ struct LocationSimulationView: View {
     @State private var showCoordinateImporter = false
     @State private var streetViewTarget: CoordinateSnapshot?
     @State private var showOfflineMaps = false
+    // Region for the offline (cached-tile) map shown automatically when the device has no network.
+    @State private var offlineRegion = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 0, longitude: 0),
+        latitudinalMeters: 2000, longitudinalMeters: 2000)
     @State private var showRouteSearch = false
     @State private var routeStartSelection: RouteSearchSelection?
     @State private var routeEndSelection: RouteSearchSelection?
@@ -1019,53 +1023,82 @@ struct LocationSimulationView: View {
         .accessibilityLabel(L("map.style.switch", fallback: "Map style"))
     }
 
-    var body: some View {
-        ZStack(alignment: .bottom) {
-            MapReader { proxy in
-                Map(position: $position) {
-                    if hasRouteContext {
-                        if let routePolyline {
-                            MapPolyline(routePolyline)
-                                .stroke(.blue.opacity(0.8), lineWidth: 5)
-                        }
-                        if let routeStartCoordinate {
-                            Marker("Start", coordinate: routeStartCoordinate)
-                                .tint(.green)
-                        }
-                        if let routeEndCoordinate {
-                            Marker("End", coordinate: routeEndCoordinate)
-                                .tint(.red)
-                        }
-                        if let routePlaybackCoordinate {
-                            Marker("Current", coordinate: routePlaybackCoordinate)
-                                .tint(.blue)
-                        }
-                    } else if let coordinate {
-                        Marker("Pin", coordinate: coordinate)
+    /// The primary (online) map — Apple MapKit with pin/route markers + style switching + center
+    /// tracking. Extracted from `body` so the ZStack stays within the type-checker's limits.
+    @ViewBuilder private var onlineMap: some View {
+        MapReader { proxy in
+            Map(position: $position) {
+                if hasRouteContext {
+                    if let routePolyline {
+                        MapPolyline(routePolyline)
+                            .stroke(.blue.opacity(0.8), lineWidth: 5)
+                    }
+                    if let routeStartCoordinate {
+                        Marker("Start", coordinate: routeStartCoordinate)
+                            .tint(.green)
+                    }
+                    if let routeEndCoordinate {
+                        Marker("End", coordinate: routeEndCoordinate)
                             .tint(.red)
                     }
+                    if let routePlaybackCoordinate {
+                        Marker("Current", coordinate: routePlaybackCoordinate)
+                            .tint(.blue)
+                    }
+                } else if let coordinate {
+                    Marker("Pin", coordinate: coordinate)
+                        .tint(.red)
                 }
-                .mapStyle(mapStyleMode.mapStyle)
-                .mapControls {
-                    MapCompass()
+            }
+            .mapStyle(mapStyleMode.mapStyle)
+            .mapControls {
+                MapCompass()
+            }
+            .onMapCameraChange(frequency: .continuous) { context in
+                visibleCenter = context.region.center
+            }
+        }
+    }
+
+    /// The offline fallback map — a UIKit MKMapView backed by cached CARTO tiles, shown
+    /// automatically when the device is offline so the map still works instead of a blank grid.
+    @ViewBuilder private var offlineMap: some View {
+        OfflineMapView(
+            selectedCoordinate: $coordinate,
+            region: $offlineRegion,
+            cacheOnly: false,
+            onRegionChange: { region in visibleCenter = region.center }
+        )
+        .onAppear {
+            if let center = visibleCenter {
+                offlineRegion = MKCoordinateRegion(center: center,
+                                                   latitudinalMeters: 2000, longitudinalMeters: 2000)
+            }
+        }
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Group {
+                if reachability.isOnline {
+                    onlineMap
+                } else {
+                    offlineMap
                 }
-                .onMapCameraChange(frequency: .continuous) { context in
-                    visibleCenter = context.region.center
-                }
+            }
                 .overlay(alignment: .center) {
                     if !hasRouteContext && !hasActiveSimulation { MapCrosshair() }
                 }
-            }
                 .ignoresSafeArea()
                 .onChange(of: coordinate.map(CoordinateSnapshot.init)) { _, new in
                     if let new {
-                        position = .region(
-                            MKCoordinateRegion(
-                                center: new.coordinate,
-                                latitudinalMeters: 1000,
-                                longitudinalMeters: 1000
-                            )
+                        let region = MKCoordinateRegion(
+                            center: new.coordinate,
+                            latitudinalMeters: 1000,
+                            longitudinalMeters: 1000
                         )
+                        position = .region(region)
+                        offlineRegion = region
                     }
                 }
 

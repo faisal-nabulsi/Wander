@@ -1,6 +1,6 @@
 {
-  "build": 47,
+  "build": 50,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Control cards now hug their content (no more empty panel covering the map); offline map fixed — switched to CARTO tiles so it stops getting blocked"
+  "notes": "Offline map now auto-loads when you lose connection — falls back to cached tiles instead of a blank grid"
 }

@@ -24,6 +24,10 @@ struct OfflineMapView: UIViewRepresentable {
     /// When true, the overlay serves only cached tiles (offline preview) — no network.
     var cacheOnly: Bool
 
+    /// Reports the map's region as the user pans, so the parent's center-crosshair placement
+    /// ("Set pin here") keeps working while this offline map is the active surface.
+    var onRegionChange: ((MKCoordinateRegion) -> Void)? = nil
+
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
@@ -50,6 +54,7 @@ struct OfflineMapView: UIViewRepresentable {
     }
 
     func updateUIView(_ mapView: MKMapView, context: Context) {
+        context.coordinator.parent = self
         // Keep the overlay's offline mode in sync with the toggle.
         if context.coordinator.overlay?.cacheOnly != cacheOnly {
             context.coordinator.overlay?.cacheOnly = cacheOnly
@@ -70,7 +75,7 @@ struct OfflineMapView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
-        private let parent: OfflineMapView
+        var parent: OfflineMapView
         var overlay: WanderTileOverlay?
         private var selectionAnnotation: MKPointAnnotation?
         private var lastAppliedRegion: MKCoordinateRegion?
@@ -84,6 +89,14 @@ struct OfflineMapView: UIViewRepresentable {
                 return MKTileOverlayRenderer(tileOverlay: tileOverlay)
             }
             return MKOverlayRenderer(overlay: overlay)
+        }
+
+        func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            // User panned/zoomed: report the region up (and mark it applied so this write-back
+            // doesn't bounce back through updateUIView as a re-center).
+            lastAppliedRegion = mapView.region
+            let region = mapView.region
+            DispatchQueue.main.async { self.parent.onRegionChange?(region) }
         }
 
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
