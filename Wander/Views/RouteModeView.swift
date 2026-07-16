@@ -206,6 +206,11 @@ struct RouteModeView: View {
     // Optional persona/day prompt (e.g. "a nurse on a night shift"), sent as the `style` field.
     // Empty prompt + "Surprise me" sends NO style so the server randomizes the persona.
     @State private var aiStylePrompt = ""
+    /// Keyboard focus for the "Describe the day" field, so a Done button can dismiss it.
+    @FocusState private var aiFieldFocused: Bool
+    /// Collapses the secondary route options (loop/weather/save/record/AI) to keep the
+    /// screen uncluttered — the core build-and-drive flow stays visible.
+    @State private var showRouteExtras = false
 
     private var manualMetersPerSecond: Double { max(manualSpeedMps, 1) }
 
@@ -407,39 +412,51 @@ struct RouteModeView: View {
                     .tint(Wander.brand)
                 }
 
-                Toggle(isOn: Binding(
-                    get: { loopRoute },
-                    set: { newValue in
-                        // Pro feature: free/trial users see the toggle but hitting it opens the upsell.
-                        if newValue && !License.shared.isLicensed {
-                            showPaywall = true
-                            return
+                // Secondary options collapsed by default so the screen stays uncluttered —
+                // the core flow (points → mode → Preview/Drive) is what shows first.
+                DisclosureGroup(isExpanded: $showRouteExtras) {
+                    VStack(spacing: 12) {
+                        Toggle(isOn: Binding(
+                            get: { loopRoute },
+                            set: { newValue in
+                                // Pro feature: free/trial users see the toggle but hitting it opens the upsell.
+                                if newValue && !License.shared.isLicensed {
+                                    showPaywall = true
+                                    return
+                                }
+                                loopRoute = newValue
+                            }
+                        )) {
+                            Label(L("route.loop", fallback: "Loop route"), systemImage: "repeat")
+                                .font(.subheadline)
                         }
-                        loopRoute = newValue
+                        .tint(Wander.brand)
+
+                        Toggle(isOn: $weatherAwarePace) {
+                            Label(L("route.weather_pace", fallback: "Weather-aware pace"), systemImage: "cloud.rain")
+                                .font(.subheadline)
+                        }
+                        .tint(Wander.brand)
+                        if weatherAwarePace {
+                            Text(localized: "route.weather_pace.footer",
+                                 fallback: "Slows the drive in rain or snow at the destination — checked once when the route starts.")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        saveLoopControls
+
+                        recordControls
+
+                        aiRoutineControls
                     }
-                )) {
-                    Label(L("route.loop", fallback: "Loop route"), systemImage: "repeat")
-                        .font(.subheadline)
+                    .padding(.top, 6)
+                } label: {
+                    Label(L("route.more_options", fallback: "More options — loop, weather, save, record, AI day"),
+                          systemImage: "slider.horizontal.3")
+                        .font(.subheadline.weight(.medium))
                 }
                 .tint(Wander.brand)
-
-                Toggle(isOn: $weatherAwarePace) {
-                    Label(L("route.weather_pace", fallback: "Weather-aware pace"), systemImage: "cloud.rain")
-                        .font(.subheadline)
-                }
-                .tint(Wander.brand)
-                if weatherAwarePace {
-                    Text(localized: "route.weather_pace.footer",
-                         fallback: "Slows the drive in rain or snow at the destination — checked once when the route starts.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                saveLoopControls
-
-                recordControls
-
-                aiRoutineControls
 
                 HStack(spacing: 10) {
                     Button { Task { await computeRoute() } } label: {
@@ -1370,9 +1387,16 @@ struct RouteModeView: View {
             TextField("Describe the day (e.g. a nurse on a night shift)", text: $aiStylePrompt)
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled()
-                .submitLabel(.go)
+                .submitLabel(.done)
                 .disabled(isGeneratingAI)
-                .onSubmit { generateAIRoutine(style: aiStylePrompt) }
+                .focused($aiFieldFocused)
+                .onSubmit { aiFieldFocused = false }
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button(L("action.done", fallback: "Done")) { aiFieldFocused = false }
+                    }
+                }
 
             HStack(spacing: 10) {
                 // Prompt path: uses whatever the user typed as the `style`.

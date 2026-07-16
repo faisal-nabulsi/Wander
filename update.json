@@ -1,6 +1,6 @@
 {
-  "build": 33,
+  "build": 34,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Street View hardened: Maps key moved server-side (Pro + daily cap), no longer shipped in the app"
+  "notes": "Route screen decluttered (secondary options collapsed), and Done now dismisses the keyboard in the AI day field"
 }

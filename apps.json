@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "33",
+      "buildVersion": "34",
       "versionDate": "2026-07-15",
-      "versionDescription": "Street View hardened: Maps key moved server-side (Pro + daily cap), no longer shipped in the app",
+      "versionDescription": "Route screen decluttered (secondary options collapsed), and Done now dismisses the keyboard in the AI day field",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16564648,
+      "size": 16581224,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "33",
+          "buildVersion": "34",
           "date": "2026-07-15",
-          "localizedDescription": "Street View hardened: Maps key moved server-side (Pro + daily cap), no longer shipped in the app",
+          "localizedDescription": "Route screen decluttered (secondary options collapsed), and Done now dismisses the keyboard in the AI day field",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16564648,
+          "size": 16581224,
           "minOSVersion": "17.0"
         }
       ],
