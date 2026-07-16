@@ -1,6 +1,6 @@
 {
-  "build": 35,
+  "build": 36,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Route: import GPX / KML / GeoJSON / CSV files as waypoints (parity with Android & desktop)"
+  "notes": "New Life360 / Find My anti-detection preset (Settings) — teleports glide + your spot drifts so shared location stays believable"
 }

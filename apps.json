@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "35",
+      "buildVersion": "36",
       "versionDate": "2026-07-15",
-      "versionDescription": "Route: import GPX / KML / GeoJSON / CSV files as waypoints (parity with Android & desktop)",
+      "versionDescription": "New Life360 / Find My anti-detection preset (Settings) — teleports glide + your spot drifts so shared location stays believable",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16610761,
+      "size": 16606966,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "35",
+          "buildVersion": "36",
           "date": "2026-07-15",
-          "localizedDescription": "Route: import GPX / KML / GeoJSON / CSV files as waypoints (parity with Android & desktop)",
+          "localizedDescription": "New Life360 / Find My anti-detection preset (Settings) — teleports glide + your spot drifts so shared location stays believable",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16610761,
+          "size": 16606966,
           "minOSVersion": "17.0"
         }
       ],

@@ -306,6 +306,28 @@ struct SettingsView: View {
                     if frozenHold { jitterEnabled = false; frozenHold = false }
                 }
 
+                // Life360 / Find My — one preset that bundles the anti-detection settings so a
+                // shared location stays believable (never frozen, no impossible teleport jump).
+                Section {
+                    Toggle(isOn: Binding(
+                        get: { jitterEnabled && smoothLongJumps },
+                        set: { on in
+                            jitterEnabled = on
+                            smoothLongJumps = on
+                            if on && jitterRadius < 1.5 { jitterRadius = 1.5 }
+                        }
+                    )) {
+                        Label(L("settings.sharing.mode", fallback: "Life360 / Find My mode"),
+                              systemImage: "person.2.wave.2")
+                    }
+                    .tint(Wander.brand)
+                } header: {
+                    Text(localized: "settings.sharing.header", fallback: "Location-sharing apps")
+                } footer: {
+                    Text(localized: "settings.sharing.footer",
+                         fallback: "Anti-detection for Life360, Find My and iMessage: your spot drifts naturally (never a frozen fake) and a teleport glides smoothly instead of an impossible jump, so your shared location stays believable. Turns on Natural drift + Smooth long jumps together.")
+                }
+
                 adventureSyncSection
 
                 Section {
