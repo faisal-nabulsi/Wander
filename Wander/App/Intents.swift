@@ -1,5 +1,7 @@
 import AppIntents
 import Foundation
+import CoreLocation
+import MapKit
 
 // MARK: - Installed App Entity
 
@@ -259,6 +261,96 @@ struct KillProcessIntent: AppIntent {
     }
 }
 
+// MARK: - Wander: Teleport + Stop spoofing (Shortcuts / Siri)
+
+/// Shared helpers for the Wander location App Intents.
+enum WanderLocationIntent {
+    /// Resolve free text to a coordinate: accepts "lat, lng", an address, or a place name.
+    static func resolveCoordinate(from text: String) async -> CLLocationCoordinate2D? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // "lat, lng" (or "lat lng" / "lat; lng").
+        let nums = trimmed.split(whereSeparator: { ",; ".contains($0) }).compactMap { Double($0) }
+        if nums.count >= 2, (-90...90).contains(nums[0]), (-180...180).contains(nums[1]) {
+            return CLLocationCoordinate2D(latitude: nums[0], longitude: nums[1])
+        }
+        // Geocode the address / place name.
+        if let placemarks = try? await CLGeocoder().geocodeAddressString(trimmed),
+           let loc = placemarks.first?.location {
+            return loc.coordinate
+        }
+        // Fall back to a local search (handles POI names Apple geocoding misses).
+        let req = MKLocalSearch.Request()
+        req.naturalLanguageQuery = trimmed
+        if let resp = try? await MKLocalSearch(request: req).start(),
+           let item = resp.mapItems.first {
+            return item.placemark.coordinate
+        }
+        return nil
+    }
+
+    /// Bring up the tunnel, then simulate the coordinate through the same path the app uses.
+    /// Returns true on success. Requires a pairing file (set up once in Settings).
+    static func teleport(to coord: CLLocationCoordinate2D, name: String) async -> Bool {
+        await ensureTunnel()
+        let path = PairingFileStore.prepareURL().path
+        guard FileManager.default.fileExists(atPath: path) else { return false }
+        let code: Int32 = await withCheckedContinuation { cont in
+            LocationSimulationCommandQueue.shared.async {
+                let c = simulate_location(DeviceConnectionContext.targetIPAddress, coord.latitude, coord.longitude, path)
+                cont.resume(returning: c)
+            }
+        }
+        guard code == 0 else { return false }
+        await MainActor.run {
+            SimulationSession.shared.started()
+            SavedPlacesStore.recordRecent(coord, name: name)
+            BackgroundLocationManager.shared.requestStart()
+            LogManager.shared.addInfoLog(String(format: "Teleported via Shortcut to %.5f, %.5f", coord.latitude, coord.longitude))
+        }
+        return true
+    }
+}
+
+struct TeleportIntent: AppIntent {
+    static var title: LocalizedStringResource = "Teleport to Place"
+    static var description = IntentDescription(
+        "Sets your simulated GPS location to an address, place name, or coordinates.",
+        categoryName: "Wander")
+    static var openAppWhenRun: Bool = true
+
+    @Parameter(title: "Place",
+               description: "An address, a place name, or \"lat, lng\" coordinates",
+               requestValueDialog: "Where do you want to teleport?")
+    var place: String
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Teleport to \(\.$place)")
+    }
+
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        guard let coord = await WanderLocationIntent.resolveCoordinate(from: place) else {
+            return .result(value: "Couldn't find “\(place)”. Try a full address or \"lat, lng\".")
+        }
+        let ok = await WanderLocationIntent.teleport(to: coord, name: place)
+        return .result(value: ok
+            ? "Teleported to \(place)."
+            : "Couldn't teleport — make sure your device is connected and a pairing file is imported (Settings).")
+    }
+}
+
+struct StopSpoofingIntent: AppIntent {
+    static var title: LocalizedStringResource = "Stop Location Spoofing"
+    static var description = IntentDescription(
+        "Reverts to your real GPS location.", categoryName: "Wander")
+    static var openAppWhenRun: Bool = false
+
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        await ensureTunnel()
+        await MainActor.run { SimulationSession.shared.stopAll() }
+        return .result(value: "Stopped — real GPS restored.")
+    }
+}
+
 // MARK: - Shortcuts Provider
 
 struct StikDebugShortcuts: AppShortcutsProvider {
@@ -290,6 +382,30 @@ struct StikDebugShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Kill Process",
             systemImageName: "xmark.circle.fill"
+        )
+        AppShortcut(
+            intent: TeleportIntent(),
+            phrases: [
+                "Teleport with \(.applicationName)",
+                "Teleport to \(\.$place) with \(.applicationName)",
+                "\(.applicationName) teleport to \(\.$place)",
+                "Set my location with \(.applicationName)",
+                "Change my location with \(.applicationName)",
+                "Fake my location with \(.applicationName)"
+            ],
+            shortTitle: "Teleport",
+            systemImageName: "location.fill"
+        )
+        AppShortcut(
+            intent: StopSpoofingIntent(),
+            phrases: [
+                "Stop spoofing with \(.applicationName)",
+                "Stop faking my location with \(.applicationName)",
+                "Revert my location with \(.applicationName)",
+                "\(.applicationName) stop spoofing"
+            ],
+            shortTitle: "Stop Spoofing",
+            systemImageName: "stop.circle.fill"
         )
     }
 }
