@@ -386,9 +386,10 @@ struct StikDebugShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: TeleportIntent(),
             phrases: [
+                // NOTE: App Shortcut phrases can only interpolate AppEntity/AppEnum params, not the
+                // free-text String `place` — so the destination is asked via requestValueDialog.
                 "Teleport with \(.applicationName)",
-                "Teleport to \(\.$place) with \(.applicationName)",
-                "\(.applicationName) teleport to \(\.$place)",
+                "\(.applicationName) teleport",
                 "Set my location with \(.applicationName)",
                 "Change my location with \(.applicationName)",
                 "Fake my location with \(.applicationName)"

@@ -1,6 +1,6 @@
 {
-  "build": 58,
+  "build": 60,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Games now has spots for every game: Monster Hunter Now, Pikmin Bloom and Ingress get a shared 'popular play areas' list + game-specific extras + a link to each game's live community tool."
+  "notes": "Siri & Shortcuts: say 'teleport with Wander' (it asks where) or 'stop spoofing with Wander' to automate teleports hands-free — plus build your own Shortcuts for teleport + stop."
 }

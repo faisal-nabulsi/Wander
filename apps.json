@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "58",
+      "buildVersion": "60",
       "versionDate": "2026-07-16",
-      "versionDescription": "Games now has spots for every game: Monster Hunter Now, Pikmin Bloom and Ingress get a shared 'popular play areas' list + game-specific extras + a link to each game's live community tool.",
+      "versionDescription": "Siri & Shortcuts: say 'teleport with Wander' (it asks where) or 'stop spoofing with Wander' to automate teleports hands-free — plus build your own Shortcuts for teleport + stop.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16902003,
+      "size": 16922539,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "58",
+          "buildVersion": "60",
           "date": "2026-07-16",
-          "localizedDescription": "Games now has spots for every game: Monster Hunter Now, Pikmin Bloom and Ingress get a shared 'popular play areas' list + game-specific extras + a link to each game's live community tool.",
+          "localizedDescription": "Siri & Shortcuts: say 'teleport with Wander' (it asks where) or 'stop spoofing with Wander' to automate teleports hands-free — plus build your own Shortcuts for teleport + stop.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16902003,
+          "size": 16922539,
           "minOSVersion": "17.0"
         }
       ],
