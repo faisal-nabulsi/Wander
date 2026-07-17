@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "60",
+      "buildVersion": "61",
       "versionDate": "2026-07-16",
-      "versionDescription": "Siri & Shortcuts: say 'teleport with Wander' (it asks where) or 'stop spoofing with Wander' to automate teleports hands-free — plus build your own Shortcuts for teleport + stop.",
+      "versionDescription": "Fixes the update banner asking for a 2-factor code with nowhere to enter it.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16922539,
+      "size": 16935536,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "60",
+          "buildVersion": "61",
           "date": "2026-07-16",
-          "localizedDescription": "Siri & Shortcuts: say 'teleport with Wander' (it asks where) or 'stop spoofing with Wander' to automate teleports hands-free — plus build your own Shortcuts for teleport + stop.",
+          "localizedDescription": "Fixes the update banner asking for a 2-factor code with nowhere to enter it.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16922539,
+          "size": 16935536,
           "minOSVersion": "17.0"
         }
       ],

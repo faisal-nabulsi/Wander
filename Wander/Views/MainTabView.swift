@@ -68,6 +68,11 @@ struct MainTabView: View {
     @State private var didRunSetupCheck = false
 
     @ObservedObject private var gate = RemoteGate.shared
+    // Apple-ID account singleton — observed so the OTA re-sign's 2FA prompt can surface from the
+    // update banner and launch-time auto-install (not just from Settings/login). Without this,
+    // tapping "Update ready" asks Apple for a 2FA code with nowhere on screen to enter it.
+    @ObservedObject private var wanderAccount = WanderAccount.shared
+    @State private var twoFactorCode = ""
     @ObservedObject private var license = License.shared
     @ObservedObject private var session = SimulationSession.shared
     @ObservedObject private var updater = WanderUpdater.shared
@@ -195,6 +200,25 @@ struct MainTabView: View {
                 }
             } message: {
                 Text(localized: "tip.cellular.body", fallback: "On cellular your real area can still leak — even with a VPN. For the most believable spoof, connect to Wi-Fi or turn on Airplane Mode.")
+            }
+            // Apple-ID 2FA prompt for the OTA re-sign. The update banner and launch-time
+            // auto-install kick the re-sign from HERE (not Settings), so without this alert the
+            // code Apple sends has nowhere to go and the update stalls. Settings and the login
+            // view carry their own copy for their own flows; the flag is transient (cleared on
+            // submit/cancel) so these never fight to present.
+            .alert("Two-Factor Code", isPresented: $wanderAccount.awaiting2FA) {
+                TextField("6-digit code", text: $twoFactorCode)
+                    .keyboardType(.numberPad)
+                Button("Submit") {
+                    wanderAccount.submitTwoFactorCode(twoFactorCode.trimmingCharacters(in: .whitespaces))
+                    twoFactorCode = ""
+                }
+                Button("Cancel", role: .cancel) {
+                    wanderAccount.submitTwoFactorCode(nil)
+                    twoFactorCode = ""
+                }
+            } message: {
+                Text("Enter the 6-digit code Apple sent to your trusted device. No popup? Get it from Settings → your name → Sign-In & Security → Get Verification Code.")
             }
         }
     }
