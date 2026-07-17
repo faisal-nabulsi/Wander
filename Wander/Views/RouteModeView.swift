@@ -25,6 +25,8 @@ private struct RouteOption: Identifiable {
     let expectedTime: TimeInterval   // seconds; 0 when unknown (great-circle / re-paced modes)
     let distanceMeters: Double
     let label: String                // e.g. "I-80 W" (Apple) or "via US-101" (Google) — may be ""
+    /// Transit only: the walk / bus / rail legs for this option (empty for drive/walk/cycle).
+    var steps: [WanderDirections.RouteStep] = []
 }
 
 private enum RouteSpeedMode: String, CaseIterable, Identifiable {
@@ -395,6 +397,11 @@ struct RouteModeView: View {
                     Button { showRouteFileImporter = true } label: {
                         Label(L("route.import_file", fallback: "Import file"), systemImage: "square.and.arrow.down")
                     }
+                    if waypoints.count >= 2 {
+                        Button { showSaveRouteSheet = true } label: {
+                            Label(L("route.save", fallback: "Save"), systemImage: "bookmark")
+                        }
+                    }
                     Spacer()
                     if !waypoints.isEmpty {
                         Button(role: .destructive) { clearAll() } label: {
@@ -423,6 +430,10 @@ struct RouteModeView: View {
                 if routeAlternatives.count > 1 {
                     routeOptionsPicker
                 }
+
+                routeSummaryLine
+
+                transitBreakdown
 
                 // The realistic/speed-limit/manual pacing picker only applies to the
                 // road-following DRIVE/WALK modes. The other modes run at their own cruise
@@ -788,6 +799,133 @@ struct RouteModeView: View {
         return coords
     }
 
+    /// Prominent "how long + how far" line, shown as soon as a route is previewed — for every mode
+    /// with a known time/distance (drive & walk from Apple's ETA, transit from Google's). Before,
+    /// the time only appeared inside the Realistic-mode hint, so Speed-limit / Manual users only saw
+    /// it once the drive actually started.
+    @ViewBuilder private var routeSummaryLine: some View {
+        let v = routeSummaryValues()
+        if v.eta > 0 || v.dist > 0 {
+            HStack(spacing: 16) {
+                if v.eta > 0 { Label(etaText(v.eta), systemImage: "clock.fill") }
+                if v.dist > 0 { Label(distanceText(v.dist), systemImage: "arrow.triangle.turn.up.right.diamond.fill") }
+                Spacer(minLength: 0)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Wander.brand)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// ETA + distance for the summary line: the selected alternative's numbers, or — for a single
+    /// concatenated route (multi-stop trips that don't produce alternatives) — the route ETA and the
+    /// measured path length.
+    private func routeSummaryValues() -> (eta: TimeInterval, dist: Double) {
+        if routeAlternatives.indices.contains(selectedRouteIndex) {
+            return (routeAlternatives[selectedRouteIndex].expectedTime,
+                    routeAlternatives[selectedRouteIndex].distanceMeters)
+        } else if routeCoordinates.count > 1 {
+            return (routeExpectedTime, pathDistanceMeters(routeCoordinates))
+        }
+        return (0, 0)
+    }
+
+    private func etaText(_ seconds: TimeInterval) -> String {
+        let mins = max(1, Int((seconds / 60).rounded()))
+        return mins < 60 ? "\(mins) min" : "\(mins / 60) h \(mins % 60) min"
+    }
+
+    private func distanceText(_ meters: Double) -> String {
+        if useMph {
+            let mi = meters / 1609.34
+            return mi < 0.1 ? "\(Int(meters * 3.28084)) ft" : String(format: "%.1f mi", mi)
+        }
+        return meters >= 1000 ? String(format: "%.1f km", meters / 1000) : "\(Int(meters)) m"
+    }
+
+    private func pathDistanceMeters(_ coords: [CLLocationCoordinate2D]) -> Double {
+        guard coords.count > 1 else { return 0 }
+        var total = 0.0
+        for i in 1..<coords.count {
+            total += CLLocation(latitude: coords[i - 1].latitude, longitude: coords[i - 1].longitude)
+                .distance(from: CLLocation(latitude: coords[i].latitude, longitude: coords[i].longitude))
+        }
+        return total
+    }
+
+    /// Transit journey breakdown — one row per leg (walk / bus / train / ferry …) with its mode
+    /// icon, the line, and the time. Shown only for a transit route that returned steps, and
+    /// reflects the currently-selected alternative so it matches the highlighted line on the map.
+    @ViewBuilder private var transitBreakdown: some View {
+        let steps = routeAlternatives.indices.contains(selectedRouteIndex)
+            ? routeAlternatives[selectedRouteIndex].steps : []
+        if !steps.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L("route.journey", fallback: "Journey"))
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                ForEach(steps) { step in
+                    HStack(spacing: 10) {
+                        Image(systemName: transitIcon(step))
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(step.mode == "WALK" ? Color.secondary : Wander.brand)
+                            .frame(width: 22)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(transitTitle(step)).font(.footnote.weight(.medium))
+                            let sub = transitSubtitle(step)
+                            if !sub.isEmpty {
+                                Text(sub).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                        }
+                        Spacer(minLength: 4)
+                        if step.durationSeconds > 0 {
+                            Text("\(max(1, Int((step.durationSeconds / 60).rounded()))) min")
+                                .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func transitIcon(_ s: WanderDirections.RouteStep) -> String {
+        if s.mode == "WALK" { return "figure.walk" }
+        switch s.vehicle.uppercased() {
+        case "BUS", "INTERCITY_BUS", "TROLLEYBUS": return "bus.fill"
+        case "FERRY": return "ferry.fill"
+        default: return "tram.fill"   // subway / metro / heavy-rail / tram / light-rail / …
+        }
+    }
+
+    private func transitTitle(_ s: WanderDirections.RouteStep) -> String {
+        if s.mode == "WALK" { return L("route.walk", fallback: "Walk") }
+        let kind: String
+        switch s.vehicle.uppercased() {
+        case "BUS", "INTERCITY_BUS", "TROLLEYBUS": kind = "Bus"
+        case "SUBWAY", "METRO_RAIL": kind = "Subway"
+        case "HEAVY_RAIL", "RAIL", "COMMUTER_TRAIN", "HIGH_SPEED_TRAIN", "LONG_DISTANCE_TRAIN": kind = "Train"
+        case "TRAM", "LIGHT_RAIL": kind = "Tram"
+        case "FERRY": kind = "Ferry"
+        case "CABLE_CAR", "GONDOLA_LIFT": kind = "Cable car"
+        case "MONORAIL": kind = "Monorail"
+        default: kind = s.vehicle.isEmpty ? "Transit" : s.vehicle.capitalized
+        }
+        return s.line.isEmpty ? kind : "\(kind) \(s.line)"
+    }
+
+    private func transitSubtitle(_ s: WanderDirections.RouteStep) -> String {
+        if s.mode == "WALK" {
+            guard s.distanceMeters > 0 else { return "" }
+            return s.distanceMeters >= 1000
+                ? String(format: "%.1f km", s.distanceMeters / 1000)
+                : "\(Int(s.distanceMeters)) m"
+        }
+        if !s.headsign.isEmpty { return "toward \(s.headsign)" }
+        if !s.from.isEmpty && !s.to.isEmpty { return "\(s.from) → \(s.to)" }
+        if s.stops > 0 { return "\(s.stops) stop\(s.stops == 1 ? "" : "s")" }
+        return ""
+    }
+
     private func computeRoute() async {
         guard waypoints.count >= 2 else { return }
         isComputing = true
@@ -854,7 +992,8 @@ struct RouteModeView: View {
                     .map { RouteOption(coordinates: $0.points,
                                        expectedTime: $0.durationSeconds,
                                        distanceMeters: $0.distanceMeters,
-                                       label: $0.summary) }
+                                       label: $0.summary,
+                                       steps: $0.steps) }
                 if opts.isEmpty {
                     routeCoordinates = []; routeAlternatives = []; routeNotice = "No route available for this trip."
                 } else {

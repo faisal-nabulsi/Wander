@@ -15,11 +15,27 @@ import CoreLocation
 enum WanderDirections {
     private static let baseURL = "https://wander-payments.wanderlocation.workers.dev"
 
+    /// One leg of a transit journey: a walking segment or a ride on a named line. Populated only for
+    /// `mode: "transit"` (empty for drive/walk/cycle), so the app can show "walk → bus 51B → BART".
+    struct RouteStep: Identifiable {
+        let id = UUID()
+        let mode: String          // "WALK" | "TRANSIT"
+        let durationSeconds: Double
+        let distanceMeters: Double
+        let line: String          // e.g. "51B", "Richmond" (transit steps only)
+        let vehicle: String       // "BUS" | "SUBWAY" | "HEAVY_RAIL" | "TRAM" | "RAIL" | "FERRY" | …
+        let headsign: String      // where the vehicle is headed
+        let from: String          // boarding stop name
+        let to: String            // alighting stop name
+        let stops: Int
+    }
+
     struct Route {
         let summary: String
         let distanceMeters: Double
         let durationSeconds: Double
         let points: [CLLocationCoordinate2D]
+        let steps: [RouteStep]    // transit breakdown; empty for other modes
     }
 
     enum Outcome {
@@ -83,10 +99,22 @@ enum WanderDirections {
                     let pts = (r["points"] as? [[Double]] ?? []).compactMap { p -> CLLocationCoordinate2D? in
                         p.count == 2 ? CLLocationCoordinate2D(latitude: p[0], longitude: p[1]) : nil
                     }
+                    let steps: [RouteStep] = (r["steps"] as? [[String: Any]] ?? []).map { s in
+                        RouteStep(mode: s["mode"] as? String ?? "WALK",
+                                  durationSeconds: (s["durationSeconds"] as? NSNumber)?.doubleValue ?? 0,
+                                  distanceMeters: (s["distanceMeters"] as? NSNumber)?.doubleValue ?? 0,
+                                  line: s["line"] as? String ?? "",
+                                  vehicle: s["vehicle"] as? String ?? "",
+                                  headsign: s["headsign"] as? String ?? "",
+                                  from: s["from"] as? String ?? "",
+                                  to: s["to"] as? String ?? "",
+                                  stops: (s["stops"] as? NSNumber)?.intValue ?? 0)
+                    }
                     return Route(summary: r["summary"] as? String ?? "",
                                  distanceMeters: (r["distanceMeters"] as? NSNumber)?.doubleValue ?? 0,
                                  durationSeconds: (r["durationSeconds"] as? NSNumber)?.doubleValue ?? 0,
-                                 points: pts)
+                                 points: pts,
+                                 steps: steps)
                 }
                 return (.success(routes), status)
             }

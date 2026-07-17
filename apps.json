@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "64",
+      "buildVersion": "66",
       "versionDate": "2026-07-17",
-      "versionDescription": "Route: the drop-a-point crosshair now sits above the controls card, so it's never hidden even with a full waypoint list.",
+      "versionDescription": "Route: Preview now shows the ETA and distance up front (all speed modes), not just once you start. Save a built route with the new Save button. Plus transit routes show the walk/bus/subway/BART journey breakdown.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16973113,
+      "size": 17000762,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "64",
+          "buildVersion": "66",
           "date": "2026-07-17",
-          "localizedDescription": "Route: the drop-a-point crosshair now sits above the controls card, so it's never hidden even with a full waypoint list.",
+          "localizedDescription": "Route: Preview now shows the ETA and distance up front (all speed modes), not just once you start. Save a built route with the new Save button. Plus transit routes show the walk/bus/subway/BART journey breakdown.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16973113,
+          "size": 17000762,
           "minOSVersion": "17.0"
         }
       ],
