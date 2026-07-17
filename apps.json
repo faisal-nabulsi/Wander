@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "62",
-      "versionDate": "2026-07-16",
-      "versionDescription": "Account: log out & delete account in More → Account. Clearer Sign in vs Create account.",
+      "buildVersion": "63",
+      "versionDate": "2026-07-17",
+      "versionDescription": "Route: much more map visible + Preview/Drive buttons now readable in dark mode. Offline: browsing the map now caches tiles, so airplane mode still shows the map instead of going dark.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16967011,
+      "size": 16970736,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "62",
-          "date": "2026-07-16",
-          "localizedDescription": "Account: log out & delete account in More → Account. Clearer Sign in vs Create account.",
+          "buildVersion": "63",
+          "date": "2026-07-17",
+          "localizedDescription": "Route: much more map visible + Preview/Drive buttons now readable in dark mode. Offline: browsing the map now caches tiles, so airplane mode still shows the map instead of going dark.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16967011,
+          "size": 16970736,
           "minOSVersion": "17.0"
         }
       ],

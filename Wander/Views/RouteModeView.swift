@@ -530,15 +530,31 @@ struct RouteModeView: View {
                 .tint(Wander.brand)
 
                 HStack(spacing: 10) {
-                    Button { Task { await computeRoute() } } label: {
+                    Button {
+                        // Guard in the ACTION rather than via .disabled — a disabled bordered button
+                        // renders a muted grey label that's invisible on the dark card in dark mode,
+                        // so the boxes looked blank and users couldn't tell what they were.
+                        if waypoints.count < 2 {
+                            alertText = L("route.need_two_points", fallback: "Add at least 2 points to preview a route.")
+                            return
+                        }
+                        Task { await computeRoute() }
+                    } label: {
                         Label(L("route.preview", fallback: "Preview"), systemImage: "point.topleft.down.to.point.bottomright.curvepath")
                             .frame(maxWidth: .infinity).frame(height: 30)
                     }
                     .buttonStyle(.bordered)
+                    .tint(Wander.brand)
                     .controlSize(.large)
-                    .disabled(waypoints.count < 2 || isComputing)
+                    .disabled(isComputing)
 
-                    Button { Task { await startDrive() } } label: {
+                    Button {
+                        if routeCoordinates.count < 2 {
+                            alertText = L("route.preview_first", fallback: "Tap Preview first to build the route, then Drive.")
+                            return
+                        }
+                        Task { await startDrive() }
+                    } label: {
                         Label(L("route.drive", fallback: "Drive"), systemImage: Wander.Icon.play)
                             .font(.headline)
                             .frame(maxWidth: .infinity).frame(height: 30)
@@ -546,7 +562,7 @@ struct RouteModeView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(Wander.brand)
                     .controlSize(.large)
-                    .disabled(routeCoordinates.count < 2 || isComputing)
+                    .disabled(isComputing)
                 }
             } else {
                 HStack {
@@ -582,7 +598,7 @@ struct RouteModeView: View {
                 }
             }
         }
-        .hugScrollCard(maxHeight: UIScreen.main.bounds.height * 0.55)
+        .hugScrollCard(maxHeight: UIScreen.main.bounds.height * 0.44)
         }
     }
 

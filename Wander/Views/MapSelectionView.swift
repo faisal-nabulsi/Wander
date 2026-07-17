@@ -839,6 +839,11 @@ struct LocationSimulationView: View {
     @AppStorage("smoothLongJumps") private var smoothLongJumps = false
     @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var visibleCenter: CLLocationCoordinate2D?
+    // Debounced background task that warms the offline CARTO tile cache for wherever the user is
+    // browsing on the (online, Apple) map — so flipping to airplane mode still shows a map instead
+    // of a black screen. The online map is Apple's and doesn't fill the CARTO cache, which is why
+    // "browse then airplane mode" went dark.
+    @State private var tilePrefetchTask: Task<Void, Never>?
     @StateObject private var currentLocation = CurrentLocation()
     @StateObject private var locationInfo = LocationInfoService()
     @ObservedObject private var reachability = NetworkReachability.shared
@@ -1056,6 +1061,26 @@ struct LocationSimulationView: View {
             }
             .onMapCameraChange(frequency: .continuous) { context in
                 visibleCenter = context.region.center
+                // Warm the offline cache for the area being viewed. Debounced (wait for the camera to
+                // settle), online-only, and only when zoomed to neighbourhood/city level so a wide
+                // view can't queue thousands of tiles. Skips already-cached tiles, so it's cheap.
+                let region = context.region
+                tilePrefetchTask?.cancel()
+                tilePrefetchTask = Task {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    if Task.isCancelled { return }
+                    guard await MainActor.run(body: { NetworkReachability.shared.isOnline }) else { return }
+                    let span = region.span.longitudeDelta
+                    guard span > 0, span < 0.12 else { return }
+                    let z = max(11, min(OfflineTileStore.maxZoomCap, Int((log2(540.0 / span)).rounded())))
+                    try? await OfflineTileStore.shared.downloadRegion(
+                        name: "Recently viewed (auto)",
+                        region: region,
+                        minZoom: z,
+                        maxZoom: min(OfflineTileStore.maxZoomCap, z + 1),
+                        progress: { _, _ in }
+                    )
+                }
             }
         }
     }
