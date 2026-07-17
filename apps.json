@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "61",
+      "buildVersion": "62",
       "versionDate": "2026-07-16",
-      "versionDescription": "Fixes the update banner asking for a 2-factor code with nowhere to enter it.",
+      "versionDescription": "Account: log out & delete account in More → Account. Clearer Sign in vs Create account.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16935536,
+      "size": 16967011,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "61",
+          "buildVersion": "62",
           "date": "2026-07-16",
-          "localizedDescription": "Fixes the update banner asking for a 2-factor code with nowhere to enter it.",
+          "localizedDescription": "Account: log out & delete account in More → Account. Clearer Sign in vs Create account.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16935536,
+          "size": 16967011,
           "minOSVersion": "17.0"
         }
       ],

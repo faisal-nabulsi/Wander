@@ -1,6 +1,6 @@
 {
-  "build": 61,
+  "build": 62,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Fixes the update banner asking for a 2-factor code with nowhere to enter it."
+  "notes": "Account: log out & delete account in More → Account. Clearer Sign in vs Create account."
 }

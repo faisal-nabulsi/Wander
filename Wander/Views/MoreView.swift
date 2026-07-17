@@ -19,6 +19,9 @@ struct MoreView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    row(.account)
+                }
                 Section(L("more.section.spots", fallback: "Spots & planning")) {
                     row(.places)
                     row(.schedule)
@@ -65,12 +68,13 @@ struct MoreView: View {
 
 /// The secondary screens reachable from More, presented as sheets.
 private enum MoreRoute: String, Identifiable {
-    case places, schedule, itinerary, geofences, offlineMaps, backup, tools,
+    case account, places, schedule, itinerary, geofences, offlineMaps, backup, tools,
          adventureSync, matchIP, whatsNew, community, settings
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .account:       return L("more.account", fallback: "Account")
         case .places:        return L("tab.places", fallback: "Places")
         case .schedule:      return L("tab.schedule", fallback: "Schedule")
         case .itinerary:     return L("tab.itinerary", fallback: "Itinerary")
@@ -88,6 +92,7 @@ private enum MoreRoute: String, Identifiable {
 
     var subtitle: String {
         switch self {
+        case .account:       return "Sign in, create an account, log out or delete"
         case .places:        return "Saved & recent spots"
         case .schedule:      return "Be at a place during set hours"
         case .itinerary:     return "Timed schedule of stops (Pro)"
@@ -105,6 +110,7 @@ private enum MoreRoute: String, Identifiable {
 
     var icon: String {
         switch self {
+        case .account:       return "person.crop.circle"
         case .places:        return "star.fill"
         case .schedule:      return "calendar.badge.clock"
         case .itinerary:     return "calendar.day.timeline.left"
@@ -122,6 +128,7 @@ private enum MoreRoute: String, Identifiable {
 
     @ViewBuilder var destination: some View {
         switch self {
+        case .account:       AccountView()
         case .places:        PlacesView()
         case .schedule:      ScheduleView()
         case .itinerary:     ItineraryQueueView()
@@ -134,6 +141,85 @@ private enum MoreRoute: String, Identifiable {
         case .whatsNew:      WhatsNewView()
         case .community:     CommunityView()
         case .settings:      SettingsView()
+        }
+    }
+}
+
+/// Account hub reachable from More → Account. Signed-out: a clear entry to sign in / create an
+/// account. Signed-in: who you're signed in as, plus Log out and Delete account (server-side wipe
+/// via the Worker /account/delete). Account management lives here — its one obvious home — instead
+/// of being buried in Settings.
+struct AccountView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var account = WanderProAccount.shared
+    @State private var showSignIn = false
+    @State private var showDeleteConfirm = false
+    @State private var isDeleting = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if account.isSignedIn {
+                    Section {
+                        Label(account.email ?? "Signed in", systemImage: "person.crop.circle.fill")
+                        if account.isPro {
+                            Label("Wander Pro", systemImage: "checkmark.seal.fill")
+                                .foregroundStyle(.green)
+                        }
+                    } header: {
+                        Text("Signed in")
+                    }
+
+                    Section {
+                        Button {
+                            account.signOut()
+                        } label: {
+                            Label("Log out", systemImage: "rectangle.portrait.and.arrow.right")
+                        }
+                        Button(role: .destructive) {
+                            showDeleteConfirm = true
+                        } label: {
+                            Label("Delete account", systemImage: "trash")
+                        }
+                        .disabled(isDeleting)
+                    } footer: {
+                        Text("Deleting removes your account and all its data (saved places, sync, Pro link) and can't be undone.")
+                    }
+                } else {
+                    Section {
+                        Button {
+                            showSignIn = true
+                        } label: {
+                            Label("Sign in or create account", systemImage: "person.badge.key")
+                        }
+                        .tint(Wander.brand)
+                    } footer: {
+                        Text("A free Wander account saves your places, syncs across your devices, and unlocks Pro if you've already bought it.")
+                    }
+                }
+            }
+            .navigationTitle("Account")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .sheet(isPresented: $showSignIn) {
+                WanderAccountSignInView()
+            }
+            .alert("Delete account?", isPresented: $showDeleteConfirm) {
+                Button("Delete account", role: .destructive) {
+                    isDeleting = true
+                    Task {
+                        await account.deleteAccount()
+                        isDeleting = false
+                    }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This permanently deletes your Wander account and everything tied to it — saved places, sync, and your Pro link. It can't be undone.\n\nIf you pay for a subscription, deleting your account does NOT cancel billing — cancel it first at wanderspoofer.com.")
+            }
         }
     }
 }

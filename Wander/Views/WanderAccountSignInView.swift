@@ -37,9 +37,40 @@ struct WanderAccountSignInView: View {
     @State private var showMfaPrompt = false
     @State private var mfaCode = ""
 
+    /// Sign-in vs create-account is an explicit MODE the user picks, so the sheet never reads as
+    /// "just sign in" — the segmented control, the primary button, and the title all follow it.
+    enum AuthMode: String, CaseIterable, Identifiable {
+        case signIn = "Sign in"
+        case createAccount = "Create account"
+        var id: String { rawValue }
+    }
+    @State private var mode: AuthMode = .signIn
+
+    private var primaryButtonTitle: String {
+        switch (mode, busy) {
+        case (.signIn, true): return "Signing in…"
+        case (.signIn, false): return "Sign in"
+        case (.createAccount, true): return "Creating account…"
+        case (.createAccount, false): return "Create account"
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Picker("Mode", selection: $mode) {
+                        ForEach(AuthMode.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .disabled(busy)
+                } footer: {
+                    Text(mode == .createAccount
+                         ? "New to Wander? Create a free account to save places, sync across your devices, and unlock Pro if you've already bought it."
+                         : "Already have an account? Sign in to unlock Pro and sync.")
+                }
+
                 Section {
                     TextField("Email", text: $email)
                         .keyboardType(.emailAddress)
@@ -50,19 +81,21 @@ struct WanderAccountSignInView: View {
                     SecureField("Password", text: $password)
                         .textContentType(.password)
 
-                    Button("Forgot password?") {
-                        let typed = email.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if typed.isEmpty {
-                            // No email typed yet — ask for one via an alert prompt.
-                            resetEmail = ""
-                            showResetPrompt = true
-                        } else {
-                            sendReset(to: typed)
+                    if mode == .signIn {
+                        Button("Forgot password?") {
+                            let typed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if typed.isEmpty {
+                                // No email typed yet — ask for one via an alert prompt.
+                                resetEmail = ""
+                                showResetPrompt = true
+                            } else {
+                                sendReset(to: typed)
+                            }
                         }
+                        .font(.footnote)
+                        .tint(Wander.brand)
+                        .disabled(busy)
                     }
-                    .font(.footnote)
-                    .tint(Wander.brand)
-                    .disabled(busy)
                 } header: {
                     Text("Wander account")
                 } footer: {
@@ -74,27 +107,24 @@ struct WanderAccountSignInView: View {
 
                 Section {
                     Button {
-                        submit { await account.signIn(email: email, password: password) }
+                        if mode == .signIn {
+                            submit { await account.signIn(email: email, password: password) }
+                        } else {
+                            submit { await account.signUp(email: email, password: password) }
+                        }
                     } label: {
                         HStack {
                             Spacer()
                             if busy { ProgressView().controlSize(.small) }
-                            Text(busy ? "Signing in…" : "Sign in").fontWeight(.semibold)
+                            Text(primaryButtonTitle).fontWeight(.semibold)
                             Spacer()
                         }
                     }
                     .disabled(busy || email.isEmpty || password.isEmpty)
-
-                    Button {
-                        submit { await account.signUp(email: email, password: password) }
-                    } label: {
-                        HStack {
-                            Spacer()
-                            Text("Create account")
-                            Spacer()
-                        }
+                } footer: {
+                    if mode == .createAccount {
+                        Text("By creating an account you agree to our Terms. Manage or delete your account anytime in More → Account.")
                     }
-                    .disabled(busy || email.isEmpty || password.isEmpty)
                 }
                 .tint(Wander.brand)
 
@@ -147,7 +177,7 @@ struct WanderAccountSignInView: View {
                         .listRowBackground(Color.clear)
                 }
             }
-            .navigationTitle("Sign in")
+            .navigationTitle(mode.rawValue)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

@@ -812,6 +812,53 @@ final class WanderProAccount: ObservableObject {
         setPro(false)
     }
 
+    // MARK: - Delete account (self-service erasure)
+
+    /// Permanently delete this Wander account. Calls the Worker's admin-privileged
+    /// `/account/delete`, which verifies the Firebase ID token, wipes the user's Firestore data
+    /// (license, trial, AI usage, saved places) and deletes the Firebase Auth user — then clears all
+    /// local session state (same as sign-out). Returns true once the server confirms the deletion.
+    /// NOTE: this does NOT cancel an active paid subscription — the confirm dialog tells the user to
+    /// cancel billing separately.
+    @discardableResult
+    func deleteAccount() async -> Bool {
+        guard let token = await currentIdToken() else {
+            status = "❌ Please sign in again, then try deleting."
+            return false
+        }
+        status = "Deleting your account…"
+        var outcome = await postWorker(path: "/account/delete", body: ["idToken": token])
+        // The short-lived idToken can expire mid-flight → mint a fresh one and retry once, exactly
+        // like WanderDeviceActivation / WanderAIRoutine do for the other /account Worker calls.
+        if outcome.status == 401, let fresh = await refreshedIdToken() {
+            outcome = await postWorker(path: "/account/delete", body: ["idToken": fresh])
+        }
+        guard let obj = outcome.json, (obj["ok"] as? Bool) == true else {
+            status = "❌ Couldn't delete the account. Check your connection and try again."
+            return false
+        }
+        signOut()                       // server account is gone → wipe the local session too
+        status = "Your account was deleted."
+        return true
+    }
+
+    /// Minimal authenticated POST to Wander's Worker (idToken travels in the JSON body, matching the
+    /// existing `/account/*` contract used by WanderDeviceActivation).
+    private static let workerBaseURL = "https://wander-payments.wanderlocation.workers.dev"
+    private func postWorker(path: String, body: [String: Any]) async -> (json: [String: Any]?, status: Int) {
+        guard let url = URL(string: "\(Self.workerBaseURL)\(path)"),
+              let httpBody = try? JSONSerialization.data(withJSONObject: body) else { return (nil, -1) }
+        var req = URLRequest(url: url, timeoutInterval: 20)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = httpBody
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse else { return (nil, -1) }
+            return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any], http.statusCode)
+        } catch { return (nil, -1) }
+    }
+
     // MARK: - Restore on launch
 
     /// Load the cached session + Pro flag from the Keychain (synchronous, offline), then — if a
