@@ -154,6 +154,12 @@ struct RouteModeView: View {
     @State private var showPaywall = false
     @StateObject private var currentLocation = CurrentLocation()
     @State private var visibleCenter: CLLocationCoordinate2D?
+    /// How far UP (as a fraction of screen height) the crosshair + drop-point sit from centre, so the
+    /// bottom controls card never covers the "add a point here" target — even with a full waypoint
+    /// list. The map's `.ignoresSafeArea()` means map height ≈ screen height, so this fraction maps
+    /// 1:1 to the latitude-span shift applied to `visibleCenter` below (keeping the dropped point
+    /// exactly under the crosshair).
+    private let crosshairLift: CGFloat = 0.18
     @State private var currentPosition: CLLocationCoordinate2D?
 
     @State private var speedMode: RouteSpeedMode = .realistic
@@ -315,11 +321,19 @@ struct RouteModeView: View {
             }
         }
         .onMapCameraChange(frequency: .continuous) { context in
-            visibleCenter = context.region.center
+            // The crosshair is lifted up (below) so the bottom controls card can't cover it. The drop
+            // point must follow the crosshair, not the map's geometric centre — so shift the reported
+            // centre NORTH by the same fraction of the visible latitude span.
+            visibleCenter = CLLocationCoordinate2D(
+                latitude: context.region.center.latitude + crosshairLift * context.region.span.latitudeDelta,
+                longitude: context.region.center.longitude)
             visibleRegion = context.region
         }
         .overlay(alignment: .center) {
-            if !isDriving { MapCrosshair() }
+            if !isDriving {
+                MapCrosshair()
+                    .offset(y: -UIScreen.main.bounds.height * crosshairLift)
+            }
         }
         .overlay(alignment: .topTrailing) {
             if isDriving { followButton }

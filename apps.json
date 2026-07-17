@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "63",
+      "buildVersion": "64",
       "versionDate": "2026-07-17",
-      "versionDescription": "Route: much more map visible + Preview/Drive buttons now readable in dark mode. Offline: browsing the map now caches tiles, so airplane mode still shows the map instead of going dark.",
+      "versionDescription": "Route: the drop-a-point crosshair now sits above the controls card, so it's never hidden even with a full waypoint list.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 16970736,
+      "size": 16973113,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "63",
+          "buildVersion": "64",
           "date": "2026-07-17",
-          "localizedDescription": "Route: much more map visible + Preview/Drive buttons now readable in dark mode. Offline: browsing the map now caches tiles, so airplane mode still shows the map instead of going dark.",
+          "localizedDescription": "Route: the drop-a-point crosshair now sits above the controls card, so it's never hidden even with a full waypoint list.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 16970736,
+          "size": 16973113,
           "minOSVersion": "17.0"
         }
       ],
