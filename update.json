@@ -1,6 +1,6 @@
 {
-  "build": 78,
+  "build": 79,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "New: Report a bug. More → Report a bug lets you send a bug or idea (with your app version + device auto-attached) straight to us — no email needed."
+  "notes": "Update installs are more reliable: the updater now retries once on a transient tunnel hiccup, and if it still can't reach your device it tells you exactly what to do (make sure LocalDevVPN is connected, then teleport once to wake the developer image) instead of a raw 'connection reset' error."
 }

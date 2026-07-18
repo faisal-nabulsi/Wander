@@ -111,22 +111,31 @@ final class WanderUpdater: ObservableObject {
         )
 
         status = "Installing update over the tunnel…"
-        do {
-            try await Task.detached(priority: .userInitiated) {
-                try JITEnableContext.shared.stageAndUpgradeAppBundle(atLocalPath: appURL.path, bundleID: bundleID)
-            }.value
-        } catch {
-            // The install talks to the on-device installation service OVER the tunnel. The most
-            // common failure is simply that the tunnel isn't up — which surfaces as a raw
-            // "Connection reset by peer" / socket error. Translate that into something actionable
-            // instead of dumping the raw Rust socket error on the user.
+        // The install talks to the device's developer services OVER the tunnel — which need the DDI
+        // mounted. That only happens after a successful location simulation, so a user who just opened
+        // the app to update (no teleport yet) — OR a momentarily-stale tunnel — gets a raw
+        // "Connection reset by peer". Retry once for a transient reset, then give actionable guidance.
+        var installError: Error?
+        for attempt in 1...2 {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try JITEnableContext.shared.stageAndUpgradeAppBundle(atLocalPath: appURL.path, bundleID: bundleID)
+                }.value
+                installError = nil
+                break
+            } catch {
+                installError = error
+                if attempt < 2 { try? await Task.sleep(nanoseconds: 1_200_000_000) }
+            }
+        }
+        if let error = installError {
             let desc = (error as NSError).localizedDescription.lowercased()
-            let looksLikeTunnelDown = ["connection reset", "socket", "econnreset", "connection refused",
+            let looksLikeConnection = ["connection reset", "socket", "econnreset", "connection refused",
                                        "couldn't connect", "could not connect", "not connect",
                                        "timed out", "broken pipe", "connection closed"]
                 .contains { desc.contains($0) }
-            if looksLikeTunnelDown {
-                throw UpdateError.step("Couldn't reach your iPhone to install — the tunnel isn't connected. On a free install, open the LocalDevVPN app and tap Connect (or connect Wander Tunnel above), then tap Install update again.")
+            if looksLikeConnection {
+                throw UpdateError.step("Couldn't reach your iPhone to install. 1) Make sure LocalDevVPN is connected. 2) Open the map and drop a pin / tap Simulate once — that wakes your device's developer image, which the updater needs. Then tap Install update again.")
             }
             throw error
         }

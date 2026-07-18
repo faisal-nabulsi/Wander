@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "78",
+      "buildVersion": "79",
       "versionDate": "2026-07-18",
-      "versionDescription": "New: Report a bug. More → Report a bug lets you send a bug or idea (with your app version + device auto-attached) straight to us — no email needed.",
+      "versionDescription": "Update installs are more reliable: the updater now retries once on a transient tunnel hiccup, and if it still can't reach your device it tells you exactly what to do (make sure LocalDevVPN is connected, then teleport once to wake the developer image) instead of a raw 'connection reset' error.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17098811,
+      "size": 17108809,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "78",
+          "buildVersion": "79",
           "date": "2026-07-18",
-          "localizedDescription": "New: Report a bug. More → Report a bug lets you send a bug or idea (with your app version + device auto-attached) straight to us — no email needed.",
+          "localizedDescription": "Update installs are more reliable: the updater now retries once on a transient tunnel hiccup, and if it still can't reach your device it tells you exactly what to do (make sure LocalDevVPN is connected, then teleport once to wake the developer image) instead of a raw 'connection reset' error.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17098811,
+          "size": 17108809,
           "minOSVersion": "17.0"
         }
       ],
