@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "69",
+      "buildVersion": "70",
       "versionDate": "2026-07-17",
-      "versionDescription": "New Auto-walk: on the Joystick screen, search a place and Wander walks itself there hands-free at your chosen speed — with the realistic motion from the last update (varied pace, a naturally curving path, the occasional pause). Grab the joystick anytime to take over. Great for hands-free egg hatching and Adventure Sync.",
+      "versionDescription": "Clearer 'Simulation Failed' message: instead of the cryptic 'device connected / DDI mounted' wording, it now points to the real fix — make sure LocalDevVPN is connected, and on cellular (no Wi-Fi) turn Airplane Mode ON, connect LocalDevVPN, then turn Airplane Mode OFF.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17036776,
+      "size": 17030345,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "69",
+          "buildVersion": "70",
           "date": "2026-07-17",
-          "localizedDescription": "New Auto-walk: on the Joystick screen, search a place and Wander walks itself there hands-free at your chosen speed — with the realistic motion from the last update (varied pace, a naturally curving path, the occasional pause). Grab the joystick anytime to take over. Great for hands-free egg hatching and Adventure Sync.",
+          "localizedDescription": "Clearer 'Simulation Failed' message: instead of the cryptic 'device connected / DDI mounted' wording, it now points to the real fix — make sure LocalDevVPN is connected, and on cellular (no Wi-Fi) turn Airplane Mode ON, connect LocalDevVPN, then turn Airplane Mode OFF.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17036776,
+          "size": 17030345,
           "minOSVersion": "17.0"
         }
       ],

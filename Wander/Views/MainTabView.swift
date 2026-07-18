@@ -490,7 +490,7 @@ struct MainTabView: View {
                 } else {
                     showAlert(
                         title: "Location Simulation Failed",
-                        message: "Could not simulate location from URL (error \(code)). Make sure the device is connected and the DDI is mounted.",
+                        message: "Couldn't simulate location from URL (error \(code)). Make sure LocalDevVPN is connected. On cellular with no Wi‑Fi? Turn Airplane Mode ON, connect LocalDevVPN, then turn Airplane Mode OFF — that usually fixes it.",
                         showOk: true
                     )
                 }

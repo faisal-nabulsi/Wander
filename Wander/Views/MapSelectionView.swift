@@ -1732,7 +1732,7 @@ struct LocationSimulationView: View {
         runLocationCommand(
             errorTitle: "Simulation Failed",
             errorMessage: { code in
-                "Could not simulate location (error \(code)). Make sure the device is connected and the DDI is mounted."
+                "Couldn't simulate location (error \(code)). Make sure LocalDevVPN is connected. On cellular with no Wi‑Fi? Turn Airplane Mode ON, connect LocalDevVPN, then turn Airplane Mode OFF — that usually fixes it."
             },
             operation: { locationUpdateCode(for: coord) }
         ) {
@@ -1761,7 +1761,7 @@ struct LocationSimulationView: View {
         runLocationCommand(
             errorTitle: "Simulation Failed",
             errorMessage: { code in
-                "Could not simulate location (error \(code)). Make sure the device is connected and the DDI is mounted."
+                "Couldn't simulate location (error \(code)). Make sure LocalDevVPN is connected. On cellular with no Wi‑Fi? Turn Airplane Mode ON, connect LocalDevVPN, then turn Airplane Mode OFF — that usually fixes it."
             },
             operation: { locationUpdateCode(for: samples[0].coordinate) }
         ) {
@@ -1792,7 +1792,7 @@ struct LocationSimulationView: View {
         runLocationCommand(
             errorTitle: "Route Simulation Failed",
             errorMessage: { code in
-                "Could not start route simulation (error \(code)). Make sure the device is connected and the DDI is mounted."
+                "Couldn't start the route (error \(code)). Make sure LocalDevVPN is connected. On cellular with no Wi‑Fi? Turn Airplane Mode ON, connect LocalDevVPN, then turn Airplane Mode OFF — that usually fixes it."
             },
             operation: { locationUpdateCode(for: firstCoordinate) }
         ) {
