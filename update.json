@@ -1,6 +1,6 @@
 {
-  "build": 67,
+  "build": 68,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Fixes the Apple-ID sign-in crash on 2FA (and the code prompt vanishing for some accounts before you could enter it). And tapping 'Update ready' while not signed into your Apple ID now tells you to sign in, instead of doing nothing."
+  "notes": "New Realistic Motion (on by default): when you move with the joystick or play a route, your pace now varies and your path curves slightly instead of a dead-straight line at a constant speed — the tell-tale sign of a spoofed track. It's the best anti-detection Wander has, and needs no root. Turn it off anytime in Settings → Realism & privacy."
 }

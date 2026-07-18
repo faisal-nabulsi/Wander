@@ -1441,8 +1441,12 @@ struct RouteModeView: View {
                     if Task.isCancelled { break }
                     elapsed += sample.delayFromPrevious
                     // "Hold perfectly still" disables jitter; otherwise honor the jitter toggle.
+                    // With Realistic motion on, use the clustered receiver-error model instead of
+                    // the flat ±box drift so route fixes scatter like a real GPS.
                     let frozen = UserDefaults.standard.bool(forKey: LocationPrivacyKeys.frozenHold)
-                    let outgoing = (!frozen && jitterEnabled) ? LocationJitter.apply(sample.coordinate) : sample.coordinate
+                    let outgoing = (!frozen && jitterEnabled)
+                        ? (MotionRealism.isEnabled ? HumanizedMotion.gpsNoise(sample.coordinate) : LocationJitter.apply(sample.coordinate))
+                        : sample.coordinate
                     send(outgoing)
                     currentPosition = sample.coordinate
                     // Adventure Sync: mirror the SIMULATED movement (true path

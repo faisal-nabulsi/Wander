@@ -33,6 +33,9 @@ struct WalkModeView: View {
     @State private var moveTimer: Timer?
     @State private var showPaywall = false
     @State private var joyFraction: Double = 0
+    // Humanizes the raw stick input: subtle pace variation + a gently-wandering heading so the
+    // walk isn't a ruler-straight line at a dead-constant speed. Steered ⇒ never a full stop.
+    @State private var motion = HumanizedMotion(context: .steered)
 
     @State private var showAlert = false
     @State private var alertTitle = ""
@@ -184,6 +187,7 @@ struct WalkModeView: View {
             return
         }
         isWalking = true
+        motion = HumanizedMotion(context: .steered)   // fresh gait for this run
         SimulationSession.shared.started()
         // Adventure Sync: start a fresh walk window so the first tick isn't measured
         // against a stale coordinate from an earlier run (no-op unless opted in).
@@ -238,18 +242,24 @@ struct WalkModeView: View {
 
         // Screen up (-y) is north; +x is east.
         let bearing = atan2(Double(knobOffset.width), Double(-knobOffset.height))
-        let distance = speedMps * Double(magnitude) * tickInterval
+        // Humanize: vary pace and let the heading wander a touch so the trace curves like a
+        // real walk. Off ⇒ pass-through (dead-straight, dead-constant — the old behaviour).
+        let targetSpeed = speedMps * Double(magnitude)
+        let (spd, heading) = motion.next(targetSpeed: targetSpeed, baseHeading: bearing, dt: tickInterval)
+        let distance = spd * tickInterval
 
         let metersPerDegLat = 111_320.0
-        let dLat = (distance * cos(bearing)) / metersPerDegLat
+        let dLat = (distance * cos(heading)) / metersPerDegLat
         let lonScale = max(cos(coord.latitude * .pi / 180), 0.000001)
-        let dLon = (distance * sin(bearing)) / (metersPerDegLat * lonScale)
+        let dLon = (distance * sin(heading)) / (metersPerDegLat * lonScale)
 
         coord.latitude += dLat
         coord.longitude += dLon
-        coordinate = coord
+        coordinate = coord            // clean humanized path: display + next-tick anchor
         recenter(on: coord)
-        send(coord)
+        // Scatter only the REPORTED fix by a few metres of receiver error, so consecutive
+        // points don't trace a perfect line. Keeps `coord` clean for the map + Health.
+        send(MotionRealism.isEnabled ? HumanizedMotion.gpsNoise(coord) : coord)
         // Adventure Sync: mirror this simulated step into Health (no-op unless opted
         // in). Derived from the ACTUAL per-tick movement, at a human cadence.
         AdventureSyncManager.shared.recordSimulatedMovement(to: coord)

@@ -22,6 +22,7 @@ struct SettingsView: View {
     @AppStorage("keepAliveLocation") private var keepAliveLocation = true
     @AppStorage("reminderEnabled") private var reminderEnabled = false
     @AppStorage("useMph") private var useMph = false
+    @AppStorage(MotionRealism.key) private var realisticMotion = true
     @AppStorage("jitterEnabled") private var jitterEnabled = false
     @AppStorage("jitterRadius") private var jitterRadius = 1.5
     @AppStorage("smoothLongJumps") private var smoothLongJumps = false
@@ -276,6 +277,21 @@ struct SettingsView: View {
                 // REALISM & PRIVACY — the movement-believability toggles, split out of the old
                 // catch-all Location section so they read as one coherent group.
                 Section {
+                    Toggle(isOn: $realisticMotion) {
+                        Label(L("settings.motion.realistic", fallback: "Realistic motion"), systemImage: "figure.walk.motion")
+                    }
+                    if realisticMotion {
+                        Text(localized: "settings.motion.realistic.on.footer",
+                             fallback: "While you're moving (joystick or a route), your pace varies and your path curves slightly instead of a dead-straight line at a constant speed — the tell-tale sign of a spoofed track. Best-in-class anti-detection, no root needed.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text(localized: "settings.motion.realistic.off.footer",
+                             fallback: "Off — movement is perfectly straight and constant-speed. Faster to aim, but easier for apps to flag as simulated.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
                     Toggle(isOn: $jitterEnabled) {
                         Label(L("settings.location.jitter", fallback: "Natural drift"), systemImage: "dot.radiowaves.left.and.right")
                     }
