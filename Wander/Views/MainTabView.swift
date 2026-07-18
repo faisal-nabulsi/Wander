@@ -495,7 +495,7 @@ struct MainTabView: View {
                 } else {
                     showAlert(
                         title: "Location Simulation Failed",
-                        message: "Couldn't simulate location from URL (error \(code)). Make sure LocalDevVPN is connected. On cellular with no Wi‑Fi? Turn Airplane Mode ON, connect LocalDevVPN, then turn Airplane Mode OFF — that usually fixes it.",
+                        message: "Couldn't simulate location from URL (error \(code)). Make sure LocalDevVPN is connected and Developer Mode is ON (Settings → Privacy & Security → Developer Mode). On cellular with no Wi‑Fi? Connect LocalDevVPN first, then turn Airplane Mode ON (you can turn it back OFF after) — that usually fixes it.",
                         showOk: true
                     )
                 }

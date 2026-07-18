@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "79",
+      "buildVersion": "80",
       "versionDate": "2026-07-18",
-      "versionDescription": "Update installs are more reliable: the updater now retries once on a transient tunnel hiccup, and if it still can't reach your device it tells you exactly what to do (make sure LocalDevVPN is connected, then teleport once to wake the developer image) instead of a raw 'connection reset' error.",
+      "versionDescription": "Fixes 'Simulation Failed (error 3)': if your device's developer image isn't mounted (common for LocalDevVPN users, especially after a restart), the app now mounts it automatically and retries — instead of just failing. Plus: dark-mode buttons are visible again, and the cellular fix order is corrected (connect LocalDevVPN first, then Airplane Mode).",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17108809,
+      "size": 17111799,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "79",
+          "buildVersion": "80",
           "date": "2026-07-18",
-          "localizedDescription": "Update installs are more reliable: the updater now retries once on a transient tunnel hiccup, and if it still can't reach your device it tells you exactly what to do (make sure LocalDevVPN is connected, then teleport once to wake the developer image) instead of a raw 'connection reset' error.",
+          "localizedDescription": "Fixes 'Simulation Failed (error 3)': if your device's developer image isn't mounted (common for LocalDevVPN users, especially after a restart), the app now mounts it automatically and retries — instead of just failing. Plus: dark-mode buttons are visible again, and the cellular fix order is corrected (connect LocalDevVPN first, then Airplane Mode).",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17108809,
+          "size": 17111799,
           "minOSVersion": "17.0"
         }
       ],

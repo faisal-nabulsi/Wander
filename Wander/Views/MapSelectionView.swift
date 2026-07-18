@@ -1603,42 +1603,51 @@ struct LocationSimulationView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 10) {
+                // Guard the inactive states in the ACTION + dim with .opacity, rather than via
+                // .disabled — a disabled `.bordered` button renders a blank/invisible grey label on
+                // the dark card in dark mode. Explicit .tint keeps the icon brand-coloured either way.
                 Button {
+                    if isRouteRunning { return }
                     showSaveBookmark = true
                 } label: {
                     Image(systemName: "bookmark")
                         .frame(width: 34, height: 30)
                 }
                 .buttonStyle(.bordered)
+                .tint(Wander.brand)
                 .controlSize(.large)
-                .disabled(isRouteRunning)
+                .opacity(isRouteRunning ? 0.5 : 1)
 
-                // Undo the last move/teleport, reverting to the previous pin.
-                // Only shown once there's something to revert to.
+                // Undo the last move/teleport, reverting to the previous pin. Only shown once there's
+                // something to revert to.
                 if previousCoordinate != nil {
                     Button {
+                        if hasActiveSimulation || isBusy || isRouteRunning { return }
                         revertToPrevious()
                     } label: {
                         Image(systemName: "arrow.uturn.backward")
                             .frame(width: 34, height: 30)
                     }
                     .buttonStyle(.bordered)
+                    .tint(Wander.brand)
                     .controlSize(.large)
-                    .disabled(hasActiveSimulation || isBusy || isRouteRunning)
+                    .opacity((hasActiveSimulation || isBusy || isRouteRunning) ? 0.5 : 1)
                     .accessibilityLabel(L("map.undo_move", fallback: "Undo move"))
                 }
 
-                // Re-position the pin to the crosshair (map center). Disabled while
-                // a simulation is live — Stop first, then move.
+                // Re-position the pin to the crosshair (map center). Inactive while a simulation is
+                // live — Stop first, then move.
                 Button {
+                    if hasActiveSimulation || isBusy { return }
                     setPinToCenter()
                 } label: {
                     Label(L("map.move_here", fallback: "Move here"), systemImage: Wander.Icon.setHere)
                         .frame(maxWidth: .infinity).frame(height: 30)
                 }
                 .buttonStyle(.bordered)
+                .tint(Wander.brand)
                 .controlSize(.large)
-                .disabled(hasActiveSimulation || isBusy)
+                .opacity((hasActiveSimulation || isBusy) ? 0.5 : 1)
             }
 
             // Street View — Pro-only (it hits the paid Google Maps API). Shown to free users too
@@ -1652,17 +1661,21 @@ struct LocationSimulationView: View {
                     .frame(maxWidth: .infinity).frame(height: 30)
             }
             .buttonStyle(.bordered)
+            .tint(Wander.brand)
             .controlSize(.large)
 
             HStack(spacing: 10) {
-                Button(action: clear) {
+                Button {
+                    if !pairingExists || isBusy || !hasActiveSimulation { return }
+                    clear()
+                } label: {
                     Label(L("map.stop", fallback: "Stop"), systemImage: Wander.Icon.stop)
                         .frame(maxWidth: .infinity).frame(height: 30)
                 }
                 .buttonStyle(.bordered)
                 .tint(.red)
                 .controlSize(.large)
-                .disabled(!pairingExists || isBusy || !hasActiveSimulation)
+                .opacity((!pairingExists || isBusy || !hasActiveSimulation) ? 0.5 : 1)
 
                 Button(action: simulate) {
                     Label(L("map.simulate", fallback: "Simulate"), systemImage: Wander.Icon.simulate)
@@ -1758,7 +1771,7 @@ struct LocationSimulationView: View {
         runLocationCommand(
             errorTitle: "Simulation Failed",
             errorMessage: { code in
-                "Couldn't simulate location (error \(code)). Make sure LocalDevVPN is connected. On cellular with no Wi‑Fi? Turn Airplane Mode ON, connect LocalDevVPN, then turn Airplane Mode OFF — that usually fixes it."
+                "Couldn't simulate location (error \(code)). Make sure LocalDevVPN is connected and Developer Mode is ON (Settings → Privacy & Security → Developer Mode). On cellular with no Wi‑Fi? Connect LocalDevVPN first, then turn Airplane Mode ON (you can turn it back OFF after) — that usually fixes it."
             },
             operation: { locationUpdateCode(for: coord) }
         ) {
@@ -1787,7 +1800,7 @@ struct LocationSimulationView: View {
         runLocationCommand(
             errorTitle: "Simulation Failed",
             errorMessage: { code in
-                "Couldn't simulate location (error \(code)). Make sure LocalDevVPN is connected. On cellular with no Wi‑Fi? Turn Airplane Mode ON, connect LocalDevVPN, then turn Airplane Mode OFF — that usually fixes it."
+                "Couldn't simulate location (error \(code)). Make sure LocalDevVPN is connected and Developer Mode is ON (Settings → Privacy & Security → Developer Mode). On cellular with no Wi‑Fi? Connect LocalDevVPN first, then turn Airplane Mode ON (you can turn it back OFF after) — that usually fixes it."
             },
             operation: { locationUpdateCode(for: samples[0].coordinate) }
         ) {
@@ -1818,7 +1831,7 @@ struct LocationSimulationView: View {
         runLocationCommand(
             errorTitle: "Route Simulation Failed",
             errorMessage: { code in
-                "Couldn't start the route (error \(code)). Make sure LocalDevVPN is connected. On cellular with no Wi‑Fi? Turn Airplane Mode ON, connect LocalDevVPN, then turn Airplane Mode OFF — that usually fixes it."
+                "Couldn't start the route (error \(code)). Make sure LocalDevVPN is connected and Developer Mode is ON (Settings → Privacy & Security → Developer Mode). On cellular with no Wi‑Fi? Connect LocalDevVPN first, then turn Airplane Mode ON (you can turn it back OFF after) — that usually fixes it."
             },
             operation: { locationUpdateCode(for: firstCoordinate) }
         ) {
@@ -1840,7 +1853,22 @@ struct LocationSimulationView: View {
     ) {
         isBusy = true
         LocationSimulationCommandQueue.shared.async {
-            let code = operation()
+            var code = operation()
+            // Auto-recover the most common failure (error 3): the tunnel is up but the device's
+            // developer image isn't mounted yet. The built-in auto-mount only fires for Wander's OWN
+            // tunnel, so LocalDevVPN users (free installs) never get it — their first teleport fails.
+            // Mount it here (the DDI files are downloaded at launch), then retry the command once.
+            if code != 0, isPairing(), !isMounted() {
+                let mountError = mountPersonalDDI(
+                    imagePath: URL.documentsDirectory.appendingPathComponent("DDI/Image.dmg").path,
+                    trustcachePath: URL.documentsDirectory.appendingPathComponent("DDI/Image.dmg.trustcache").path,
+                    manifestPath: URL.documentsDirectory.appendingPathComponent("DDI/BuildManifest.plist").path
+                )
+                if mountError == nil {
+                    MountingProgress.shared.checkforMounted()
+                    code = operation()
+                }
+            }
             DispatchQueue.main.async {
                 isBusy = false
                 if code == 0 {

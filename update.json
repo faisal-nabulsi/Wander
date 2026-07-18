@@ -1,6 +1,6 @@
 {
-  "build": 79,
+  "build": 80,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Update installs are more reliable: the updater now retries once on a transient tunnel hiccup, and if it still can't reach your device it tells you exactly what to do (make sure LocalDevVPN is connected, then teleport once to wake the developer image) instead of a raw 'connection reset' error."
+  "notes": "Fixes 'Simulation Failed (error 3)': if your device's developer image isn't mounted (common for LocalDevVPN users, especially after a restart), the app now mounts it automatically and retries — instead of just failing. Plus: dark-mode buttons are visible again, and the cellular fix order is corrected (connect LocalDevVPN first, then Airplane Mode)."
 }
