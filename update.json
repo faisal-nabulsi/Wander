@@ -1,6 +1,6 @@
 {
-  "build": 76,
+  "build": 77,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Teleport screen fixes: the weather/time-zone card now hides while you're searching (it was covering the top search result), and the placement crosshair is lifted above the controls card so it's no longer hidden behind it — the drop point follows the crosshair."
+  "notes": "Fixes the keyboard 'Done' button doing nothing when typing in the 'Where do you want to go?' box — it now dismisses the keyboard from any field."
 }

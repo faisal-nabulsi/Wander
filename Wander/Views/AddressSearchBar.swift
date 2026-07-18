@@ -9,6 +9,7 @@
 import SwiftUI
 import MapKit
 import CoreLocation
+import UIKit
 
 @MainActor
 final class AddressSearchCompleter: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
@@ -80,7 +81,13 @@ struct AddressSearchBar: View {
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Button("Done") { focused = false }
+                    Button("Done") {
+                        focused = false
+                        // This keyboard toolbar can also show while a SIBLING field is focused (e.g.
+                        // the "Where do you want to go?" bar), whose focus we don't own — so resign
+                        // whatever is actually first responder instead of just our own field.
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
                 }
             }
 
