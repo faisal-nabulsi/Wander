@@ -111,9 +111,25 @@ final class WanderUpdater: ObservableObject {
         )
 
         status = "Installing update over the tunnel…"
-        try await Task.detached(priority: .userInitiated) {
-            try JITEnableContext.shared.stageAndUpgradeAppBundle(atLocalPath: appURL.path, bundleID: bundleID)
-        }.value
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try JITEnableContext.shared.stageAndUpgradeAppBundle(atLocalPath: appURL.path, bundleID: bundleID)
+            }.value
+        } catch {
+            // The install talks to the on-device installation service OVER the tunnel. The most
+            // common failure is simply that the tunnel isn't up — which surfaces as a raw
+            // "Connection reset by peer" / socket error. Translate that into something actionable
+            // instead of dumping the raw Rust socket error on the user.
+            let desc = (error as NSError).localizedDescription.lowercased()
+            let looksLikeTunnelDown = ["connection reset", "socket", "econnreset", "connection refused",
+                                       "couldn't connect", "could not connect", "not connect",
+                                       "timed out", "broken pipe", "connection closed"]
+                .contains { desc.contains($0) }
+            if looksLikeTunnelDown {
+                throw UpdateError.step("Couldn't reach your iPhone to install — the tunnel isn't connected. On a free install, open the LocalDevVPN app and tap Connect (or connect Wander Tunnel above), then tap Install update again.")
+            }
+            throw error
+        }
         status = "✅ Update installed — Wander will relaunch."
         needsUserAction = false
     }

@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "73",
+      "buildVersion": "74",
       "versionDate": "2026-07-18",
-      "versionDescription": "Fixes the Offline-preview toggle on the Offline Maps screen: it now really shows only your downloaded tiles (uncached areas go blank) instead of quietly staying on the live map. Toggle it on and pan around to see exactly what you'll have with no signal.",
+      "versionDescription": "Better update errors: if 'Install update now' can't reach your iPhone because the tunnel isn't connected, it now tells you to connect LocalDevVPN (or Wander Tunnel) and try again — instead of showing a raw 'connection reset' socket error.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17048509,
+      "size": 17054122,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "73",
+          "buildVersion": "74",
           "date": "2026-07-18",
-          "localizedDescription": "Fixes the Offline-preview toggle on the Offline Maps screen: it now really shows only your downloaded tiles (uncached areas go blank) instead of quietly staying on the live map. Toggle it on and pan around to see exactly what you'll have with no signal.",
+          "localizedDescription": "Better update errors: if 'Install update now' can't reach your iPhone because the tunnel isn't connected, it now tells you to connect LocalDevVPN (or Wander Tunnel) and try again — instead of showing a raw 'connection reset' socket error.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17048509,
+          "size": 17054122,
           "minOSVersion": "17.0"
         }
       ],
