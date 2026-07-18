@@ -1074,7 +1074,7 @@ struct LocationSimulationView: View {
                     guard span > 0, span < 0.12 else { return }
                     let z = max(11, min(OfflineTileStore.maxZoomCap, Int((log2(540.0 / span)).rounded())))
                     try? await OfflineTileStore.shared.downloadRegion(
-                        name: "Recently viewed (auto)",
+                        name: OfflineTileStore.autoRegionName,
                         region: region,
                         minZoom: z,
                         maxZoom: min(OfflineTileStore.maxZoomCap, z + 1),

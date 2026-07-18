@@ -229,6 +229,10 @@ struct OfflineMapsSheet: View {
         }
     }
 
+    /// Height cap for the saved-maps list once it's long enough to scroll. Keeps the control card
+    /// (and the map behind it) visible no matter how many regions are saved.
+    private let savedListMaxHeight: CGFloat = 220
+
     private var savedRegionsList: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -240,6 +244,28 @@ struct OfflineMapsSheet: View {
                     .foregroundStyle(.secondary)
             }
 
+            // Short lists render inline; long lists scroll inside a fixed-height box so the card
+            // can't grow until it covers the whole map. Header + Delete-all stay pinned.
+            if savedRegions.count > 4 {
+                ScrollView { savedRegionRows }
+                    .frame(height: savedListMaxHeight)
+            } else {
+                savedRegionRows
+            }
+
+            Button(role: .destructive) {
+                showDeleteAllConfirm = true
+            } label: {
+                Label(L("offline.maps.delete_all", fallback: "Delete all"), systemImage: "trash")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .padding(.top, 2)
+        }
+    }
+
+    private var savedRegionRows: some View {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(savedRegions) { saved in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -267,15 +293,6 @@ struct OfflineMapsSheet: View {
                     .accessibilityLabel(L("common.delete", fallback: "Delete"))
                 }
             }
-
-            Button(role: .destructive) {
-                showDeleteAllConfirm = true
-            } label: {
-                Label(L("offline.maps.delete_all", fallback: "Delete all"), systemImage: "trash")
-                    .font(.caption)
-            }
-            .buttonStyle(.borderless)
-            .padding(.top, 2)
         }
     }
 

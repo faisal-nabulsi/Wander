@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "70",
-      "versionDate": "2026-07-17",
-      "versionDescription": "Clearer 'Simulation Failed' message: instead of the cryptic 'device connected / DDI mounted' wording, it now points to the real fix — make sure LocalDevVPN is connected, and on cellular (no Wi-Fi) turn Airplane Mode ON, connect LocalDevVPN, then turn Airplane Mode OFF.",
+      "buildVersion": "71",
+      "versionDate": "2026-07-18",
+      "versionDescription": "Offline Maps cleanup: no more duplicate rows piling up (the same area now updates in place, and the auto 'recently viewed' cache is capped), your existing flooded list is tidied automatically on launch, and a long saved-maps list now scrolls inside a fixed box instead of growing until it covers the map.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17030345,
+      "size": 17040573,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "70",
-          "date": "2026-07-17",
-          "localizedDescription": "Clearer 'Simulation Failed' message: instead of the cryptic 'device connected / DDI mounted' wording, it now points to the real fix — make sure LocalDevVPN is connected, and on cellular (no Wi-Fi) turn Airplane Mode ON, connect LocalDevVPN, then turn Airplane Mode OFF.",
+          "buildVersion": "71",
+          "date": "2026-07-18",
+          "localizedDescription": "Offline Maps cleanup: no more duplicate rows piling up (the same area now updates in place, and the auto 'recently viewed' cache is capped), your existing flooded list is tidied automatically on launch, and a long saved-maps list now scrolls inside a fixed box instead of growing until it covers the map.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17030345,
+          "size": 17040573,
           "minOSVersion": "17.0"
         }
       ],

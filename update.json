@@ -1,6 +1,6 @@
 {
-  "build": 70,
+  "build": 71,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Clearer 'Simulation Failed' message: instead of the cryptic 'device connected / DDI mounted' wording, it now points to the real fix — make sure LocalDevVPN is connected, and on cellular (no Wi-Fi) turn Airplane Mode ON, connect LocalDevVPN, then turn Airplane Mode OFF."
+  "notes": "Offline Maps cleanup: no more duplicate rows piling up (the same area now updates in place, and the auto 'recently viewed' cache is capped), your existing flooded list is tidied automatically on launch, and a long saved-maps list now scrolls inside a fixed box instead of growing until it covers the map."
 }

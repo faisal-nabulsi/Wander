@@ -93,6 +93,14 @@ final class OfflineTileStore {
     /// Rough average PNG tile size on disk, used only for the pre-download MB estimate.
     private static let averageTileBytes: Int64 = 18_000
 
+    /// Name of the auto "recently viewed" cache. A shared constant so the prefetch caller and the
+    /// de-dupe logic agree on which manifest rows are the disposable rolling cache.
+    static let autoRegionName = "Recently viewed (auto)"
+
+    /// How many "Recently viewed (auto)" rows to keep — it's a rolling convenience cache, not a
+    /// curated save, so panning the map can't flood the Saved-maps list with dozens of copies.
+    private static let maxAutoRegions = 3
+
     private let fileManager = FileManager.default
     private let rootURL: URL
     private let manifestURL: URL
@@ -110,6 +118,10 @@ final class OfflineTileStore {
         rootURL = base.appendingPathComponent("wander-map-tiles-v2", isDirectory: true)
         manifestURL = rootURL.appendingPathComponent("manifest.json", isDirectory: false)
         try? fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        // One-time tidy: older builds appended a fresh manifest row on EVERY download and EVERY
+        // auto-prefetch, so the Saved-maps list could balloon into dozens of identical entries.
+        // Collapse duplicates + cap the auto cache once at launch so existing lists get cleaned up.
+        migrateManifest()
     }
 
     // MARK: Single-tile disk access
@@ -328,8 +340,56 @@ final class OfflineTileStore {
             var current = (try? Data(contentsOf: manifestURL))
                 .flatMap { try? JSONDecoder().decode([OfflineRegion].self, from: $0) } ?? []
             current.append(region)
+            // Replace an identical prior save (same spot re-downloaded, or the auto-prefetch
+            // re-running on the same view) instead of stacking a duplicate row; cap the auto cache.
+            current = deduped(current)
             if let data = try? JSONEncoder().encode(current) {
                 try? data.write(to: manifestURL, options: .atomic)
+            }
+        }
+    }
+
+    /// Collapse same-coverage duplicate saves to their newest copy, then cap the rolling auto cache.
+    /// Pure — safe to call inside `manifestQueue.sync` (does no queue work itself).
+    private func deduped(_ regions: [OfflineRegion]) -> [OfflineRegion] {
+        var kept: [OfflineRegion] = []
+        // Newest copy wins; break createdAt ties by id so the cull is deterministic.
+        let ordered = regions.sorted {
+            $0.createdAt != $1.createdAt ? $0.createdAt > $1.createdAt : $0.id.uuidString > $1.id.uuidString
+        }
+        for region in ordered {
+            if !kept.contains(where: { sameCoverage($0, region) }) {
+                kept.append(region)
+            }
+        }
+        let autos = kept.filter { $0.name == Self.autoRegionName }
+        if autos.count > Self.maxAutoRegions {
+            let doomed = Set(autos.dropFirst(Self.maxAutoRegions).map(\.id))
+            kept.removeAll { doomed.contains($0.id) }
+        }
+        return kept
+    }
+
+    /// Two saved regions cover the same thing: same name + zoom window + (rounded) bounding box.
+    /// Rounding to ~1e-4° (~11 m) so float noise from recomputing the same view doesn't defeat it.
+    private func sameCoverage(_ a: OfflineRegion, _ b: OfflineRegion) -> Bool {
+        func r(_ v: Double) -> Double { (v * 1e4).rounded() / 1e4 }
+        return a.name == b.name
+            && a.minZoom == b.minZoom && a.maxZoom == b.maxZoom
+            && r(a.minLatitude) == r(b.minLatitude) && r(a.maxLatitude) == r(b.maxLatitude)
+            && r(a.minLongitude) == r(b.minLongitude) && r(a.maxLongitude) == r(b.maxLongitude)
+    }
+
+    /// Rewrite the manifest with duplicates collapsed + the auto cache capped. Runs at launch to
+    /// clean up lists that older builds already flooded. Async on the manifest queue so it never
+    /// blocks the main thread during singleton init (the migration is fire-and-forget).
+    private func migrateManifest() {
+        manifestQueue.async { [self] in
+            guard let data = try? Data(contentsOf: manifestURL),
+                  let current = try? JSONDecoder().decode([OfflineRegion].self, from: data) else { return }
+            let cleaned = deduped(current)
+            if cleaned.count != current.count, let out = try? JSONEncoder().encode(cleaned) {
+                try? out.write(to: manifestURL, options: .atomic)
             }
         }
     }
