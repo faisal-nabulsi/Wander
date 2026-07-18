@@ -1092,7 +1092,13 @@ struct LocationSimulationView: View {
             selectedCoordinate: $coordinate,
             region: $offlineRegion,
             cacheOnly: false,
-            onRegionChange: { region in visibleCenter = region.center }
+            onRegionChange: { region in
+                visibleCenter = region.center
+                // Track the user's pan. Without this, offlineRegion stays pinned to the selected
+                // coordinate, and the visibleCenter re-render makes updateUIView re-apply it —
+                // snapping the map back to the pin every time you tried to pan away while offline.
+                offlineRegion = region
+            }
         )
         .onAppear {
             if let center = visibleCenter {

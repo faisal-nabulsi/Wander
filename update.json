@@ -1,6 +1,6 @@
 {
-  "build": 74,
+  "build": 75,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Better update errors: if 'Install update now' can't reach your iPhone because the tunnel isn't connected, it now tells you to connect LocalDevVPN (or Wander Tunnel) and try again — instead of showing a raw 'connection reset' socket error."
+  "notes": "Offline map: you can now pan freely with a pin selected — it no longer snaps back to the pin when you drag away (airplane mode / no signal)."
 }
