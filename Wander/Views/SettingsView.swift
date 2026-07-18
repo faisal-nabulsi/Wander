@@ -145,6 +145,7 @@ struct SettingsView: View {
                         }
                     }
                     Button {
+                        wanderAccount.twoFactorPresenter = .settings   // Settings owns the 2FA prompt here
                         Task { await selfRefresh.refresh() }
                     } label: {
                         Label("Run self-refresh (sign + install)", systemImage: "checkmark.seal")
@@ -483,7 +484,7 @@ struct SettingsView: View {
         .sheet(isPresented: $showManageDevices) {
             ManageDevicesView(overLimitContext: deviceActivation.atLimit && !deviceActivation.registered)
         }
-        .alert("Two-Factor Code", isPresented: $wanderAccount.awaiting2FA) {
+        .alert("Two-Factor Code", isPresented: wanderAccount.twoFactorPrompt(for: .settings)) {
             TextField("6-digit code", text: $twoFactorCode)
                 .keyboardType(.numberPad)
             Button("Submit") {
@@ -496,6 +497,11 @@ struct SettingsView: View {
             }
         } message: {
             Text("Enter the 6-digit code Apple sent to your trusted device. No popup? Get it from Settings → your name → Sign-In & Security → Get Verification Code.")
+        }
+        .onDisappear {
+            // Hand the 2FA prompt back to the root when Settings closes, so a later auto/update
+            // re-sign isn't orphaned with a stale .settings owner (which would show no prompt).
+            if wanderAccount.twoFactorPresenter == .settings { wanderAccount.twoFactorPresenter = .system }
         }
     }
 

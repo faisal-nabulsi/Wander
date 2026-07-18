@@ -13,6 +13,7 @@
 
 import Foundation
 import AltSign
+import SwiftUI
 
 @MainActor
 final class WanderAccount: ObservableObject {
@@ -21,6 +22,13 @@ final class WanderAccount: ObservableObject {
     @Published var status: String = ""
     @Published private(set) var isSignedIn = false
     @Published var awaiting2FA = false
+
+    /// Which on-screen context owns the 2FA prompt. Set by whoever STARTS a sign-in, before the
+    /// prompt is raised, so exactly ONE `.alert` binds true. Several `.alert(isPresented:)` on the
+    /// same Bool (we had three — root, Settings, login) make SwiftUI present then instantly dismiss
+    /// the alert — the vanishing 2FA prompt — and can crash. This token guarantees one live presenter.
+    enum TwoFactorPresenter { case system, settings, login }
+    @Published var twoFactorPresenter: TwoFactorPresenter = .system
 
     private(set) var account: ALTAccount?
     private(set) var session: ALTAppleAPISession?
@@ -167,6 +175,19 @@ final class WanderAccount: ObservableObject {
         let pending = codeContinuations
         codeContinuations = []
         for continuation in pending { continuation.resume(returning: code) }
+    }
+
+    /// A per-context binding for the 2FA alert: true only when a code is awaited AND this context is
+    /// the designated presenter, so only one `.alert` is ever live at a time.
+    func twoFactorPrompt(for presenter: TwoFactorPresenter) -> Binding<Bool> {
+        Binding(
+            get: { self.awaiting2FA && self.twoFactorPresenter == presenter },
+            set: { presented in
+                // The buttons resume the continuation + clear the flag; this only guards an
+                // unexpected dismissal so a dropped prompt never leaks its continuation.
+                if !presented && self.awaiting2FA { self.submitTwoFactorCode(nil) }
+            }
+        )
     }
 
     // MARK: - Internals

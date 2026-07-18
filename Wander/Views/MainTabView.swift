@@ -183,6 +183,9 @@ struct MainTabView: View {
                 // The tunnel is usually still connecting at launch when the first auto-install
                 // attempt runs; retry the silent install the moment it connects.
                 if status == .connected {
+                    // A silent auto-install re-sign runs at the root (no sheet), so claim the 2FA
+                    // prompt for the root before it can raise one — don't inherit a stale token.
+                    wanderAccount.twoFactorPresenter = .system
                     Task { await WanderUpdater.shared.autoInstallIfAvailable() }
                 }
             }
@@ -207,7 +210,7 @@ struct MainTabView: View {
             // code Apple sends has nowhere to go and the update stalls. Settings and the login
             // view carry their own copy for their own flows; the flag is transient (cleared on
             // submit/cancel) so these never fight to present.
-            .alert("Two-Factor Code", isPresented: $wanderAccount.awaiting2FA) {
+            .alert("Two-Factor Code", isPresented: wanderAccount.twoFactorPrompt(for: .system)) {
                 TextField("6-digit code", text: $twoFactorCode)
                     .keyboardType(.numberPad)
                 Button("Submit") {
@@ -350,6 +353,8 @@ struct MainTabView: View {
     /// Install the pending update from the banner. Reuses the exact pipeline the Settings button
     /// uses; requires the Apple ID to be signed in (Settings) — otherwise it says so.
     private func installUpdateFromBanner() {
+        // The re-sign runs here on the root tab (no sheet up), so the root owns the 2FA prompt.
+        wanderAccount.twoFactorPresenter = .system
         Task {
             guard WanderAccount.shared.isSignedIn else {
                 // Before, this only set the tiny banner subtitle, so tapping the "Update ready" banner

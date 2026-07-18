@@ -37,6 +37,7 @@ struct WanderLoginView: View {
                 Section {
                     Button {
                         busy = true
+                        account.twoFactorPresenter = .login   // this sheet owns the 2FA prompt
                         Task {
                             await account.signIn(appleID: appleID, password: password)
                             busy = false
@@ -67,7 +68,7 @@ struct WanderLoginView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-            .alert("Two-Factor Code", isPresented: $account.awaiting2FA) {
+            .alert("Two-Factor Code", isPresented: account.twoFactorPrompt(for: .login)) {
                 TextField("6-digit code", text: $code)
                     .keyboardType(.numberPad)
                 Button("Submit") {
@@ -80,6 +81,11 @@ struct WanderLoginView: View {
                 }
             } message: {
                 Text("Enter the 6-digit code Apple sent to your trusted device. No popup? Get it from Settings → your name → Sign-In & Security → Get Verification Code.")
+            }
+            .onDisappear {
+                // Hand the 2FA prompt back to the root once this sheet closes (e.g. cancelled before
+                // signing in) so a later auto/update re-sign can still surface its own prompt.
+                if account.twoFactorPresenter == .login { account.twoFactorPresenter = .system }
             }
         }
     }

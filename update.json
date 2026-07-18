@@ -1,6 +1,6 @@
 {
-  "build": 71,
+  "build": 72,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Offline Maps cleanup: no more duplicate rows piling up (the same area now updates in place, and the auto 'recently viewed' cache is capped), your existing flooded list is tidied automatically on launch, and a long saved-maps list now scrolls inside a fixed box instead of growing until it covers the map."
+  "notes": "Fixes the Apple-ID 2FA prompt for good: the code box no longer flashes-and-vanishes (or crashes the app) when signing in. The prompt was declared in three screens at once bound to the same trigger, so they fought to appear — now exactly one owns it per flow (update banner, Settings refresh, or the sign-in screen)."
 }
