@@ -40,6 +40,7 @@ struct MoreView: View {
                 Section {
                     row(.whatsNew)
                     row(.community)
+                    row(.reportBug)
                     row(.settings)
                 }
             }
@@ -69,7 +70,7 @@ struct MoreView: View {
 /// The secondary screens reachable from More, presented as sheets.
 private enum MoreRoute: String, Identifiable {
     case account, places, schedule, itinerary, geofences, offlineMaps, backup, tools,
-         adventureSync, matchIP, whatsNew, community, settings
+         adventureSync, matchIP, whatsNew, community, reportBug, settings
     var id: String { rawValue }
 
     var title: String {
@@ -86,6 +87,7 @@ private enum MoreRoute: String, Identifiable {
         case .matchIP:       return L("more.match_ip", fallback: "Match your IP")
         case .whatsNew:      return L("whatsnew.title", fallback: "What's New")
         case .community:     return L("settings.community.header", fallback: "Community")
+        case .reportBug:     return L("more.report_bug", fallback: "Report a bug")
         case .settings:      return L("tab.settings", fallback: "Settings")
         }
     }
@@ -104,6 +106,7 @@ private enum MoreRoute: String, Identifiable {
         case .matchIP:       return "Line your IP up with your spoofed country"
         case .whatsNew:      return "See what changed in this version"
         case .community:     return "Star on GitHub & join our Discord"
+        case .reportBug:     return "Something broken or an idea? Tell us"
         case .settings:      return "Configure Wander"
         }
     }
@@ -122,6 +125,7 @@ private enum MoreRoute: String, Identifiable {
         case .matchIP:       return "network.badge.shield.half.filled"
         case .whatsNew:      return "sparkles"
         case .community:     return "bubble.left.and.bubble.right.fill"
+        case .reportBug:     return "ladybug.fill"
         case .settings:      return "gearshape.fill"
         }
     }
@@ -140,6 +144,7 @@ private enum MoreRoute: String, Identifiable {
         case .matchIP:       MatchIPView()
         case .whatsNew:      WhatsNewView()
         case .community:     CommunityView()
+        case .reportBug:     ReportBugView()
         case .settings:      SettingsView()
         }
     }

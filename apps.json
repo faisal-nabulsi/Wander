@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "77",
+      "buildVersion": "78",
       "versionDate": "2026-07-18",
-      "versionDescription": "Fixes the keyboard 'Done' button doing nothing when typing in the 'Where do you want to go?' box — it now dismisses the keyboard from any field.",
+      "versionDescription": "New: Report a bug. More → Report a bug lets you send a bug or idea (with your app version + device auto-attached) straight to us — no email needed.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17060843,
+      "size": 17098811,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "77",
+          "buildVersion": "78",
           "date": "2026-07-18",
-          "localizedDescription": "Fixes the keyboard 'Done' button doing nothing when typing in the 'Where do you want to go?' box — it now dismisses the keyboard from any field.",
+          "localizedDescription": "New: Report a bug. More → Report a bug lets you send a bug or idea (with your app version + device auto-attached) straight to us — no email needed.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17060843,
+          "size": 17098811,
           "minOSVersion": "17.0"
         }
       ],

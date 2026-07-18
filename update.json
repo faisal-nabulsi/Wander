@@ -1,6 +1,6 @@
 {
-  "build": 77,
+  "build": 78,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Fixes the keyboard 'Done' button doing nothing when typing in the 'Where do you want to go?' box — it now dismisses the keyboard from any field."
+  "notes": "New: Report a bug. More → Report a bug lets you send a bug or idea (with your app version + device auto-attached) straight to us — no email needed."
 }
