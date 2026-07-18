@@ -25,7 +25,7 @@ final class WanderAccount: ObservableObject {
     private(set) var account: ALTAccount?
     private(set) var session: ALTAppleAPISession?
 
-    private var codeContinuation: CheckedContinuation<String?, Never>?
+    private var codeContinuations: [CheckedContinuation<String?, Never>] = []
 
     /// How long an *automatic* (non-user-initiated) refresh waits for a 2FA code before it
     /// gives up. Keeps a launch-time auto-refresh from hanging the app in a 2FA prompt the
@@ -140,15 +140,21 @@ final class WanderAccount: ObservableObject {
     /// automatic refresh), auto-cancel after that interval — resolving the continuation with
     /// nil and clearing the prompt — so the app never hangs waiting on an absent user.
     private func requestTwoFactorCode(timeout: TimeInterval?) async -> String? {
+        // AltSign can invoke the verification handler more than once for a single sign-in (a retry,
+        // or it fires again before the first prompt resolves). We keep a LIST of pending continuations
+        // and show ONE prompt; when the user submits, every pending caller gets the same code. The old
+        // single-slot version OVERWROTE the pending continuation → dropped it unresumed → a hard
+        // "leaked its continuation" crash (for some accounts) or the prompt vanishing before the code
+        // could be entered (for others). Same root bug, two faces.
         let code = await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
-            self.codeContinuation = continuation
+            self.codeContinuations.append(continuation)
             self.awaiting2FA = true
             if let timeout {
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                    // Still waiting on the SAME prompt? Cancel it. (submitTwoFactorCode
-                    // nils codeContinuation, so a delivered code makes this a no-op.)
-                    if self.codeContinuation != nil { self.submitTwoFactorCode(nil) }
+                    // Auto-refresh only: bound the wait so the app can't hang. A delivered code has
+                    // already emptied the list, so this becomes a no-op.
+                    if !self.codeContinuations.isEmpty { self.submitTwoFactorCode(nil) }
                 }
             }
         }
@@ -158,9 +164,9 @@ final class WanderAccount: ObservableObject {
     /// Called by the UI with the entered 6-digit code (or nil to cancel).
     func submitTwoFactorCode(_ code: String?) {
         awaiting2FA = false
-        let continuation = codeContinuation
-        codeContinuation = nil
-        continuation?.resume(returning: code)
+        let pending = codeContinuations
+        codeContinuations = []
+        for continuation in pending { continuation.resume(returning: code) }
     }
 
     // MARK: - Internals
@@ -207,7 +213,12 @@ final class WanderAccount: ObservableObject {
                 password: password,
                 anisetteData: anisette,
                 verificationHandler: verificationHandler,
-                completionHandler: { account, session, error in
+                completionHandler: { [weak self] account, session, error in
+                    // If Apple's auth finished while we were still waiting on the user's 2FA code,
+                    // drain that pending continuation so it can't hang the flow (or later leak + crash).
+                    Task { @MainActor in
+                        if !(self?.codeContinuations.isEmpty ?? true) { self?.submitTwoFactorCode(nil) }
+                    }
                     if let account, let session {
                         continuation.resume(returning: (account, session))
                     } else if twoFactorTimeout != nil && twoFactorAbandoned {

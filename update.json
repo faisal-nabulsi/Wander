@@ -1,6 +1,6 @@
 {
-  "build": 66,
+  "build": 67,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Route: Preview now shows the ETA and distance up front (all speed modes), not just once you start. Save a built route with the new Save button. Plus transit routes show the walk/bus/subway/BART journey breakdown."
+  "notes": "Fixes the Apple-ID sign-in crash on 2FA (and the code prompt vanishing for some accounts before you could enter it). And tapping 'Update ready' while not signed into your Apple ID now tells you to sign in, instead of doing nothing."
 }

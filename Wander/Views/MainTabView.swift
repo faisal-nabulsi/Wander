@@ -73,6 +73,7 @@ struct MainTabView: View {
     // tapping "Update ready" asks Apple for a 2FA code with nowhere on screen to enter it.
     @ObservedObject private var wanderAccount = WanderAccount.shared
     @State private var twoFactorCode = ""
+    @State private var showAppleSignInNeeded = false
     @ObservedObject private var license = License.shared
     @ObservedObject private var session = SimulationSession.shared
     @ObservedObject private var updater = WanderUpdater.shared
@@ -220,6 +221,11 @@ struct MainTabView: View {
             } message: {
                 Text("Enter the 6-digit code Apple sent to your trusted device. No popup? Get it from Settings → your name → Sign-In & Security → Get Verification Code.")
             }
+            .alert(L("update.needs_apple_id.title", fallback: "Sign in to install"), isPresented: $showAppleSignInNeeded) {
+                Button(L("action.ok", fallback: "OK"), role: .cancel) { }
+            } message: {
+                Text(L("update.needs_apple_id.body", fallback: "To install the update, first sign in to your Apple ID in More → Settings → Sign in to Apple ID, then tap the update again."))
+            }
         }
     }
 
@@ -346,7 +352,9 @@ struct MainTabView: View {
     private func installUpdateFromBanner() {
         Task {
             guard WanderAccount.shared.isSignedIn else {
-                updater.status = "Sign in to your Apple ID in Settings, then tap again."
+                // Before, this only set the tiny banner subtitle, so tapping the "Update ready" banner
+                // felt like nothing happened. Surface a clear alert telling the user to sign in first.
+                showAppleSignInNeeded = true
                 return
             }
             do { try await updater.installUpdate() }

@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "66",
+      "buildVersion": "67",
       "versionDate": "2026-07-17",
-      "versionDescription": "Route: Preview now shows the ETA and distance up front (all speed modes), not just once you start. Save a built route with the new Save button. Plus transit routes show the walk/bus/subway/BART journey breakdown.",
+      "versionDescription": "Fixes the Apple-ID sign-in crash on 2FA (and the code prompt vanishing for some accounts before you could enter it). And tapping 'Update ready' while not signed into your Apple ID now tells you to sign in, instead of doing nothing.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17000762,
+      "size": 17011303,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "66",
+          "buildVersion": "67",
           "date": "2026-07-17",
-          "localizedDescription": "Route: Preview now shows the ETA and distance up front (all speed modes), not just once you start. Save a built route with the new Save button. Plus transit routes show the walk/bus/subway/BART journey breakdown.",
+          "localizedDescription": "Fixes the Apple-ID sign-in crash on 2FA (and the code prompt vanishing for some accounts before you could enter it). And tapping 'Update ready' while not signed into your Apple ID now tells you to sign in, instead of doing nothing.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17000762,
+          "size": 17011303,
           "minOSVersion": "17.0"
         }
       ],
