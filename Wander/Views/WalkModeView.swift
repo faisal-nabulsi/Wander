@@ -36,6 +36,9 @@ struct WalkModeView: View {
     // Humanizes the raw stick input: subtle pace variation + a gently-wandering heading so the
     // walk isn't a ruler-straight line at a dead-constant speed. Steered ⇒ never a full stop.
     @State private var motion = HumanizedMotion(context: .steered)
+    // Hands-free destination: when set, the avatar walks itself here (autonomous ⇒ full realism,
+    // incl. micro-pauses) until it arrives. Grabbing the joystick cancels it.
+    @State private var autoWalkTarget: CLLocationCoordinate2D?
 
     @State private var showAlert = false
     @State private var alertTitle = ""
@@ -127,6 +130,18 @@ struct WalkModeView: View {
                             .foregroundStyle(.orange)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    // Hands-free auto-walk: pick a place and Wander walks there itself at the set
+                    // speed, using realistic motion. Grab the joystick anytime to take over.
+                    if autoWalkTarget != nil {
+                        Label(L("joystick.autowalk.active", fallback: "Auto-walking to your destination…"),
+                              systemImage: "figure.walk.motion")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        AddressSearchBar(placeholder: L("joystick.autowalk.search", fallback: "Auto-walk to a place…")) { coord, _ in
+                            startAutoWalk(to: coord)
+                        }
+                    }
                     WanderPrimaryButton(title: "Stop", icon: Wander.Icon.stop, role: .destructive) {
                         stop()
                     }
@@ -154,6 +169,11 @@ struct WalkModeView: View {
                                 v = CGSize(width: v.width * scale, height: v.height * scale)
                             }
                             knobOffset = v
+                            // Taking the stick cancels a hands-free walk and returns to steering.
+                            if autoWalkTarget != nil {
+                                autoWalkTarget = nil
+                                motion = HumanizedMotion(context: .steered)
+                            }
                             if !isWalking { start() }
                         }
                         .onEnded { _ in
@@ -206,6 +226,7 @@ struct WalkModeView: View {
         // Adventure Sync: flush the tail of the walk and clear accumulation.
         AdventureSyncManager.shared.endWalk()
         isWalking = false
+        autoWalkTarget = nil
         knobOffset = .zero
         coordinate = nil          // back to "set a new start" state
     }
@@ -226,8 +247,23 @@ struct WalkModeView: View {
 
     private func step() {
         guard isWalking, var coord = coordinate else { return }
-        let magnitude = min(hypot(knobOffset.width, knobOffset.height) / joystickRadius, 1)
-        guard magnitude > 0.02 else { return }
+
+        // Pick this tick's intended heading + speed from whichever mode is active.
+        let baseBearing: Double
+        let targetSpeed: Double
+        var remaining = Double.greatestFiniteMagnitude
+        if let target = autoWalkTarget {
+            remaining = distanceMeters(coord, target)
+            if remaining < 3 { arriveAutoWalk(at: target); return }   // close enough → done
+            baseBearing = bearingRad(from: coord, to: target)
+            targetSpeed = speedMps                                    // set-speed, hands-free
+        } else {
+            let magnitude = min(hypot(knobOffset.width, knobOffset.height) / joystickRadius, 1)
+            guard magnitude > 0.02 else { return }
+            // Screen up (-y) is north; +x is east.
+            baseBearing = atan2(Double(knobOffset.width), Double(-knobOffset.height))
+            targetSpeed = speedMps * Double(magnitude)
+        }
 
         // Charge free-trial joystick time only while actually moving. Cut off at the cap.
         if !License.shared.isLicensed {
@@ -240,13 +276,14 @@ struct WalkModeView: View {
             }
         }
 
-        // Screen up (-y) is north; +x is east.
-        let bearing = atan2(Double(knobOffset.width), Double(-knobOffset.height))
-        // Humanize: vary pace and let the heading wander a touch so the trace curves like a
-        // real walk. Off ⇒ pass-through (dead-straight, dead-constant — the old behaviour).
-        let targetSpeed = speedMps * Double(magnitude)
-        let (spd, heading) = motion.next(targetSpeed: targetSpeed, baseHeading: bearing, dt: tickInterval)
-        let distance = spd * tickInterval
+        // Humanize: vary pace and let the heading wander a touch so the trace curves like a real
+        // walk. Off ⇒ pass-through (dead-straight, dead-constant — the old behaviour). On the final
+        // few metres of an auto-walk, straighten the heading so wander can't dither around the pin.
+        let onFinalApproach = (autoWalkTarget != nil) && remaining < 12
+        let (spd, wanderHeading) = motion.next(targetSpeed: targetSpeed, baseHeading: baseBearing,
+                                               dt: tickInterval, allowPause: !onFinalApproach)
+        let heading = onFinalApproach ? baseBearing : wanderHeading
+        let distance = autoWalkTarget != nil ? min(spd * tickInterval, remaining) : spd * tickInterval
 
         let metersPerDegLat = 111_320.0
         let dLat = (distance * cos(heading)) / metersPerDegLat
@@ -263,6 +300,59 @@ struct WalkModeView: View {
         // Adventure Sync: mirror this simulated step into Health (no-op unless opted
         // in). Derived from the ACTUAL per-tick movement, at a human cadence.
         AdventureSyncManager.shared.recordSimulatedMovement(to: coord)
+    }
+
+    // MARK: - Auto-walk (hands-free)
+
+    /// Begin walking, by itself, from the current spot to `target`. Autonomous ⇒ the motion
+    /// engine adds the occasional realistic micro-pause. Pro/trial-gated like the joystick.
+    private func startAutoWalk(to target: CLLocationCoordinate2D) {
+        guard let coordinate else { return }
+        guard pairingFilePath() != nil else {
+            alert("Pairing file required", "Import a pairing file in Settings before simulating location.")
+            self.coordinate = nil
+            return
+        }
+        if !License.shared.isLicensed && !TrialManager.shared.canUse(.joystick) {
+            showPaywall = true
+            return
+        }
+        autoWalkTarget = target
+        knobOffset = .zero        // defensive: ensure step() takes the auto-walk path, not the stick
+        isWalking = true
+        motion = HumanizedMotion(context: .autonomous)   // hands-free ⇒ full realism incl. micro-pauses
+        SimulationSession.shared.started()
+        AdventureSyncManager.shared.beginWalk()
+        send(coordinate)
+        startTimer()
+    }
+
+    /// Arrived at the auto-walk destination: settle on the exact point and idle (staying put),
+    /// without tearing down the whole simulation the way the red Stop button does.
+    private func arriveAutoWalk(at target: CLLocationCoordinate2D) {
+        coordinate = target
+        recenter(on: target)
+        send(MotionRealism.isEnabled ? HumanizedMotion.gpsNoise(target) : target)
+        AdventureSyncManager.shared.recordSimulatedMovement(to: target)
+        AdventureSyncManager.shared.endWalk()
+        autoWalkTarget = nil
+        isWalking = false
+        stopTimer()
+    }
+
+    private func distanceMeters(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {
+        CLLocation(latitude: a.latitude, longitude: a.longitude)
+            .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
+    }
+
+    /// Planar bearing from `a` to `b` in the joystick's convention (0 = north, +east), so it
+    /// feeds `dLat = d·cos(h)`, `dLon = d·sin(h)` directly.
+    private func bearingRad(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> Double {
+        let metersPerDegLat = 111_320.0
+        let dNorth = (b.latitude - a.latitude) * metersPerDegLat
+        let lonScale = max(cos(a.latitude * .pi / 180), 0.000001)
+        let dEast = (b.longitude - a.longitude) * metersPerDegLat * lonScale
+        return atan2(dEast, dNorth)
     }
 
     private func recenter(on coord: CLLocationCoordinate2D) {

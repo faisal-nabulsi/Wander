@@ -1,6 +1,6 @@
 {
-  "build": 68,
+  "build": 69,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "New Realistic Motion (on by default): when you move with the joystick or play a route, your pace now varies and your path curves slightly instead of a dead-straight line at a constant speed — the tell-tale sign of a spoofed track. It's the best anti-detection Wander has, and needs no root. Turn it off anytime in Settings → Realism & privacy."
+  "notes": "New Auto-walk: on the Joystick screen, search a place and Wander walks itself there hands-free at your chosen speed — with the realistic motion from the last update (varied pace, a naturally curving path, the occasional pause). Grab the joystick anytime to take over. Great for hands-free egg hatching and Adventure Sync."
 }

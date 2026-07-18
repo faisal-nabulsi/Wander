@@ -55,7 +55,9 @@ struct HumanizedMotion {
     ///   - baseHeading: intended heading in radians (0 = north, +east), matching the caller's
     ///     `dLat = d·cos(h)`, `dLon = d·sin(h)` convention
     ///   - dt: tick length in seconds
-    mutating func next(targetSpeed: Double, baseHeading: Double, dt: TimeInterval) -> (speed: Double, heading: Double) {
+    ///   - allowPause: pass false to forbid (and abort) micro-pauses — e.g. the final metres of an
+    ///     auto-walk, so it can't freeze right at the destination.
+    mutating func next(targetSpeed: Double, baseHeading: Double, dt: TimeInterval, allowPause: Bool = true) -> (speed: Double, heading: Double) {
         guard MotionRealism.isEnabled, targetSpeed > 0 else {
             // Pass-through: exactly the old straight-line behaviour when realism is off or idle.
             currentSpeed = max(targetSpeed, 0)
@@ -65,7 +67,10 @@ struct HumanizedMotion {
 
         let step = max(dt, 0.01)
         let pedestrian = targetSpeed <= 3.0                       // ≤ ~10.8 km/h: a walk/jog gait
-        let allowPauses = (context == .autonomous) && pedestrian
+        let allowPauses = allowPause && (context == .autonomous) && pedestrian
+
+        // Final approach (allowPause == false): abort any pause in progress so we keep closing.
+        if !allowPause { pauseTicksLeft = 0 }
 
         // --- micro-pause: ease to a stop, hold, then resume ------------------------------
         if pauseTicksLeft > 0 {
