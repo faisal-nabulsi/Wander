@@ -47,6 +47,9 @@ struct AddressSearchBar: View {
     /// current map center.
     var mapCenter: CLLocationCoordinate2D? = nil
     var onPick: (CLLocationCoordinate2D, String) -> Void
+    /// Fires true while the field is focused OR showing results, so a host can get out of the way
+    /// (e.g. hide a floating top card that would otherwise cover the results list).
+    var onActiveChange: ((Bool) -> Void)? = nil
 
     @StateObject private var completer = AddressSearchCompleter()
     @State private var query = ""
@@ -124,6 +127,14 @@ struct AddressSearchBar: View {
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
             }
         }
+        .onChange(of: focused) { _, _ in reportActive() }
+        .onChange(of: completer.results.count) { _, _ in reportActive() }
+        .onChange(of: query) { _, _ in reportActive() }
+    }
+
+    /// Active = the user is searching: focused, or there are results / a parsed target to show.
+    private func reportActive() {
+        onActiveChange?(focused || !completer.results.isEmpty || parsedTarget != nil)
     }
 
     private struct ResolvedTarget {

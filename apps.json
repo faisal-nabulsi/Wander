@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "75",
+      "buildVersion": "76",
       "versionDate": "2026-07-18",
-      "versionDescription": "Offline map: you can now pan freely with a pin selected — it no longer snaps back to the pin when you drag away (airplane mode / no signal).",
+      "versionDescription": "Teleport screen fixes: the weather/time-zone card now hides while you're searching (it was covering the top search result), and the placement crosshair is lifted above the controls card so it's no longer hidden behind it — the drop point follows the crosshair.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17048066,
+      "size": 17056441,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "75",
+          "buildVersion": "76",
           "date": "2026-07-18",
-          "localizedDescription": "Offline map: you can now pan freely with a pin selected — it no longer snaps back to the pin when you drag away (airplane mode / no signal).",
+          "localizedDescription": "Teleport screen fixes: the weather/time-zone card now hides while you're searching (it was covering the top search result), and the placement crosshair is lifted above the controls card so it's no longer hidden behind it — the drop point follows the crosshair.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17048066,
+          "size": 17056441,
           "minOSVersion": "17.0"
         }
       ],

@@ -865,6 +865,11 @@ struct LocationSimulationView: View {
     @State private var showCoordinateImporter = false
     @State private var streetViewTarget: CoordinateSnapshot?
     @State private var showOfflineMaps = false
+    // True while the address search is focused / showing results — hides the floating top card.
+    @State private var searchActive = false
+    /// Lift the placement crosshair this fraction of the SCREEN above centre so the bottom controls
+    /// card can't cover it. The reported drop point (`visibleCenter`) is shifted north to match.
+    private let crosshairLift: CGFloat = 0.14
     // Region for the offline (cached-tile) map shown automatically when the device has no network.
     @State private var offlineRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 0, longitude: 0),
@@ -1060,7 +1065,10 @@ struct LocationSimulationView: View {
                 MapCompass()
             }
             .onMapCameraChange(frequency: .continuous) { context in
-                visibleCenter = context.region.center
+                // Report the point UNDER the lifted crosshair (shifted north), not the map centre.
+                visibleCenter = CLLocationCoordinate2D(
+                    latitude: context.region.center.latitude + crosshairLift * context.region.span.latitudeDelta,
+                    longitude: context.region.center.longitude)
                 // Warm the offline cache for the area being viewed. Debounced (wait for the camera to
                 // settle), online-only, and only when zoomed to neighbourhood/city level so a wide
                 // view can't queue thousands of tiles. Skips already-cached tiles, so it's cheap.
@@ -1093,7 +1101,10 @@ struct LocationSimulationView: View {
             region: $offlineRegion,
             cacheOnly: false,
             onRegionChange: { region in
-                visibleCenter = region.center
+                // Point under the lifted crosshair (shifted north), matching the online map.
+                visibleCenter = CLLocationCoordinate2D(
+                    latitude: region.center.latitude + crosshairLift * region.span.latitudeDelta,
+                    longitude: region.center.longitude)
                 // Track the user's pan. Without this, offlineRegion stays pinned to the selected
                 // coordinate, and the visibleCenter re-render makes updateUIView re-apply it —
                 // snapping the map back to the pin every time you tried to pan away while offline.
@@ -1118,7 +1129,10 @@ struct LocationSimulationView: View {
                 }
             }
                 .overlay(alignment: .center) {
-                    if !hasRouteContext && !hasActiveSimulation { MapCrosshair() }
+                    if !hasRouteContext && !hasActiveSimulation {
+                        MapCrosshair()
+                            .offset(y: -UIScreen.main.bounds.height * crosshairLift)
+                    }
                 }
                 .ignoresSafeArea()
                 .onChange(of: coordinate.map(CoordinateSnapshot.init)) { _, new in
@@ -1141,10 +1155,10 @@ struct LocationSimulationView: View {
                         if !hasRouteContext {
                             AddressSearchBar(
                                 placeholder: "Search, coordinates, or Plus Code",
-                                mapCenter: visibleCenter
-                            ) { coord, _ in
-                                applySelection(coord)
-                            }
+                                mapCenter: visibleCenter,
+                                onPick: { coord, _ in applySelection(coord) },
+                                onActiveChange: { searchActive = $0 }
+                            )
 
                             nlTeleportBar
                         }
@@ -1170,12 +1184,18 @@ struct LocationSimulationView: View {
                         .padding(.top, 8)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
-                LocationInfoCard(service: locationInfo)
-                    .padding(.top, reachability.isOnline ? 8 : 0)
+                // Hide the floating info card while searching — the results list grows up from the
+                // bottom card and would otherwise slide underneath it, hiding the top result.
+                if !searchActive {
+                    LocationInfoCard(service: locationInfo)
+                        .padding(.top, reachability.isOnline ? 8 : 0)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 Spacer(minLength: 0)
             }
             .animation(.easeInOut(duration: 0.25), value: locationInfo.info)
             .animation(.easeInOut(duration: 0.25), value: reachability.isOnline)
+            .animation(.easeInOut(duration: 0.2), value: searchActive)
 
             VStack(spacing: 0) {
                 HStack {

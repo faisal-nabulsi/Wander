@@ -1,6 +1,6 @@
 {
-  "build": 75,
+  "build": 76,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Offline map: you can now pan freely with a pin selected — it no longer snaps back to the pin when you drag away (airplane mode / no signal)."
+  "notes": "Teleport screen fixes: the weather/time-zone card now hides while you're searching (it was covering the top search result), and the placement crosshair is lifted above the controls card so it's no longer hidden behind it — the drop point follows the crosshair."
 }
