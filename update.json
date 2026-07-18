@@ -1,6 +1,6 @@
 {
-  "build": 81,
+  "build": 82,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Placement crosshair no longer hidden behind the controls card (centers in the open map)"
+  "notes": "Offline map now loads on the main screen — teleport, route & joystick work offline (even with LocalDevVPN on Airplane Mode)"
 }

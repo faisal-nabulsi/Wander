@@ -51,8 +51,20 @@ final class NetworkReachability: ObservableObject {
     /// `isOnlineSnapshot`). Lets the spoof-start funnel decide synchronously without hopping.
     nonisolated(unsafe) private(set) static var isOnCellularSnapshot: Bool = false
 
+    /// True only when the device has ACTUAL internet — not merely a "satisfied" network path.
+    /// NWPathMonitor reports Wander's own LocalDevVPN loopback tunnel as satisfied even on Airplane
+    /// Mode (no cellular/Wi-Fi), which would otherwise keep the online (Apple) map selected and blank
+    /// it. We confirm real reachability with a tiny probe and drive the offline (cached-tile) map off
+    /// this flag, so the main map stays usable — and spoofable — offline. Starts optimistic (`true`)
+    /// so we never flash the offline map before the first probe returns.
+    @Published private(set) var hasInternet: Bool = true
+    nonisolated(unsafe) private(set) static var hasInternetSnapshot: Bool = true
+
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.wander.reachability")
+    private var probeTask: Task<Void, Never>?
+    private var periodicProbeTask: Task<Void, Never>?
+    private var probeFailStreak = 0
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -63,12 +75,63 @@ final class NetworkReachability: ObservableObject {
                 && !path.usesInterfaceType(.wifi)
             NetworkReachability.isOnlineSnapshot = online
             NetworkReachability.isOnCellularSnapshot = onCellular
+            // No path at all → definitely no internet; reflect it immediately (no probe needed).
+            if !online { NetworkReachability.hasInternetSnapshot = false }
             Task { @MainActor in
                 guard let self else { return }
                 if self.isOnline != online { self.isOnline = online }
                 if self.isOnCellular != onCellular { self.isOnCellular = onCellular }
+                self.refreshHasInternet(pathSatisfied: online)
             }
         }
         monitor.start(queue: queue)
+        // Re-verify periodically so a transient probe failure — or internet returning/dropping
+        // WITHOUT a path change (captive portal, router WAN loss) — self-corrects. Task.sleep pauses
+        // while the app is suspended, so this only runs while the app is actually active.
+        periodicProbeTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                await self?.refreshHasInternet(pathSatisfied: NetworkReachability.isOnlineSnapshot)
+            }
+        }
+    }
+
+    /// Confirm ACTUAL internet with a tiny probe when the path is satisfied (a satisfied path can be
+    /// a VPN-only tunnel with no real connectivity — Wander's LocalDevVPN on Airplane Mode). Re-runs
+    /// on every path change, so toggling Airplane Mode / Wi-Fi updates the flag promptly.
+    @MainActor private func refreshHasInternet(pathSatisfied: Bool) {
+        probeTask?.cancel()
+        guard pathSatisfied else { probeFailStreak = 0; setHasInternet(false); return }
+        probeTask = Task { [weak self] in
+            let ok = await Self.probeInternet()
+            if Task.isCancelled { return }
+            await MainActor.run { self?.applyProbe(ok) }
+        }
+    }
+
+    /// Success flips us online immediately; require TWO consecutive failures before switching a
+    /// path-satisfied device to offline, so a single transient probe blip can't yank an online user
+    /// onto the cached map.
+    @MainActor private func applyProbe(_ ok: Bool) {
+        if ok { probeFailStreak = 0; setHasInternet(true) }
+        else { probeFailStreak += 1; if probeFailStreak >= 2 { setHasInternet(false) } }
+    }
+
+    @MainActor private func setHasInternet(_ value: Bool) {
+        NetworkReachability.hasInternetSnapshot = value
+        if hasInternet != value { hasInternet = value }
+    }
+
+    /// Lightweight reachability probe to Apple's captive-portal endpoint (built for exactly this,
+    /// fast, no auth). A LocalDevVPN-only path on Airplane Mode fails it; real Wi-Fi/cellular passes.
+    private static func probeInternet() async -> Bool {
+        var req = URLRequest(url: URL(string: "https://captive.apple.com/hotspot-detect.html")!,
+                             cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 4)
+        req.setValue("Wander", forHTTPHeaderField: "User-Agent")
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return false }
+            return String(data: data, encoding: .utf8)?.contains("Success") ?? !data.isEmpty
+        } catch { return false }
     }
 }

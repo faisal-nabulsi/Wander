@@ -1092,7 +1092,7 @@ struct LocationSimulationView: View {
                 tilePrefetchTask = Task {
                     try? await Task.sleep(nanoseconds: 1_500_000_000)
                     if Task.isCancelled { return }
-                    guard await MainActor.run(body: { NetworkReachability.shared.isOnline }) else { return }
+                    guard await MainActor.run(body: { NetworkReachability.shared.hasInternet }) else { return }
                     let span = region.span.longitudeDelta
                     guard span > 0, span < 0.12 else { return }
                     let z = max(11, min(OfflineTileStore.maxZoomCap, Int((log2(540.0 / span)).rounded())))
@@ -1137,10 +1137,10 @@ struct LocationSimulationView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             Group {
-                if reachability.isOnline {
+                if reachability.hasInternet {
                     onlineMap
                 } else {
-                    offlineMap
+                    offlineMap   // real internet unreachable (incl. Airplane Mode + LocalDevVPN) → cached CARTO, still spoofable
                 }
             }
                 .overlay(alignment: .center) {

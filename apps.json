@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "81",
+      "buildVersion": "82",
       "versionDate": "2026-07-18",
-      "versionDescription": "Placement crosshair no longer hidden behind the controls card (centers in the open map)",
+      "versionDescription": "Offline map now loads on the main screen — teleport, route & joystick work offline (even with LocalDevVPN on Airplane Mode)",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17123753,
+      "size": 17122273,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "81",
+          "buildVersion": "82",
           "date": "2026-07-18",
-          "localizedDescription": "Placement crosshair no longer hidden behind the controls card (centers in the open map)",
+          "localizedDescription": "Offline map now loads on the main screen — teleport, route & joystick work offline (even with LocalDevVPN on Airplane Mode)",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17123753,
+          "size": 17122273,
           "minOSVersion": "17.0"
         }
       ],

@@ -61,8 +61,9 @@ final class WanderTileOverlay: MKTileOverlay {
         }
 
         // 2. Offline (or forced cache-only): hand back a blank tile, quietly.
-        //    Use the nonisolated snapshot — loadTile runs off the main actor.
-        if cacheOnly || !NetworkReachability.isOnlineSnapshot {
+        //    Use the nonisolated snapshot — loadTile runs off the main actor. `hasInternet` (not the
+        //    raw path flag) so a doomed fetch isn't attempted on Airplane Mode + LocalDevVPN.
+        if cacheOnly || !NetworkReachability.hasInternetSnapshot {
             result(Self.blankTile, nil)
             return
         }
