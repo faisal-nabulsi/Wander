@@ -55,14 +55,20 @@ struct OfflineMapView: UIViewRepresentable {
 
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.parent = self
-        // Keep the overlay's offline mode in sync with the toggle.
+        // Keep the overlay's offline mode in sync with the toggle. Swap in a FRESH overlay instance
+        // rather than flipping the flag on the existing one: MapKit keeps the tiles it already
+        // rendered online and won't re-request them for the same overlay object (even after a
+        // remove/re-add), so the toggle looked like it did nothing. A brand-new instance forces
+        // MapKit to call loadTile for every visible tile again — which now returns a blank tile for
+        // anything not in the offline cache, so you actually see your offline coverage.
         if context.coordinator.overlay?.cacheOnly != cacheOnly {
-            context.coordinator.overlay?.cacheOnly = cacheOnly
-            // Force a re-render so blank/real tiles swap when the mode flips.
-            if let overlay = context.coordinator.overlay {
-                mapView.removeOverlay(overlay)
-                mapView.addOverlay(overlay, level: .aboveLabels)
+            if let old = context.coordinator.overlay {
+                mapView.removeOverlay(old)
             }
+            let fresh = WanderTileOverlay()
+            fresh.cacheOnly = cacheOnly
+            mapView.addOverlay(fresh, level: .aboveLabels)
+            context.coordinator.overlay = fresh
         }
 
         // Re-center only when the parent moved the region meaningfully (avoids fighting the
