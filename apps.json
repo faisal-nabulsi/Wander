@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "80",
+      "buildVersion": "81",
       "versionDate": "2026-07-18",
-      "versionDescription": "Fixes 'Simulation Failed (error 3)': if your device's developer image isn't mounted (common for LocalDevVPN users, especially after a restart), the app now mounts it automatically and retries — instead of just failing. Plus: dark-mode buttons are visible again, and the cellular fix order is corrected (connect LocalDevVPN first, then Airplane Mode).",
+      "versionDescription": "Placement crosshair no longer hidden behind the controls card (centers in the open map)",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17111799,
+      "size": 17123753,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "80",
+          "buildVersion": "81",
           "date": "2026-07-18",
-          "localizedDescription": "Fixes 'Simulation Failed (error 3)': if your device's developer image isn't mounted (common for LocalDevVPN users, especially after a restart), the app now mounts it automatically and retries — instead of just failing. Plus: dark-mode buttons are visible again, and the cellular fix order is corrected (connect LocalDevVPN first, then Airplane Mode).",
+          "localizedDescription": "Placement crosshair no longer hidden behind the controls card (centers in the open map)",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17111799,
+          "size": 17123753,
           "minOSVersion": "17.0"
         }
       ],

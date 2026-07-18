@@ -867,9 +867,24 @@ struct LocationSimulationView: View {
     @State private var showOfflineMaps = false
     // True while the address search is focused / showing results — hides the floating top card.
     @State private var searchActive = false
-    /// Lift the placement crosshair this fraction of the SCREEN above centre so the bottom controls
-    /// card can't cover it. The reported drop point (`visibleCenter`) is shifted north to match.
-    private let crosshairLift: CGFloat = 0.14
+    /// Global Y of the bottom controls card's TOP edge (measured live). The card's height varies by
+    /// mode (teleport vs route vs simulating), and the tab bar + safe-area sit below it, so a fixed
+    /// lift fraction can't reliably clear it — we measure the card top and centre the crosshair in
+    /// the open map region above it.
+    @State private var controlsCardTopY: CGFloat = 0
+    /// Fraction of the SCREEN to lift the placement crosshair above centre so the bottom controls
+    /// card can't cover it. Derived so the crosshair lands at the MIDPOINT between the top of the
+    /// screen and the card's top edge; `visibleCenter` is shifted north by the SAME fraction to match.
+    private var crosshairLift: CGFloat {
+        let h = UIScreen.main.bounds.height
+        guard h > 0, controlsCardTopY > 0, controlsCardTopY < h else { return 0.14 }  // default until measured
+        return min(0.34, max(0.10, (h - controlsCardTopY) / (2 * h)))
+    }
+    /// Reports the controls card's top-edge Y (global space) up to `body` so `crosshairLift` adapts.
+    private struct ControlsCardTopKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+    }
     // Region for the offline (cached-tile) map shown automatically when the device has no network.
     @State private var offlineRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 0, longitude: 0),
@@ -1176,6 +1191,12 @@ struct LocationSimulationView: View {
                     }
                     .hugScrollCard(maxHeight: UIScreen.main.bounds.height * 0.5)
                 }
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: ControlsCardTopKey.self,
+                                               value: geo.frame(in: .global).minY)
+                    }
+                )
             }
 
             VStack(spacing: 6) {
@@ -1207,6 +1228,7 @@ struct LocationSimulationView: View {
                 Spacer(minLength: 0)
             }
         }
+        .onPreferenceChange(ControlsCardTopKey.self) { controlsCardTopY = $0 }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarLeading) {
