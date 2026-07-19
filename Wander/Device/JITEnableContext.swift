@@ -55,6 +55,14 @@ final class JITEnableContext {
             .urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("idevice_log.txt")
 
+        // Rotate at launch: the FFI logger only ever APPENDS to this file, so over weeks of use it
+        // would grow unbounded and eat a power user's storage. Above a 5 MB cap, drop it so a fresh,
+        // bounded log starts. (Bug-report diagnostics use the in-memory LogManager, not this file.)
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: logURL.path),
+           let size = (attrs[.size] as? NSNumber)?.int64Value, size > 5_000_000 {
+            try? FileManager.default.removeItem(at: logURL)
+        }
+
         var path = Array(logURL.path.utf8CString)
         path.withUnsafeMutableBufferPointer { buffer in
             _ = idevice_init_logger(Info, Debug, buffer.baseAddress)

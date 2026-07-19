@@ -1,6 +1,6 @@
 {
-  "build": 89,
+  "build": 90,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Bug reports now attach a recent diagnostic log (connection & error events, with coordinates stripped) so support can actually see what went wrong instead of guessing — no more back-and-forth to reproduce a stuck setup."
+  "notes": "Pro multi-device sync now covers your saved ROUTES too (builder + recorded), not just places — turn it on in Settings and your route library merges across your iPhone, iPad, and other devices. Same safe additive merge: routes are only ever added, never deleted. Plus the developer log file is now size-capped."
 }

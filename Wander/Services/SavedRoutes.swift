@@ -32,28 +32,47 @@ struct SavedRoute: Identifiable, Codable {
     /// builder routes. When present it parallels `points` one-for-one so replay can
     /// reproduce the recorded timing.
     var timestamps: [Double]? = nil
+    /// Last-modified time — drives multi-device sync conflict resolution (newest wins). `nil` on
+    /// routes saved before sync existed; those are treated as oldest and stamped on first push.
+    var updatedAt: Date? = nil
 
-    init(id: UUID = UUID(), name: String, points: [[Double]], timestamps: [Double]? = nil) {
+    init(id: UUID = UUID(), name: String, points: [[Double]], timestamps: [Double]? = nil, updatedAt: Date? = nil) {
         self.id = id
         self.name = name
         self.points = points
         self.timestamps = timestamps
+        self.updatedAt = updatedAt
     }
 
-    init(id: UUID = UUID(), name: String, coordinates: [CLLocationCoordinate2D], timestamps: [Double]? = nil) {
+    init(id: UUID = UUID(), name: String, coordinates: [CLLocationCoordinate2D], timestamps: [Double]? = nil, updatedAt: Date? = nil) {
         self.id = id
         self.name = name
         self.points = coordinates.map { [$0.latitude, $0.longitude] }
         self.timestamps = timestamps
+        self.updatedAt = updatedAt
     }
 
-    // Custom decode so routes saved by older builds (no `timestamps` key) still load.
+    // Custom decode so routes saved by older builds (no `timestamps`/`updatedAt` key) still load.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try c.decode(String.self, forKey: .name)
         points = try c.decode([[Double]].self, forKey: .points)
         timestamps = try c.decodeIfPresent([Double].self, forKey: .timestamps)
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
+    }
+
+    /// Stable cross-device identity for the sync merge: lowercased name + point count + first/last
+    /// coordinate (rounded ~5 decimals). Two devices that saved "the same" route collapse to one row.
+    /// MUST stay byte-identical to the Android/desktop key or sync silently transfers nothing.
+    var routeSyncKey: String {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        func r(_ v: Double) -> Double { (v * 100_000).rounded() / 100_000 }
+        let first = points.first ?? [0, 0]
+        let last = points.last ?? [0, 0]
+        let lat0 = first.count > 0 ? r(first[0]) : 0, lng0 = first.count > 1 ? r(first[1]) : 0
+        let latN = last.count > 0 ? r(last[0]) : 0, lngN = last.count > 1 ? r(last[1]) : 0
+        return String(format: "%@|%d|%.5f|%.5f|%.5f|%.5f", n, points.count, lat0, lng0, latN, lngN)
     }
 
     /// Waypoints as coordinates, skipping any malformed pairs.
@@ -90,7 +109,7 @@ final class SavedRoutesStore: ObservableObject {
     func add(name: String, coordinates: [CLLocationCoordinate2D]) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalName = trimmed.isEmpty ? "Route \(routes.count + 1)" : trimmed
-        routes.insert(SavedRoute(name: finalName, coordinates: coordinates), at: 0)
+        routes.insert(SavedRoute(name: finalName, coordinates: coordinates, updatedAt: Date()), at: 0)
         persist()
     }
 
@@ -100,7 +119,7 @@ final class SavedRoutesStore: ObservableObject {
     func addRecorded(name: String, coordinates: [CLLocationCoordinate2D], timestamps: [Double]) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalName = trimmed.isEmpty ? "Recording \(routes.count + 1)" : trimmed
-        routes.insert(SavedRoute(name: finalName, coordinates: coordinates, timestamps: timestamps), at: 0)
+        routes.insert(SavedRoute(name: finalName, coordinates: coordinates, timestamps: timestamps, updatedAt: Date()), at: 0)
         persist()
     }
 

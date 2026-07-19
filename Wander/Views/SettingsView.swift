@@ -31,6 +31,7 @@ struct SettingsView: View {
     @AppStorage(LocationPrivacyKeys.approximateLocation) private var approximateLocation = false
     @AppStorage("appearance") private var appearanceRaw = AppearanceMode.system.rawValue
     @AppStorage(SavedPlacesSync.enabledKey) private var syncPlacesEnabled = false
+    @AppStorage(SavedRoutesSync.enabledKey) private var syncRoutesEnabled = false
     @StateObject private var tunnel = WanderTunnel.shared
 
     @State private var isShowingPairingFilePicker = false
@@ -479,6 +480,7 @@ struct SettingsView: View {
                 showProSignIn = false
                 // Signed in + Pro → if the toggle is on, kick an immediate first sync.
                 SavedPlacesSync.shared.syncIfEnabled()
+                SavedRoutesSync.shared.syncIfEnabled()
             })
         }
         .sheet(isPresented: $showManageDevices) {
@@ -565,7 +567,15 @@ struct SettingsView: View {
                 }
                 .tint(Wander.brand)
 
-                if syncPlacesEnabled {
+                Toggle(isOn: $syncRoutesEnabled) {
+                    Label("Sync routes across devices", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                }
+                .onChange(of: syncRoutesEnabled) { _, isOn in
+                    if isOn { SavedRoutesSync.shared.syncIfEnabled() }
+                }
+                .tint(Wander.brand)
+
+                if syncPlacesEnabled || syncRoutesEnabled {
                     if proAccount.isSignedIn {
                         Label("Signed in as \(proAccount.email ?? "your Wander account")",
                               systemImage: "checkmark.circle.fill")
@@ -590,8 +600,8 @@ struct SettingsView: View {
             Text("Sync")
         } footer: {
             Text(license.isLicensed
-                 ? "When on, your saved places are mirrored to your Wander account and merged across your devices. Places are only ever added — nothing is deleted from any device. Off by default."
-                 : "Wander Pro syncs your saved places across all your devices. Places are only ever added, never deleted.")
+                 ? "When on, your saved places and routes are mirrored to your Wander account and merged across your devices — only ever added, nothing deleted from any device. Off by default."
+                 : "Wander Pro syncs your saved places and routes across all your devices. They're only ever added, never deleted.")
         }
     }
 
