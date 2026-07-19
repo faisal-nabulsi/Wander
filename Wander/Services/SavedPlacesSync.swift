@@ -114,13 +114,16 @@ final class SavedPlacesSync: ObservableObject {
     ///   present locally, plus keys where the local copy is strictly newer than remote.
     static func union(local: [LocationBookmark],
                       remote: [LocationBookmark]) -> (merged: [LocationBookmark], toPush: [LocationBookmark]) {
-        var remoteByKey: [String: LocationBookmark] = [:]
-        for r in remote { remoteByKey[r.syncKey] = r }   // last wins if remote has dupes
+        // Group remote records by key — a key can legitimately hold MORE THAN ONE record (two pins
+        // that happen to share name + rounded coords). The old `[key: record]` map kept only the last,
+        // so any remote duplicate under a key that ALSO existed locally was silently dropped on merge.
+        // Grouping preserves them, mirroring the local side's "never collapse two records" guarantee. (#12)
+        var remoteByKey: [String: [LocationBookmark]] = [:]
+        for r in remote { remoteByKey[r.syncKey, default: []].append(r) }
 
         var merged: [LocationBookmark] = []
         var toPush: [LocationBookmark] = []
-        var localKeys = Set<String>()
-        var reconciledKeys = Set<String>()   // keys already reconciled against remote / pushed once
+        var reconciledKeys = Set<String>()   // local keys whose remote group we've already consumed
 
         // Keep EVERY local place — never collapse two records that happen to share a syncKey
         // (name + rounded coords). Dropping one here was a silent data-loss bug: opting in on a
@@ -128,27 +131,35 @@ final class SavedPlacesSync: ObservableObject {
         // `merged` is therefore always a SUPERSET of local, so a write-back can never shrink it.
         for l in local {
             let key = l.syncKey
-            localKeys.insert(key)
             if reconciledKeys.contains(key) {
                 merged.append(l)                 // a further local record with the same key → keep it, don't re-push
                 continue
             }
             reconciledKeys.insert(key)
-            if let r = remoteByKey[key] {
-                // Same place on both sides → newest updatedAt wins; a missing date is oldest.
-                if newer(l, than: r) {
-                    merged.append(l)
-                    toPush.append(l)             // local is newer → push our copy up
-                } else {
-                    merged.append(r)             // remote metadata newer → adopt it (same place)
-                }
-            } else {
+            let group = remoteByKey[key] ?? []
+            if group.isEmpty {
                 merged.append(l)
                 toPush.append(l)                 // local-only → keep it and push it up
+                continue
             }
+            // The NEWEST remote record under this key represents "the same place" remotely; pick it
+            // by index so we never depend on `id` uniqueness.
+            var newestIdx = 0
+            for i in 1..<group.count where newer(group[i], than: group[newestIdx]) { newestIdx = i }
+            let rNewest = group[newestIdx]
+            if newer(l, than: rNewest) {
+                merged.append(l)
+                toPush.append(l)                 // local is newer → push our copy up
+            } else {
+                merged.append(rNewest)           // remote metadata newer → adopt it (same place)
+            }
+            // Preserve any OTHER remote records under this key (genuine remote-side duplicates) so the
+            // merge can't delete them just because the key also exists locally.
+            for (i, r) in group.enumerated() where i != newestIdx { merged.append(r) }
         }
-        // Add remote-only places (keys never seen locally) so they appear on this device.
-        for r in remote where !localKeys.contains(r.syncKey) {
+        // Add remote-only places (keys never seen locally) so they appear on this device — keeping
+        // EVERY record per key, not just one.
+        for r in remote where !reconciledKeys.contains(r.syncKey) {
             merged.append(r)
         }
         return (merged, toPush)

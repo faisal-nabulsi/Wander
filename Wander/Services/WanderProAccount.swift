@@ -61,6 +61,12 @@ final class WanderProAccount: ObservableObject {
     private var refreshToken: String?
     private var uid: String?
 
+    /// Bumped on every sign-out (and account delete). A background refresh/entitlement task started
+    /// under an old generation checks this before persisting or applying its result — so a token
+    /// refresh whose network call was in flight when the user signed out can't resurrect the cleared
+    /// session (re-persisting uid/refresh) or silently re-enable Pro after sign-out.
+    private var sessionGeneration = 0
+
     private enum Key {
         static let uid = "wander.account.uid"
         static let email = "wander.account.email"
@@ -616,6 +622,7 @@ final class WanderProAccount: ObservableObject {
     @discardableResult
     func refreshIfNeeded() async -> Bool {
         guard let refreshToken else { return false }
+        let gen = sessionGeneration
 
         let url = URL(string: "https://securetoken.googleapis.com/v1/token?key=\(Self.apiKey)")!
         var req = URLRequest(url: url, timeoutInterval: 20)
@@ -626,9 +633,24 @@ final class WanderProAccount: ObservableObject {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: req)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200,
-                  let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            // If the user signed out (or the session otherwise changed) while this call was in flight,
+            // discard the result — applying it would re-persist the just-cleared uid/refresh token and
+            // resurrect the signed-out session. (#19)
+            guard sessionGeneration == gen else { return false }
+            guard let http = response as? HTTPURLResponse else { return false }
+
+            // A 400 from securetoken means the refresh token itself is permanently dead — revoked,
+            // the account was disabled, the password changed, or long inactivity. This is NOT a
+            // transient hiccup (those throw or 5xx), so the cached Pro flag should no longer be
+            // trusted indefinitely: sign out so the user re-authenticates, which re-reads their
+            // entitlement from scratch (a still-paid user gets Pro right back). (#34)
+            if http.statusCode == 400 {
+                signOut()
                 return false
+            }
+            guard http.statusCode == 200,
+                  let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                return false   // 5xx / unparseable → transient; keep the cached session + Pro.
             }
             // Secure-token responses are snake_case.
             if let newId = obj["id_token"] as? String { self.idToken = newId }
@@ -639,7 +661,7 @@ final class WanderProAccount: ObservableObject {
             persistSession()
             return self.idToken != nil
         } catch {
-            return false
+            return false   // transport error → transient; never downgrade a paid user offline.
         }
     }
 
@@ -796,6 +818,7 @@ final class WanderProAccount: ObservableObject {
     // MARK: - Sign out
 
     func signOut() {
+        sessionGeneration &+= 1   // invalidate any in-flight background refresh/entitlement task (#19)
         clearMfaChallenge()
         idToken = nil
         refreshToken = nil
@@ -877,14 +900,18 @@ final class WanderProAccount: ObservableObject {
 
         guard cachedRefresh != nil else { return }
 
-        // Live re-check in the background; failures preserve the cached state.
+        // Live re-check in the background; failures preserve the cached state. Capture the current
+        // session generation so a sign-out during this async chain aborts it (belt-and-suspenders
+        // with refreshIfNeeded's own guard — keeps a late entitlement read from re-enabling Pro
+        // after the user signed out). (#19)
+        let gen = sessionGeneration
         Task { [weak self] in
             guard let self else { return }
-            if await self.refreshIfNeeded() {
-                await self.fetchEntitlement()
-                // Re-register this device on launch (while online). Fail-safe: never locks out.
-                await WanderDeviceActivation.shared.activate()
-            }
+            guard await self.refreshIfNeeded(), self.sessionGeneration == gen else { return }
+            await self.fetchEntitlement()
+            guard self.sessionGeneration == gen else { return }
+            // Re-register this device on launch (while online). Fail-safe: never locks out.
+            await WanderDeviceActivation.shared.activate()
         }
     }
 

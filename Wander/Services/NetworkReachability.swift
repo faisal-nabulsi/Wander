@@ -12,10 +12,18 @@
 
 import Foundation
 import Network
+import os
 
 @MainActor
 final class NetworkReachability: ObservableObject {
     static let shared = NetworkReachability()
+
+    /// All three cross-thread snapshots live behind one lock. They're written from two contexts (the
+    /// NWPathMonitor's serial queue and the main-actor probe) and read off the main actor (the tile
+    /// queue, the spoof-start funnel). Bool reads are atomic on ARM so the prior `nonisolated(unsafe)`
+    /// was benign, but the lock makes it correct-by-construction with negligible cost on the readers.
+    private struct Snapshots: Sendable { var online = true; var cellular = false; var hasInternet = true }
+    private static let snapshotLock = OSAllocatedUnfairLock(initialState: Snapshots())
 
     /// True once the monitor has seen a satisfied path. Starts `true` so we never flash an
     /// "Offline" hint during the brief moment before the first path update arrives.
@@ -45,11 +53,11 @@ final class NetworkReachability: ObservableObject {
     /// A nonisolated, thread-safe mirror of `isOnline` for callers that run off the main actor
     /// (e.g. `WanderTileOverlay.loadTile`, invoked on a background tile-loading queue) and can't
     /// hop to the main actor synchronously. Kept in sync from the same path-update handler.
-    nonisolated(unsafe) private(set) static var isOnlineSnapshot: Bool = true
+    nonisolated static var isOnlineSnapshot: Bool { snapshotLock.withLock { $0.online } }
 
     /// Nonisolated mirror of `isOnCellular` for off-main-actor reads (same rationale as
     /// `isOnlineSnapshot`). Lets the spoof-start funnel decide synchronously without hopping.
-    nonisolated(unsafe) private(set) static var isOnCellularSnapshot: Bool = false
+    nonisolated static var isOnCellularSnapshot: Bool { snapshotLock.withLock { $0.cellular } }
 
     /// True only when the device has ACTUAL internet — not merely a "satisfied" network path.
     /// NWPathMonitor reports Wander's own LocalDevVPN loopback tunnel as satisfied even on Airplane
@@ -58,7 +66,7 @@ final class NetworkReachability: ObservableObject {
     /// this flag, so the main map stays usable — and spoofable — offline. Starts optimistic (`true`)
     /// so we never flash the offline map before the first probe returns.
     @Published private(set) var hasInternet: Bool = true
-    nonisolated(unsafe) private(set) static var hasInternetSnapshot: Bool = true
+    nonisolated static var hasInternetSnapshot: Bool { snapshotLock.withLock { $0.hasInternet } }
 
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.wander.reachability")
@@ -73,10 +81,12 @@ final class NetworkReachability: ObservableObject {
             let onCellular = online
                 && path.usesInterfaceType(.cellular)
                 && !path.usesInterfaceType(.wifi)
-            NetworkReachability.isOnlineSnapshot = online
-            NetworkReachability.isOnCellularSnapshot = onCellular
-            // No path at all → definitely no internet; reflect it immediately (no probe needed).
-            if !online { NetworkReachability.hasInternetSnapshot = false }
+            NetworkReachability.snapshotLock.withLock {
+                $0.online = online
+                $0.cellular = onCellular
+                // No path at all → definitely no internet; reflect it immediately (no probe needed).
+                if !online { $0.hasInternet = false }
+            }
             Task { @MainActor in
                 guard let self else { return }
                 if self.isOnline != online { self.isOnline = online }
@@ -121,7 +131,7 @@ final class NetworkReachability: ObservableObject {
     }
 
     @MainActor private func setHasInternet(_ value: Bool) {
-        NetworkReachability.hasInternetSnapshot = value
+        NetworkReachability.snapshotLock.withLock { $0.hasInternet = value }
         if hasInternet != value { hasInternet = value }
     }
 

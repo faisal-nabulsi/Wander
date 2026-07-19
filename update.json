@@ -1,6 +1,6 @@
 {
-  "build": 86,
+  "build": 87,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Hardening: free-trial limits can't be reset by changing the clock; the updater won't hang on a stalled download (+ low-space check); the offline tile cache is now size-capped; clearing a place's note/folder now syncs; a tunnel reconnect no longer dismisses an open 2FA prompt"
+  "notes": "Reliability polish for sign-in: an offline launch no longer forces a full re-sign-in, a background token refresh can't get cancelled by an unattended one, and a revoked/expired Apple session recovers cleanly. Cross-device place sync no longer drops duplicate pins, and clearer errors if the developer image can't mount."
 }

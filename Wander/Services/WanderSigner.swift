@@ -19,6 +19,7 @@ extension WanderAccount {
         case noPrivateKey
         case twoFactorTimedOut
         case sessionExpired
+        case networkUnavailable
         case step(String)
 
         var errorDescription: String? {
@@ -28,6 +29,7 @@ extension WanderAccount {
             case .noPrivateKey: return "Certificate came back without a usable private key."
             case .twoFactorTimedOut: return "Two-factor code wasn't entered in time."
             case .sessionExpired: return "Apple sign-in expired — sign in again."
+            case .networkUnavailable: return "Couldn't reach Apple — check your connection and try again."
             case .step(let s): return s
             }
         }

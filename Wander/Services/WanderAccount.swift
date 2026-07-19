@@ -33,7 +33,7 @@ final class WanderAccount: ObservableObject {
     private(set) var account: ALTAccount?
     private(set) var session: ALTAppleAPISession?
 
-    private var codeContinuations: [CheckedContinuation<String?, Never>] = []
+    private var codeContinuations: [(id: UUID, cont: CheckedContinuation<String?, Never>)] = []
 
     /// How long an *automatic* (non-user-initiated) refresh waits for a 2FA code before it
     /// gives up. Keeps a launch-time auto-refresh from hanging the app in a 2FA prompt the
@@ -96,7 +96,22 @@ final class WanderAccount: ObservableObject {
     /// - `false` (auto refresh): 2FA is still offered, but times out after `auto2FATimeout`
     ///   (throwing `SignError.twoFactorTimedOut`) so the app can never hang unattended in an
     ///   auth prompt. A hard auth failure (bad/expired credentials) throws `SignError.sessionExpired`.
+    /// In-flight de-dup: self-refresh and the OTA auto-installer can BOTH call this within the same
+    /// launch. Without this, each would run its own full re-auth → two racing sessions and, worse,
+    /// two 2FA prompts. Concurrent callers now share one attempt.
+    private var authInFlight: Task<(ALTAccount, ALTAppleAPISession), Error>?
+
     func ensureAuthenticated(interactive: Bool = true) async throws -> (ALTAccount, ALTAppleAPISession) {
+        if let account, let session { return (account, session) }
+        if let inFlight = authInFlight { return try await inFlight.value }
+
+        let task = Task { try await self.performEnsureAuthenticated(interactive: interactive) }
+        authInFlight = task
+        defer { authInFlight = nil }
+        return try await task.value
+    }
+
+    private func performEnsureAuthenticated(interactive: Bool) async throws -> (ALTAccount, ALTAppleAPISession) {
         if let account, let session { return (account, session) }
 
         guard let creds = WanderCredentialStore.loadCredentials() else {
@@ -104,10 +119,18 @@ final class WanderAccount: ObservableObject {
         }
 
         // Cached token first — zero prompts while Apple still honors it.
-        if let cache = WanderCredentialStore.loadSessionCache(),
-           await adoptCachedSession(email: creds.email, dsid: cache.dsid, authToken: cache.authToken),
-           let account, let session {
-            return (account, session)
+        if let cache = WanderCredentialStore.loadSessionCache() {
+            switch await adoptCachedSession(email: creds.email, dsid: cache.dsid, authToken: cache.authToken) {
+            case .adopted:
+                if let account, let session { return (account, session) }
+            case .networkUnavailable:
+                // Offline: we couldn't VERIFY the token, but it's probably still fine. Do NOT clear the
+                // cache or force a password+2FA re-auth — that would discard a good token over a transient
+                // blip and lock a merely-offline user out. Surface a network error; retry when back online.
+                throw SignError.networkUnavailable
+            case .invalid:
+                break   // Apple actually rejected it → fall through to a full re-auth below.
+            }
         }
 
         // Token gone/expired → full re-auth. 2FA is interactive; in auto mode it's bounded
@@ -122,10 +145,20 @@ final class WanderAccount: ObservableObject {
         } catch let e as SignError {
             throw e   // already classified (e.g. twoFactorTimedOut)
         } catch {
-            // Cached token AND password re-auth both failed → the saved session is no longer
-            // usable. Surface a clear "re-sign-in" signal instead of a generic error.
+            // A network failure during re-auth is NOT proof the credentials are bad — don't nuke the
+            // saved session over it. Only a definitive rejection means "sign in again".
+            if Self.isNetworkError(error) { throw SignError.networkUnavailable }
+            // Cached token AND password re-auth both failed for a non-network reason → the saved
+            // session is no longer usable. Surface a clear "re-sign-in" signal.
             throw SignError.sessionExpired
         }
+    }
+
+    /// True for offline/transport failures (as opposed to an actual Apple auth rejection). Used so a
+    /// network blip never discards a valid cached token.
+    static func isNetworkError(_ error: Error) -> Bool {
+        if error is URLError { return true }
+        return (error as NSError).domain == NSURLErrorDomain
     }
 
     // MARK: - Sign out
@@ -154,27 +187,41 @@ final class WanderAccount: ObservableObject {
         // single-slot version OVERWROTE the pending continuation → dropped it unresumed → a hard
         // "leaked its continuation" crash (for some accounts) or the prompt vanishing before the code
         // could be entered (for others). Same root bug, two faces.
+        let id = UUID()
         let code = await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
-            self.codeContinuations.append(continuation)
+            self.codeContinuations.append((id, continuation))
             self.awaiting2FA = true
             if let timeout {
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                    // Auto-refresh only: bound the wait so the app can't hang. A delivered code has
-                    // already emptied the list, so this becomes a no-op.
-                    if !self.codeContinuations.isEmpty { self.submitTwoFactorCode(nil) }
+                    // Auto-refresh only: bound the wait so the app can't hang. Cancel ONLY THIS
+                    // continuation — never a concurrent interactive prompt the user is actively
+                    // entering (the old code resumed *every* pending continuation, so an unattended
+                    // background refresh could yank the code field out from under a real sign-in).
+                    self.cancelTwoFactorContinuation(id: id)
                 }
             }
         }
         return code
     }
 
-    /// Called by the UI with the entered 6-digit code (or nil to cancel).
+    /// Resume + remove one specific pending 2FA continuation (the auto-refresh timeout path). Leaves
+    /// any other live prompt untouched, and only clears `awaiting2FA` once none remain.
+    private func cancelTwoFactorContinuation(id: UUID) {
+        guard let idx = codeContinuations.firstIndex(where: { $0.id == id }) else { return }
+        let entry = codeContinuations.remove(at: idx)
+        if codeContinuations.isEmpty { awaiting2FA = false }
+        entry.cont.resume(returning: nil)
+    }
+
+    /// Called by the UI with the entered 6-digit code (or nil to cancel). Resumes EVERY pending
+    /// continuation with the same code — AltSign can raise the verification handler more than once
+    /// for a single sign-in, and they all want the code the user just typed.
     func submitTwoFactorCode(_ code: String?) {
         awaiting2FA = false
         let pending = codeContinuations
         codeContinuations = []
-        for continuation in pending { continuation.resume(returning: code) }
+        for entry in pending { entry.cont.resume(returning: code) }
     }
 
     /// A per-context binding for the 2FA alert: true only when a code is awaited AND this context is
@@ -254,17 +301,30 @@ final class WanderAccount: ObservableObject {
         }
     }
 
+    /// Outcome of trying to reuse a cached token. `networkUnavailable` is deliberately distinct from
+    /// `invalid`: the former means "couldn't reach Apple to check" (keep the token), the latter means
+    /// "Apple rejected it" (discard + re-auth).
+    private enum CachedSessionResult { case adopted, invalid, networkUnavailable }
+
     /// Validate a cached token with one cheap authenticated call (listTeams). The request is
     /// gated only by the session, so a minimal reconstructed account is enough. Adopts the
-    /// session and returns true if it still works.
-    private func adoptCachedSession(email: String, dsid: String, authToken: String) async -> Bool {
+    /// session and returns `.adopted` if it still works; `.networkUnavailable` on a transport
+    /// failure (so the caller keeps the probably-valid token); `.invalid` on a real rejection.
+    private func adoptCachedSession(email: String, dsid: String, authToken: String) async -> CachedSessionResult {
+        // Anisette is itself a network fetch — if we can't even get it, we're offline. Token unknown.
+        let anisette: ALTAnisetteData
         do {
-            let anisette = try await WanderAnisette.fetch()
-            let sess = ALTAppleAPISession(dsid: dsid, authToken: authToken, anisetteData: anisette)
-            let acct = ALTAccount()
-            acct.appleID = email
-            acct.identifier = dsid
+            anisette = try await WanderAnisette.fetch()
+        } catch {
+            return Self.isNetworkError(error) ? .networkUnavailable : .invalid
+        }
 
+        let sess = ALTAppleAPISession(dsid: dsid, authToken: authToken, anisetteData: anisette)
+        let acct = ALTAccount()
+        acct.appleID = email
+        acct.identifier = dsid
+
+        do {
             let valid: Bool = try await withCheckedThrowingContinuation { continuation in
                 ALTAppleAPI.sharedAPI.fetchTeams(for: acct, session: sess) { teams, error in
                     if teams != nil {
@@ -274,14 +334,16 @@ final class WanderAccount: ObservableObject {
                     }
                 }
             }
-            guard valid else { return false }
+            guard valid else { return .invalid }
 
             account = acct
             session = sess
             isSignedIn = true
-            return true
+            return .adopted
         } catch {
-            return false
+            // A transport error means we couldn't VERIFY the token, not that it's bad — don't force
+            // a re-auth over it. Only a real Apple error invalidates the cached session.
+            return Self.isNetworkError(error) ? .networkUnavailable : .invalid
         }
     }
 }

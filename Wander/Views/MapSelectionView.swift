@@ -1884,6 +1884,7 @@ struct LocationSimulationView: View {
             // developer image isn't mounted yet. The built-in auto-mount only fires for Wander's OWN
             // tunnel, so LocalDevVPN users (free installs) never get it — their first teleport fails.
             // Mount it here (the DDI files are downloaded at launch), then retry the command once.
+            var mountFailure: String? = nil
             if code != 0, isPairing(), !isMounted() {
                 let mountError = mountPersonalDDI(
                     imagePath: URL.documentsDirectory.appendingPathComponent("DDI/Image.dmg").path,
@@ -1893,6 +1894,11 @@ struct LocationSimulationView: View {
                 if mountError == nil {
                     MountingProgress.shared.checkforMounted()
                     code = operation()
+                } else {
+                    // Mounting itself failed — remember why, so the alert reports the ACTUAL cause
+                    // (missing/corrupt DDI, tunnel dropped mid-mount) instead of the misleading raw
+                    // "error 3" the operation would keep returning.
+                    mountFailure = mountError
                 }
             }
             DispatchQueue.main.async {
@@ -1901,7 +1907,11 @@ struct LocationSimulationView: View {
                     onSuccess()
                 } else {
                     alertTitle = errorTitle
-                    alertMessage = errorMessage(code)
+                    if let mountFailure {
+                        alertMessage = "Your device's Developer Disk Image couldn't be mounted (\(mountFailure)). Make sure LocalDevVPN is connected, then fully reopen Wander so it can re-fetch the developer image, and try again."
+                    } else {
+                        alertMessage = errorMessage(code)
+                    }
                     showAlert = true
                 }
             }
