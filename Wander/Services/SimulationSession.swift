@@ -79,6 +79,10 @@ final class SimulationSession: ObservableObject {
     /// Global stop: clears the device location, tells every mode to reset, cancels the reminder.
     func stopAll() {
         isActive = false
+        // Suppress any already-queued resend SYNCHRONOUSLY (before the async clear below) so a
+        // stray hold re-injection can't run after the clear and re-freeze the fake location — the
+        // notification handler that stops the resend timer may land a beat later.
+        LocationSimulationCommandQueue.suppressResends = true
         NotificationCenter.default.post(name: .stopSimulationRequested, object: nil)
         LocationSimulationCommandQueue.shared.async {
             _ = clear_simulated_location()

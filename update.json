@@ -1,6 +1,6 @@
 {
-  "build": 82,
+  "build": 83,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Offline map now loads on the main screen — teleport, route & joystick work offline (even with LocalDevVPN on Airplane Mode)"
+  "notes": "Fix: Stop and the panic button now reliably revert to your real GPS (a queued 'hold' could re-freeze the fake location right after you stopped)"
 }

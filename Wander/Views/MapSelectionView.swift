@@ -1905,7 +1905,11 @@ struct LocationSimulationView: View {
     }
 
     private func clear() {
-        guard pairingExists, !isBusy else { return }
+        // ALWAYS stop re-injecting first — even if a command is in flight (isBusy) or pairing is
+        // momentarily unavailable. Previously the `!isBusy` guard could return BEFORE stopping the
+        // resend loop, leaving it re-freezing the fake location so Stop appeared to do nothing.
+        stopResendLoop()
+        guard pairingExists else { return }
         routeLoadTask?.cancel()
         routeLoadTask = nil
         routeSpeedPrefetchTask?.cancel()
@@ -1937,6 +1941,7 @@ struct LocationSimulationView: View {
 
     private func startResendLoop(with coordinate: CLLocationCoordinate2D) {
         simulatedCoordinate = coordinate
+        LocationSimulationCommandQueue.suppressResends = false   // a new hold re-enables re-injection
         resendTimer?.invalidate()
         resendTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { _ in
             guard let simulatedCoordinate else { return }
@@ -1949,12 +1954,15 @@ struct LocationSimulationView: View {
                 ? LocationJitter.apply(simulatedCoordinate)
                 : simulatedCoordinate
             LocationSimulationCommandQueue.shared.async {
+                // A Stop/Clear may have landed after this tick was queued — don't re-inject then.
+                if LocationSimulationCommandQueue.suppressResends { return }
                 _ = locationUpdateCode(for: target)
             }
         }
     }
 
     private func stopResendLoop() {
+        LocationSimulationCommandQueue.suppressResends = true   // no queued resend may re-inject now
         resendTimer?.invalidate()
         resendTimer = nil
         simulatedCoordinate = nil

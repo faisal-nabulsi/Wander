@@ -975,6 +975,17 @@ private enum LocationSimulationState {
 
 enum LocationSimulationCommandQueue {
     static let shared = DispatchQueue(label: "com.stik.location-sim", qos: .userInitiated)
+
+    /// Suppresses queued "hold"/resend re-injections while a Stop/Clear is in progress, so a resend
+    /// that was already enqueued can't run AFTER the clear and re-freeze the fake location (which made
+    /// Stop appear to do nothing). Set true synchronously by every stop path; reset false when a new
+    /// simulation starts. Lock-guarded since it's read on this queue and written on the main thread.
+    private static let suppressLock = NSLock()
+    private static var _suppressResends = false
+    static var suppressResends: Bool {
+        get { suppressLock.lock(); defer { suppressLock.unlock() }; return _suppressResends }
+        set { suppressLock.lock(); _suppressResends = newValue; suppressLock.unlock() }
+    }
 }
 
 func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Double, _ pairingFile: String) -> Int32 {
