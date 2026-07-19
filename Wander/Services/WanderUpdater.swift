@@ -89,9 +89,23 @@ final class WanderUpdater: ObservableObject {
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
 
         status = "Downloading v\(m.version)…"
-        let (tmp, response) = try await URLSession.shared.download(from: url)
+        // Bounded download: the default URLSession has NO resource timeout, so a stall on a slow or
+        // data-limited tunnel could hang the update forever with the banner stuck on "Downloading…"
+        // and isBusy pinned true. Cap the whole transfer so it fails cleanly instead.
+        let cfg = URLSessionConfiguration.default
+        cfg.timeoutIntervalForRequest = 30
+        cfg.timeoutIntervalForResource = 300
+        cfg.waitsForConnectivity = false
+        let session = URLSession(configuration: cfg)
+        let (tmp, response) = try await session.download(from: url)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw UpdateError.step("Download failed (HTTP \(http.statusCode)).")
+        }
+        // Free-space guard: the IPA has to be unzipped + re-signed, which needs headroom. Bail early
+        // with an actionable message rather than filling the disk mid-install.
+        if let free = try? URL.documentsDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            .volumeAvailableCapacityForImportantUsage, free < 300_000_000 {
+            throw UpdateError.step("Not enough free space to install the update. Free up some storage and try again.")
         }
         let ipa = work.appendingPathComponent("update.ipa")
         try? FileManager.default.removeItem(at: ipa)

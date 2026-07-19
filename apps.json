@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "85",
+      "buildVersion": "86",
       "versionDate": "2026-07-18",
-      "versionDescription": "Cross-platform saved-places sync now works between iPhone and Android (they used different field names, so places silently never transferred)",
+      "versionDescription": "Hardening: free-trial limits can't be reset by changing the clock; the updater won't hang on a stalled download (+ low-space check); the offline tile cache is now size-capped; clearing a place's note/folder now syncs; a tunnel reconnect no longer dismisses an open 2FA prompt",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17129158,
+      "size": 17137475,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "85",
+          "buildVersion": "86",
           "date": "2026-07-18",
-          "localizedDescription": "Cross-platform saved-places sync now works between iPhone and Android (they used different field names, so places silently never transferred)",
+          "localizedDescription": "Hardening: free-trial limits can't be reset by changing the clock; the updater won't hang on a stalled download (+ low-space check); the offline tile cache is now size-capped; clearing a place's note/folder now syncs; a tunnel reconnect no longer dismisses an open 2FA prompt",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17129158,
+          "size": 17137475,
           "minOSVersion": "17.0"
         }
       ],

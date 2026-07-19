@@ -266,11 +266,12 @@ final class SavedPlacesSync: ObservableObject {
             "latitude": ["doubleValue": p.latitude],
             "longitude": ["doubleValue": p.longitude],
         ]
-        if let folder = p.folder { fields["folder"] = ["stringValue": folder] }
-        if !p.tags.isEmpty {
-            fields["tags"] = ["arrayValue": ["values": p.tags.map { ["stringValue": $0] }]]
-        }
-        if let notes = p.notes { fields["notes"] = ["stringValue": notes] }
+        // Always write folder/notes/tags — using nullValue / empty when cleared — so clearing a note
+        // or folder PROPAGATES. Previously these were omitted when empty, and the merge-style PATCH
+        // left the stale remote value, which then re-synced back to the device that cleared it.
+        fields["folder"] = p.folder.map { ["stringValue": $0] } ?? ["nullValue": NSNull()]
+        fields["notes"] = p.notes.map { ["stringValue": $0] } ?? ["nullValue": NSNull()]
+        fields["tags"] = ["arrayValue": ["values": p.tags.map { ["stringValue": $0] }]]
         let iso = ISO8601DateFormatter()
         let date = p.updatedAt ?? Date()
         fields["updatedAt"] = ["timestampValue": iso.string(from: date)]

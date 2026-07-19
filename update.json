@@ -1,6 +1,6 @@
 {
-  "build": 85,
+  "build": 86,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Cross-platform saved-places sync now works between iPhone and Android (they used different field names, so places silently never transferred)"
+  "notes": "Hardening: free-trial limits can't be reset by changing the clock; the updater won't hang on a stalled download (+ low-space check); the offline tile cache is now size-capped; clearing a place's note/folder now syncs; a tunnel reconnect no longer dismisses an open 2FA prompt"
 }

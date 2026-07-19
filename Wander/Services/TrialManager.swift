@@ -79,8 +79,13 @@ final class TrialManager: ObservableObject {
     /// joystick + routes reset every UTC month. Called on init and before every read so all
     /// getters reflect the current day/month. Only writes to the Keychain when something changed.
     private func normalize() {
+        // Reset ONLY when the period advances FORWARD. yyyy-MM-dd / yyyy-MM are lexically sortable, so
+        // string `>` is chronological; using `>` (not `!=`) treats the stored key as a high-water mark
+        // and blocks the "set the clock back to farm free resets" abuse — a rewound clock yields
+        // today <= the stored key, so no reset. (A forward jump still resets but is self-penalizing:
+        // the key advances to the future, so no further resets happen until real time catches up.)
         let today = Self.currentDayKey()
-        if teleportDayKey != today {
+        if today > teleportDayKey {
             teleportDayKey = today
             teleportsUsed = 0
             WanderKeychain.set(Key.teleportDay, today)
@@ -88,7 +93,7 @@ final class TrialManager: ObservableObject {
         }
 
         let thisMonth = Self.currentMonthKey()
-        if monthKey != thisMonth {
+        if thisMonth > monthKey {
             monthKey = thisMonth
             joystickSecondsUsed = 0
             routesUsed = 0

@@ -122,6 +122,7 @@ final class OfflineTileStore {
         // auto-prefetch, so the Saved-maps list could balloon into dozens of identical entries.
         // Collapse duplicates + cap the auto cache once at launch so existing lists get cleaned up.
         migrateManifest()
+        enforceCacheCap()   // bound the cache at launch so cache-on-browse growth can't fill the disk
     }
 
     // MARK: Single-tile disk access
@@ -152,6 +153,36 @@ final class OfflineTileStore {
             return true
         } catch {
             return false
+        }
+    }
+
+    /// ~500 MB hard cap for the whole on-disk tile cache.
+    private static let maxCacheBytes: Int64 = 500_000_000
+
+    /// Keep the on-disk tile cache bounded. Cache-on-browse tiles aren't tracked in any manifest, so
+    /// without this the cache could grow without limit — only "Delete all" ever reclaimed space. When
+    /// the total exceeds maxCacheBytes, evict the OLDEST tiles (by modification date) down to ~90% of
+    /// the cap. Runs off the render path on the manifest queue.
+    func enforceCacheCap() {
+        manifestQueue.async { [weak self] in
+            guard let self else { return }
+            let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+            guard let en = self.fileManager.enumerator(at: self.rootURL, includingPropertiesForKeys: Array(keys)) else { return }
+            var files: [(url: URL, size: Int64, date: Date)] = []
+            var total: Int64 = 0
+            for case let url as URL in en {
+                guard url.pathExtension == "png",
+                      let v = try? url.resourceValues(forKeys: keys), v.isRegularFile == true else { continue }
+                let size = Int64(v.fileSize ?? 0)
+                total += size
+                files.append((url, size, v.contentModificationDate ?? .distantPast))
+            }
+            guard total > Self.maxCacheBytes else { return }
+            let target = Int64(Double(Self.maxCacheBytes) * 0.9)
+            for f in files.sorted(by: { $0.date < $1.date }) {
+                if total <= target { break }
+                if (try? self.fileManager.removeItem(at: f.url)) != nil { total -= f.size }
+            }
         }
     }
 

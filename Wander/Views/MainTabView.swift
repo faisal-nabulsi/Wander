@@ -184,9 +184,13 @@ struct MainTabView: View {
                 // attempt runs; retry the silent install the moment it connects.
                 if status == .connected {
                     // A silent auto-install re-sign runs at the root (no sheet), so claim the 2FA
-                    // prompt for the root before it can raise one — don't inherit a stale token.
-                    wanderAccount.twoFactorPresenter = .system
-                    Task { await WanderUpdater.shared.autoInstallIfAvailable() }
+                    // prompt for the root before it can raise one — but NOT while an interactive 2FA
+                    // prompt is already open, or reassigning the presenter would dismiss it mid-entry
+                    // (the "vanishing 2FA prompt" class). Skip both the claim and the install then.
+                    if !wanderAccount.awaiting2FA {
+                        wanderAccount.twoFactorPresenter = .system
+                        Task { await WanderUpdater.shared.autoInstallIfAvailable() }
+                    }
                 }
             }
             .onChange(of: updater.latestManifest?.build) { _, _ in
