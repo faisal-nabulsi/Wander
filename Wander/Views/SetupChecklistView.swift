@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import Combine
 
 @MainActor
 final class SetupChecker: ObservableObject {
@@ -18,6 +19,10 @@ final class SetupChecker: ObservableObject {
     @Published private(set) var developerMode: DeveloperModeState = .unknown
     @Published private(set) var isChecking = false
     @Published private(set) var hasRunOnce = false
+
+    /// Guards against overlapping probes independently of the `isChecking` spinner flag, so a
+    /// silent background poll can't stack on top of an in-flight check.
+    private var inFlight = false
 
     var reachable: Bool { mountState != .unreachable }
     // The image-mounter device count is unreliable for personalized DDIs on iOS 17+
@@ -35,9 +40,12 @@ final class SetupChecker: ObservableObject {
     }
     var allReady: Bool { hasPairing && mounted }
 
-    func check() {
-        guard !isChecking else { return }
-        isChecking = true
+    /// Re-probe readiness. `silent` skips the spinner (used by the auto-poll so the rows update in
+    /// place without flickering to a ProgressView every couple seconds).
+    func check(silent: Bool = false) {
+        guard !inFlight else { return }
+        inFlight = true
+        if !silent { isChecking = true }
         hasPairing = FileManager.default.fileExists(atPath: PairingFileStore.prepareURL().path)
         // These reach over the tunnel and can hang when there's no VPN, so cap them with a
         // timeout — the checklist must always resolve to a red X, never spin forever.
@@ -52,7 +60,8 @@ final class SetupChecker: ObservableObject {
             }
             self.mountState = mount
             self.developerMode = devMode
-            self.isChecking = false
+            self.inFlight = false
+            if !silent { self.isChecking = false }
             self.hasRunOnce = true
         }
     }
@@ -85,6 +94,11 @@ struct SetupChecklistView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var showPairingImporter = false
     @State private var importResult: (text: String, isError: Bool)?
+
+    /// While the sheet is open and not everything is green, re-probe on a gentle cadence so the
+    /// checklist resolves itself — the tunnel handshake and DDI mount both complete a beat AFTER
+    /// LocalDevVPN connects, so a single on-appear probe races them. Guarded to a no-op once ready.
+    private let pollTimer = Timer.publish(every: 2.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
         NavigationStack {
@@ -182,9 +196,22 @@ struct SetupChecklistView: View {
                 }
             }
             .background(Color.blue.opacity(0.07).ignoresSafeArea())
-            .onAppear { if !checker.hasRunOnce { checker.check() } }
+            .onAppear { kickTunnelIfNeeded(); checker.check() }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { checker.check() }
+                if phase == .active { kickTunnelIfNeeded(); checker.check() }
+            }
+            // Re-probe the instant Wander's own tunnel handshake completes (it comes up a beat after
+            // the LocalDevVPN route), so "Tunnel connected" flips green on its own — no manual Re-check.
+            .onReceive(TunnelManager.shared.$isConnected) { connected in
+                if connected { checker.check() }
+            }
+            // Backstop: keep re-checking (silently) while anything's still red, and nudge the tunnel
+            // up if the pairing file is present but we're not reachable yet. Resolves the DDI's
+            // "give it a moment" and self-heals if LocalDevVPN connects while Wander is foregrounded.
+            .onReceive(pollTimer) { _ in
+                guard !checker.allReady else { return }
+                kickTunnelIfNeeded()
+                checker.check(silent: true)
             }
             .fileImporter(
                 isPresented: $showPairingImporter,
@@ -193,6 +220,16 @@ struct SetupChecklistView: View {
             ) { result in
                 handleImport(result)
             }
+        }
+    }
+
+    /// If the pairing file is present but Wander's tunnel isn't up yet, (re)start it. TunnelManager
+    /// guards against duplicate/parallel starts, so calling this repeatedly is safe — it lets the
+    /// checklist bring the tunnel up (and then mount the DDI) on its own once LocalDevVPN is connected,
+    /// instead of leaving the user staring at a red "Tunnel connected" until they tap Re-check.
+    private func kickTunnelIfNeeded() {
+        if checker.hasPairing && !checker.reachable {
+            startTunnelInBackground(showErrorUI: false)
         }
     }
 

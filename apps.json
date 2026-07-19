@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "87",
+      "buildVersion": "88",
       "versionDate": "2026-07-18",
-      "versionDescription": "Reliability polish for sign-in: an offline launch no longer forces a full re-sign-in, a background token refresh can't get cancelled by an unattended one, and a revoked/expired Apple session recovers cleanly. Cross-device place sync no longer drops duplicate pins, and clearer errors if the developer image can't mount.",
+      "versionDescription": "Setup checklist now updates itself — connect LocalDevVPN and the 'Tunnel connected', Developer Disk Image, and Developer Mode rows turn green on their own (no more tapping Re-check). It also nudges the tunnel up and waits out the DDI mount for you.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17144409,
+      "size": 17158865,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "87",
+          "buildVersion": "88",
           "date": "2026-07-18",
-          "localizedDescription": "Reliability polish for sign-in: an offline launch no longer forces a full re-sign-in, a background token refresh can't get cancelled by an unattended one, and a revoked/expired Apple session recovers cleanly. Cross-device place sync no longer drops duplicate pins, and clearer errors if the developer image can't mount.",
+          "localizedDescription": "Setup checklist now updates itself — connect LocalDevVPN and the 'Tunnel connected', Developer Disk Image, and Developer Mode rows turn green on their own (no more tapping Re-check). It also nudges the tunnel up and waits out the DDI mount for you.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17144409,
+          "size": 17158865,
           "minOSVersion": "17.0"
         }
       ],

@@ -1,6 +1,6 @@
 {
-  "build": 87,
+  "build": 88,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Reliability polish for sign-in: an offline launch no longer forces a full re-sign-in, a background token refresh can't get cancelled by an unattended one, and a revoked/expired Apple session recovers cleanly. Cross-device place sync no longer drops duplicate pins, and clearer errors if the developer image can't mount."
+  "notes": "Setup checklist now updates itself — connect LocalDevVPN and the 'Tunnel connected', Developer Disk Image, and Developer Mode rows turn green on their own (no more tapping Re-check). It also nudges the tunnel up and waits out the DDI mount for you."
 }
