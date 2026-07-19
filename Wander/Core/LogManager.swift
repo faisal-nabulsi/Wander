@@ -63,6 +63,22 @@ final class LogManager: ObservableObject {
     func addDebugLog(_ message: String)   { addLog(message: message, type: .debug) }
     func addWarningLog(_ message: String) { addLog(message: message, type: .warning) }
 
+    /// A compact, privacy-scrubbed tail of the recent log for attaching to bug reports — so support
+    /// gets the real connection/mount/error trail (e.g. the tunnel failure behind a stuck setup)
+    /// instead of guessing. High-precision decimals (potential coordinates) are redacted so a report
+    /// never carries the user's location. Returns the last `maxEntries` events, newest last.
+    func recentLogTail(maxEntries: Int = 80) -> String {
+        let tail = logs.suffix(maxEntries)
+        let df = DateFormatter()
+        df.dateFormat = "HH:mm:ss"
+        return tail.map { entry in
+            // Redact anything shaped like a coordinate (signed decimal, 3+ fraction digits).
+            let scrubbed = entry.message.replacingOccurrences(
+                of: #"-?\d{1,3}\.\d{3,}"#, with: "[coord]", options: .regularExpression)
+            return "\(df.string(from: entry.timestamp)) \(entry.type.rawValue) \(scrubbed)"
+        }.joined(separator: "\n")
+    }
+
     func setLogs(_ entries: [LogEntry]) {
         DispatchQueue.main.async {
             self.logs = entries

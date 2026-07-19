@@ -1,6 +1,6 @@
 {
-  "build": 88,
+  "build": 89,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Setup checklist now updates itself — connect LocalDevVPN and the 'Tunnel connected', Developer Disk Image, and Developer Mode rows turn green on their own (no more tapping Re-check). It also nudges the tunnel up and waits out the DDI mount for you."
+  "notes": "Bug reports now attach a recent diagnostic log (connection & error events, with coordinates stripped) so support can actually see what went wrong instead of guessing — no more back-and-forth to reproduce a stuck setup."
 }

@@ -61,10 +61,13 @@ struct ReportBugView: View {
                     Text(diagnostics)
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
+                    Label("Recent diagnostic log attached (\(LogManager.shared.errorCount) errors)", systemImage: "doc.text.magnifyingglass")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } header: {
                     Text("Automatically included")
                 } footer: {
-                    Text("We attach your app version and device model so we can reproduce it. No location or personal data is sent.")
+                    Text("We attach your app version, device model, and a recent technical log (connection & error events) so we can reproduce the problem. Coordinates are stripped out — no location or personal data is sent.")
                 }
 
                 if let errorText {
@@ -115,13 +118,16 @@ struct ReportBugView: View {
             "build": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "",
             "os": "iOS \(UIDevice.current.systemVersion)",
             "device": Self.deviceModel(),
+            "errorCount": String(LogManager.shared.errorCount),
         ]
+        // The scrubbed recent log is what turns "still not working" into an actual diagnosis.
+        let logs = LogManager.shared.recentLogTail()
         sending = true
         errorText = nil
         focused = false
         let contactValue = contact.trimmingCharacters(in: .whitespaces)
         Task {
-            let ok = await Self.submit(description: description, contact: contactValue, meta: meta)
+            let ok = await Self.submit(description: description, contact: contactValue, meta: meta, logs: logs)
             sending = false
             if ok { withAnimation { sent = true } }
             else { errorText = "Couldn't send right now — check your connection and try again." }
@@ -132,9 +138,10 @@ struct ReportBugView: View {
 
     private static let endpoint = "https://wander-payments.wanderlocation.workers.dev/bugreport"
 
-    static func submit(description: String, contact: String, meta: [String: String]) async -> Bool {
+    static func submit(description: String, contact: String, meta: [String: String], logs: String = "") async -> Bool {
         guard let url = URL(string: endpoint) else { return false }
         var body: [String: Any] = ["description": description, "contact": contact, "meta": meta]
+        if !logs.isEmpty { body["logs"] = logs }
         if let token = await WanderProAccount.shared.currentIdToken() { body["idToken"] = token }
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return false }
         var req = URLRequest(url: url, timeoutInterval: 20)

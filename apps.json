@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "88",
-      "versionDate": "2026-07-18",
-      "versionDescription": "Setup checklist now updates itself — connect LocalDevVPN and the 'Tunnel connected', Developer Disk Image, and Developer Mode rows turn green on their own (no more tapping Re-check). It also nudges the tunnel up and waits out the DDI mount for you.",
+      "buildVersion": "89",
+      "versionDate": "2026-07-19",
+      "versionDescription": "Bug reports now attach a recent diagnostic log (connection & error events, with coordinates stripped) so support can actually see what went wrong instead of guessing — no more back-and-forth to reproduce a stuck setup.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17158865,
+      "size": 17154069,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "88",
-          "date": "2026-07-18",
-          "localizedDescription": "Setup checklist now updates itself — connect LocalDevVPN and the 'Tunnel connected', Developer Disk Image, and Developer Mode rows turn green on their own (no more tapping Re-check). It also nudges the tunnel up and waits out the DDI mount for you.",
+          "buildVersion": "89",
+          "date": "2026-07-19",
+          "localizedDescription": "Bug reports now attach a recent diagnostic log (connection & error events, with coordinates stripped) so support can actually see what went wrong instead of guessing — no more back-and-forth to reproduce a stuck setup.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17158865,
+          "size": 17154069,
           "minOSVersion": "17.0"
         }
       ],
