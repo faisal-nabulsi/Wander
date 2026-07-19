@@ -289,13 +289,15 @@ final class SavedPlacesSync: ObservableObject {
             if let n = f["doubleValue"] as? NSNumber { return n.doubleValue }
             return nil
         }
+        // Accept BOTH schemes: iOS writes latitude/longitude/notes, Android writes lat/lng/note.
+        // Without this, cross-platform sync silently drops every doc from the other OS.
         guard let name = string("name"),
-              let lat = double("latitude"),
-              let lng = double("longitude") else { return nil }
+              let lat = double("latitude") ?? double("lat"),
+              let lng = double("longitude") ?? double("lng") else { return nil }
 
         let id = string("id").flatMap { UUID(uuidString: $0) } ?? UUID()
         let folder = string("folder")
-        let notes = string("notes")
+        let notes = string("notes") ?? string("note")
         var tags: [String] = []
         if let arr = (fields["tags"] as? [String: Any])?["arrayValue"] as? [String: Any],
            let values = arr["values"] as? [[String: Any]] {
@@ -305,6 +307,9 @@ final class SavedPlacesSync: ObservableObject {
         if let ts = (fields["updatedAt"] as? [String: Any])?["timestampValue"] as? String {
             updatedAt = ISO8601DateFormatter().date(from: ts)
                 ?? ISO8601DateFormatter.withFractionalSeconds.date(from: ts)
+        } else if let ms = (fields["updatedAt"] as? [String: Any])?["integerValue"] as? String,
+                  let millis = Double(ms) {
+            updatedAt = Date(timeIntervalSince1970: millis / 1000.0)   // Android writes epoch-millis
         }
         return LocationBookmark(id: id, name: name, latitude: lat, longitude: lng,
                                 folder: folder, tags: tags, notes: notes, updatedAt: updatedAt)

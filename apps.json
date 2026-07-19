@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "84",
+      "buildVersion": "85",
       "versionDate": "2026-07-18",
-      "versionDescription": "Reliability: a dropped tunnel no longer freezes the app or blocks Stop (fail-fast, ~3s); Stop can't be undone by a teleport finishing at the same moment; sturdier offline detection",
+      "versionDescription": "Cross-platform saved-places sync now works between iPhone and Android (they used different field names, so places silently never transferred)",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17133569,
+      "size": 17129158,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "84",
+          "buildVersion": "85",
           "date": "2026-07-18",
-          "localizedDescription": "Reliability: a dropped tunnel no longer freezes the app or blocks Stop (fail-fast, ~3s); Stop can't be undone by a teleport finishing at the same moment; sturdier offline detection",
+          "localizedDescription": "Cross-platform saved-places sync now works between iPhone and Android (they used different field names, so places silently never transferred)",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17133569,
+          "size": 17129158,
           "minOSVersion": "17.0"
         }
       ],
