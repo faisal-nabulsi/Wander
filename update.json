@@ -1,6 +1,6 @@
 {
-  "build": 83,
+  "build": 84,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Fix: Stop and the panic button now reliably revert to your real GPS (a queued 'hold' could re-freeze the fake location right after you stopped)"
+  "notes": "Reliability: a dropped tunnel no longer freezes the app or blocks Stop (fail-fast, ~3s); Stop can't be undone by a teleport finishing at the same moment; sturdier offline detection"
 }

@@ -1790,6 +1790,7 @@ struct LocationSimulationView: View {
             }
         }
 
+        let stopGen = SimulationSession.shared.stopGeneration
         runLocationCommand(
             errorTitle: "Simulation Failed",
             errorMessage: { code in
@@ -1797,6 +1798,9 @@ struct LocationSimulationView: View {
             },
             operation: { locationUpdateCode(for: coord) }
         ) {
+            // A Stop/Panic landed while this teleport was in flight — don't revive the hold loop
+            // (which would re-freeze the fake location right after the user reverted).
+            guard SimulationSession.shared.stopGeneration == stopGen else { return }
             routePlaybackCoordinate = nil
             beginBackgroundTask()
             startResendLoop(with: coord)

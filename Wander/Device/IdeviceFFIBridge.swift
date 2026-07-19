@@ -988,7 +988,44 @@ enum LocationSimulationCommandQueue {
     }
 }
 
+/// Bounded TCP reachability probe to the developer-tunnel endpoint (ip:49152). The location FFI
+/// (tunnel_create_rppairing / location_simulation_set / _clear) has NO timeout and hangs forever on
+/// a dead tunnel (e.g. LocalDevVPN dropped) — which would wedge the serial LocationSimulationCommandQueue
+/// so even Stop/Panic's clear could never run. We probe first and fail fast instead. Mirrors
+/// JITEnableContext.isTunnelEndpointReachable.
+private func _isSimEndpointReachable(_ deviceIP: String = DeviceConnectionContext.targetIPAddress,
+                                     timeoutSeconds: Double = 3) -> Bool {
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    guard fd >= 0 else { return false }
+    defer { close(fd) }
+    let flags = fcntl(fd, F_GETFL, 0)
+    _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+    var addr = sockaddr_in()
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = in_port_t(49152).bigEndian
+    guard deviceIP.withCString({ inet_pton(AF_INET, $0, &addr.sin_addr) }) == 1 else { return false }
+    let rc = withUnsafePointer(to: &addr) { p in
+        p.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.stride))
+        }
+    }
+    if rc == 0 { return true }
+    if errno != EINPROGRESS { return false }
+    var pfd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+    guard poll(&pfd, 1, Int32(max(timeoutSeconds, 0.1) * 1000)) > 0 else { return false }
+    var soError: Int32 = 0
+    var len = socklen_t(MemoryLayout<Int32>.size)
+    guard getsockopt(fd, SOL_SOCKET, SO_ERROR, &soError, &len) == 0 else { return false }
+    return soError == 0
+}
+
+
 func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Double, _ pairingFile: String) -> Int32 {
+    // Fail fast on a dead tunnel so the un-timeout-able FFI below can't hang and wedge the queue.
+    if !_isSimEndpointReachable(deviceIP) {
+        LocationSimulationState.cleanup()
+        return LocationSimulationStatus.remoteServer
+    }
     if let locationSimulation = LocationSimulationState.locationSimulation {
         if let ffiError = location_simulation_set(locationSimulation, latitude, longitude) {
             idevice_error_free(ffiError)
@@ -1082,6 +1119,13 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
 
 func clear_simulated_location() -> Int32 {
     guard let locationSimulation = LocationSimulationState.locationSimulation else {
+        return LocationSimulationStatus.locationClear
+    }
+    // Don't call the un-timeout-able clear over a dead tunnel (it would hang the serial queue). If
+    // unreachable, drop the handle — the device can't be cleared until the tunnel returns, but the
+    // app stays responsive and Stop/teleport work again once it's back.
+    if !_isSimEndpointReachable() {
+        LocationSimulationState.cleanup()
         return LocationSimulationStatus.locationClear
     }
 

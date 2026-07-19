@@ -90,7 +90,10 @@ final class NetworkReachability: ObservableObject {
         // while the app is suspended, so this only runs while the app is actually active.
         periodicProbeTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                // 60s (was 15s): path changes already trigger an immediate re-probe, so this is only
+                // a safety net for internet dropping/returning WITHOUT a path change. A longer interval
+                // keeps the radio/battery cost negligible during a long background spoof session.
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
                 await self?.refreshHasInternet(pathSatisfied: NetworkReachability.isOnlineSnapshot)
             }
         }
@@ -125,13 +128,26 @@ final class NetworkReachability: ObservableObject {
     /// Lightweight reachability probe to Apple's captive-portal endpoint (built for exactly this,
     /// fast, no auth). A LocalDevVPN-only path on Airplane Mode fails it; real Wi-Fi/cellular passes.
     private static func probeInternet() async -> Bool {
-        var req = URLRequest(url: URL(string: "https://captive.apple.com/hotspot-detect.html")!,
-                             cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 4)
+        if await probeEndpoint("https://captive.apple.com/hotspot-detect.html", expectBody: "Success") {
+            return true
+        }
+        // Fallback: some networks block/redirect Apple's captive endpoint, which would permanently
+        // strand an online user on the cached/offline map. A generic 204 endpoint confirms real
+        // connectivity independently, so a single blocked host can't cause a false "offline".
+        return await probeEndpoint("https://www.gstatic.com/generate_204", expectBody: nil)
+    }
+
+    private static func probeEndpoint(_ urlString: String, expectBody: String?) async -> Bool {
+        guard let url = URL(string: urlString) else { return false }
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 4)
         req.setValue("Wander", forHTTPHeaderField: "User-Agent")
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
-            guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return false }
-            return String(data: data, encoding: .utf8)?.contains("Success") ?? !data.isEmpty
+            guard let http = resp as? HTTPURLResponse else { return false }
+            if let expectBody {
+                return http.statusCode == 200 && (String(data: data, encoding: .utf8)?.contains(expectBody) ?? false)
+            }
+            return (200...299).contains(http.statusCode)   // generate_204 → 204
         } catch { return false }
     }
 }

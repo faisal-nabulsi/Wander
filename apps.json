@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "83",
+      "buildVersion": "84",
       "versionDate": "2026-07-18",
-      "versionDescription": "Fix: Stop and the panic button now reliably revert to your real GPS (a queued 'hold' could re-freeze the fake location right after you stopped)",
+      "versionDescription": "Reliability: a dropped tunnel no longer freezes the app or blocks Stop (fail-fast, ~3s); Stop can't be undone by a teleport finishing at the same moment; sturdier offline detection",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17124865,
+      "size": 17133569,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "83",
+          "buildVersion": "84",
           "date": "2026-07-18",
-          "localizedDescription": "Fix: Stop and the panic button now reliably revert to your real GPS (a queued 'hold' could re-freeze the fake location right after you stopped)",
+          "localizedDescription": "Reliability: a dropped tunnel no longer freezes the app or blocks Stop (fail-fast, ~3s); Stop can't be undone by a teleport finishing at the same moment; sturdier offline detection",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17124865,
+          "size": 17133569,
           "minOSVersion": "17.0"
         }
       ],

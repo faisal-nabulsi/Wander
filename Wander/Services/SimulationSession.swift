@@ -27,6 +27,11 @@ final class SimulationSession: ObservableObject {
     /// keep Wander foregrounded.
     @Published private(set) var isActive = false
 
+    /// Bumped on every Stop/Panic. A teleport in flight captures this before its FFI runs and, in its
+    /// success handler, skips re-arming the hold loop if the value changed — so a stop that lands
+    /// mid-teleport can't be silently undone by the completing teleport re-freezing the location.
+    private(set) var stopGeneration = 0
+
     /// A monotonically-increasing tick that changes on every CONFIRMED teleport, plus the
     /// destination coordinate of that teleport. PoGo mode observes `teleportTick` (Equatable,
     /// unlike a raw coordinate) to drive its soft-ban cooldown — so the cooldown now reflects
@@ -73,12 +78,14 @@ final class SimulationSession: ObservableObject {
     /// button uses stopAll(), which additionally broadcasts to every mode.
     func markStopped() {
         isActive = false
+        stopGeneration += 1
         cancelReminder()
     }
 
     /// Global stop: clears the device location, tells every mode to reset, cancels the reminder.
     func stopAll() {
         isActive = false
+        stopGeneration += 1
         // Suppress any already-queued resend SYNCHRONOUSLY (before the async clear below) so a
         // stray hold re-injection can't run after the clear and re-freeze the fake location — the
         // notification handler that stops the resend timer may land a beat later.
