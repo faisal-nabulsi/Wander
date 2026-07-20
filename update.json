@@ -1,6 +1,6 @@
 {
-  "build": 95,
+  "build": 96,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Translations: the new Error 12 help guide and Long-distance stabilizer screens are now fully localized into German, Spanish, French, Italian, Japanese, Korean, Portuguese, Russian and Chinese."
+  "notes": "Big anti-ban + stability update. New: a soft-ban cooldown timer with a live 'safe to catch/spin' countdown; a speed governor that keeps movement under ban-triggering speeds; GPS 'breathing' so a parked location looks natural instead of frozen; a tunnel health indicator with best-effort auto-reconnect and a low-memory warning; pre-flight checks (Precise Location + network-vs-GPS mismatch); resume-your-spoof after an interruption; and an expanded Error 11/12 + tunnel help guide with a plain-language ban ladder."
 }

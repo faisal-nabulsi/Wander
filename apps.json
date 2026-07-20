@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "95",
+      "buildVersion": "96",
       "versionDate": "2026-07-20",
-      "versionDescription": "Translations: the new Error 12 help guide and Long-distance stabilizer screens are now fully localized into German, Spanish, French, Italian, Japanese, Korean, Portuguese, Russian and Chinese.",
-      "downloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-      "size": 17367107,
+      "versionDescription": "Big anti-ban + stability update. New: a soft-ban cooldown timer with a live 'safe to catch/spin' countdown; a speed governor that keeps movement under ban-triggering speeds; GPS 'breathing' so a parked location looks natural instead of frozen; a tunnel health indicator with best-effort auto-reconnect and a low-memory warning; pre-flight checks (Precise Location + network-vs-GPS mismatch); resume-your-spoof after an interruption; and an expanded Error 11/12 + tunnel help guide with a plain-language ban ladder.",
+      "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
+      "size": 17605842,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "95",
+          "buildVersion": "96",
           "date": "2026-07-20",
-          "localizedDescription": "Translations: the new Error 12 help guide and Long-distance stabilizer screens are now fully localized into German, Spanish, French, Italian, Japanese, Korean, Portuguese, Russian and Chinese.",
-          "downloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-          "size": 17367107,
+          "localizedDescription": "Big anti-ban + stability update. New: a soft-ban cooldown timer with a live 'safe to catch/spin' countdown; a speed governor that keeps movement under ban-triggering speeds; GPS 'breathing' so a parked location looks natural instead of frozen; a tunnel health indicator with best-effort auto-reconnect and a low-memory warning; pre-flight checks (Precise Location + network-vs-GPS mismatch); resume-your-spoof after an interruption; and an expanded Error 11/12 + tunnel help guide with a plain-language ban ladder.",
+          "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
+          "size": 17605842,
           "minOSVersion": "17.0"
         }
       ],
