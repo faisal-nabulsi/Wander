@@ -1019,8 +1019,71 @@ private func _isSimEndpointReachable(_ deviceIP: String = DeviceConnectionContex
     return soError == 0
 }
 
+/// Public, lightly-bounded reachability probe used by TunnelHealthMonitor's light poll. Wraps the
+/// private `_isSimEndpointReachable` TCP probe (ip:49152) so the health chip can classify "down"
+/// (endpoint unreachable) without hammering the real inject FFI. Runs off the main thread by callers.
+func isTunnelSimEndpointReachable() -> Bool {
+    _isSimEndpointReachable()
+}
+
+/// Thread-safe record of recent inject outcomes, fed by every `simulate_location` call regardless of
+/// which mode/queue drove it. TunnelHealthMonitor reads this (plus a light reachability poll) to
+/// classify tunnel health as connected / unstable / disconnected. Deliberately tiny + lock-guarded:
+/// it's written on the serial location queue and read on the main thread.
+enum TunnelInjectStatus {
+    private static let lock = NSLock()
+    private static var _lastSuccessAt: Date?
+    private static var _lastFailureAt: Date?
+    /// Consecutive inject failures since the last success. Reset to 0 on any success.
+    private static var _consecutiveFailures = 0
+
+    static func record(success: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        let now = Date()
+        if success {
+            _lastSuccessAt = now
+            _consecutiveFailures = 0
+        } else {
+            _lastFailureAt = now
+            _consecutiveFailures += 1
+        }
+    }
+
+    /// Immutable snapshot for the health classifier. Read on the main thread.
+    struct Snapshot {
+        let lastSuccessAt: Date?
+        let lastFailureAt: Date?
+        let consecutiveFailures: Int
+    }
+
+    static var snapshot: Snapshot {
+        lock.lock(); defer { lock.unlock() }
+        return Snapshot(lastSuccessAt: _lastSuccessAt,
+                        lastFailureAt: _lastFailureAt,
+                        consecutiveFailures: _consecutiveFailures)
+    }
+
+    /// Clear history — called when a session starts so a stale failure from a prior run doesn't paint
+    /// the chip red the instant a fresh spoof begins.
+    static func reset() {
+        lock.lock(); defer { lock.unlock() }
+        _lastSuccessAt = nil
+        _lastFailureAt = nil
+        _consecutiveFailures = 0
+    }
+}
+
 
 func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Double, _ pairingFile: String) -> Int32 {
+    let code = _simulate_location(deviceIP, latitude, longitude, pairingFile)
+    // Record every inject outcome (0 = ok) for the tunnel health chip. Cheap, thread-safe, and the
+    // ONLY place that sees every real inject regardless of which mode/queue triggered it — so the
+    // health classifier reads genuine success/failure history, not just a synthetic reachability poll.
+    TunnelInjectStatus.record(success: code == LocationSimulationStatus.ok)
+    return code
+}
+
+private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Double, _ pairingFile: String) -> Int32 {
     // Fail fast on a dead tunnel so the un-timeout-able FFI below can't hang and wedge the queue.
     if !_isSimEndpointReachable(deviceIP) {
         LocationSimulationState.cleanup()

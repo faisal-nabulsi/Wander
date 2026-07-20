@@ -33,6 +33,8 @@ struct SettingsView: View {
     @AppStorage(SavedPlacesSync.enabledKey) private var syncPlacesEnabled = false
     @AppStorage(SavedRoutesSync.enabledKey) private var syncRoutesEnabled = false
     @StateObject private var tunnel = WanderTunnel.shared
+    @ObservedObject private var simSession = SimulationSession.shared
+    @ObservedObject private var tunnelHealth = TunnelHealthMonitor.shared
 
     @State private var isShowingPairingFilePicker = false
     @State private var pairingImportResult: (text: String, isError: Bool)?
@@ -58,6 +60,25 @@ struct SettingsView: View {
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+
+    private var tunnelHealthColor: Color {
+        switch tunnelHealth.state {
+        case .connected: return .green
+        case .unstable: return .orange
+        case .disconnected: return .red
+        }
+    }
+
+    private var tunnelHealthText: String {
+        if tunnelHealth.isReconnecting {
+            return L("tunnel.chip.reconnecting", fallback: "Tunnel: reconnecting…")
+        }
+        switch tunnelHealth.state {
+        case .connected: return L("tunnel.chip.connected", fallback: "Tunnel: connected")
+        case .unstable: return L("tunnel.chip.unstable", fallback: "Tunnel: unstable")
+        case .disconnected: return L("tunnel.chip.disconnected", fallback: "Tunnel: disconnected")
+        }
     }
 
     var body: some View {
@@ -241,6 +262,45 @@ struct SettingsView: View {
                     } else {
                         Text("Built-in on-device tunnel. iOS restricts VPNs to paid Apple accounts, so on a free install use the LocalDevVPN app instead — on Wi-Fi, or on cellular by turning on Airplane Mode first, then connecting it.")
                     }
+                }
+
+                // TUNNEL STABILITY — a live heartbeat while spoofing, plus the honest low-memory
+                // caveat. A dropped tunnel is the #1 support symptom; this explains what the chip
+                // means and what actually helps (nothing can stop iOS from reclaiming it).
+                Section {
+                    if simSession.isActive {
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(tunnelHealthColor)
+                                .frame(width: 10, height: 10)
+                            Text(tunnelHealthText)
+                            Spacer()
+                            if tunnelHealth.isReconnecting {
+                                ProgressView().controlSize(.small)
+                            }
+                        }
+                        if !tunnelHealth.state.isHealthy {
+                            Button(role: .destructive) {
+                                SimulationSession.shared.stopAll()
+                            } label: {
+                                Label(L("tunnel.action.stop", fallback: "Stop — return to real GPS"),
+                                      systemImage: "stop.circle")
+                            }
+                        }
+                    } else {
+                        HStack(spacing: 8) {
+                            Image(systemName: "waveform.path.ecg")
+                                .foregroundStyle(.secondary)
+                            Text(localized: "tunnel.stability.idle",
+                                 fallback: "Not spoofing — the heartbeat shows while a simulation is running.")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text(localized: "tunnel.stability.header", fallback: "Tunnel stability")
+                } footer: {
+                    Text(localized: "tunnel.stability.footer",
+                         fallback: "Wander watches the connection it injects location through and, if it drops, tries to reconnect on its own — best-effort only, since iOS can close the tunnel when memory runs low or the app is backgrounded (nothing can prevent that). Low memory can drop it, so close background apps for a steadier spoof.")
                 }
 
                 // SAFETY — the panic button + the manual stop, grouped so the revert-to-real-GPS

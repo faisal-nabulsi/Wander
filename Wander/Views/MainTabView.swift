@@ -92,6 +92,8 @@ struct MainTabView: View {
     // Gentle in-session snap-back recovery — shown ONLY after SnapBackWatcher detects a real
     // bounce-back (never proactively).
     @ObservedObject private var snapBack = SimulationSession.shared.snapBack
+    // Tunnel/DDI heartbeat — drives the health chip + best-effort self-heal + memory nudge.
+    @ObservedObject private var tunnelHealth = TunnelHealthMonitor.shared
 
     var body: some View {
         ZStack {
@@ -196,10 +198,28 @@ struct MainTabView: View {
                 CooldownGuardView()
                     .padding(.bottom, 62)
             }
+            // Persistent tunnel heartbeat chip — placed bottom-LEADING (opposite the panic button on
+            // bottom-trailing, and clear of the bottom-CENTER cooldown chip) so the three never stack.
+            .overlay(alignment: .bottomLeading) {
+                TunnelHealthChip()
+                    .padding(.leading, 16)
+                    .padding(.bottom, 66)
+            }
+            // Non-blocking "low memory may drop the tunnel" nudge while spoofing.
+            .overlay(alignment: .top) { TunnelMemoryWarningBanner() }
             .animation(.easeInOut(duration: 0.25), value: session.cooldownActive)
             .animation(.easeInOut(duration: 0.25), value: bannerVisible)
             .animation(.easeInOut(duration: 0.25), value: panicToastVisible)
             .animation(.easeInOut(duration: 0.25), value: updater.available != nil)
+            .animation(.easeInOut(duration: 0.25), value: session.isActive)
+            .animation(.easeInOut(duration: 0.25), value: tunnelHealth.state)
+            .animation(.easeInOut(duration: 0.25), value: tunnelHealth.memoryPressureWarning)
+            .onChange(of: snapBack.didBounceBack) { _, bounced in
+                // The opp-5 snap-back watcher just detected a real bounce-back. That's a strong signal
+                // the tunnel dropped, so kick a best-effort reconnect alongside the recovery prompt.
+                // Honest: this only TRIES — it never claims to have fixed it.
+                if bounced { tunnelHealth.attemptReconnectNow() }
+            }
             .onChange(of: session.isActive) { _, active in
                 if active { flashBanner() } else { withAnimation { bannerVisible = false } }
             }

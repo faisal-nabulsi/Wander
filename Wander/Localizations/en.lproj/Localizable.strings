@@ -357,3 +357,20 @@
 "snapback.title" = "Location snapped back";
 "snapback.reteleport" = "Re-teleport";
 "snapback.body" = "Your device pulled back toward your real location. Tap Re-teleport to jump back.\n\nCommunity-reported for iOS 26 (not guaranteed): if it keeps snapping back, restart your iPhone — iOS 26 holds a cached location that toggles no longer clear. Wander will put you back here when you reopen it.";
+
+/* Tunnel/DDI heartbeat chip + self-heal. Copy stays honest: it only TRIES to reconnect. */
+"tunnel.chip.connected" = "Tunnel: connected";
+"tunnel.chip.unstable" = "Tunnel: unstable";
+"tunnel.chip.disconnected" = "Tunnel: disconnected";
+"tunnel.chip.reconnecting" = "Tunnel: reconnecting…";
+"tunnel.chip.a11y.connected" = "Tunnel connected";
+"tunnel.chip.a11y.unstable" = "Tunnel unstable — tap for options";
+"tunnel.chip.a11y.disconnected" = "Tunnel disconnected — tap for options";
+"tunnel.actions.title" = "Tunnel connection";
+"tunnel.actions.body" = "The connection Wander injects location through looks unhealthy, so your location may snap back to real GPS. You can try to reconnect, or stop and return to real GPS.";
+"tunnel.action.reconnect" = "Try to reconnect";
+"tunnel.action.stop" = "Stop — return to real GPS";
+"tunnel.memory.banner" = "Low memory can drop the tunnel — close some background apps";
+"tunnel.stability.header" = "Tunnel stability";
+"tunnel.stability.idle" = "Not spoofing — the heartbeat shows while a simulation is running.";
+"tunnel.stability.footer" = "Wander watches the connection it injects location through and, if it drops, tries to reconnect on its own — best-effort only, since iOS can close the tunnel when memory runs low or the app is backgrounded (nothing can prevent that). Low memory can drop it, so close background apps for a steadier spoof.";

@@ -240,6 +240,8 @@ final class SimulationSession: ObservableObject {
         BackgroundLocationManager.shared.requestStart()
         scheduleReminderIfEnabled()
         maybeShowCellularTip()
+        // Start the tunnel heartbeat + best-effort self-heal for this session.
+        TunnelHealthMonitor.shared.startMonitoring()
     }
 
     /// Show the cellular coaching tip at most once per app session, and only when the active
@@ -259,6 +261,7 @@ final class SimulationSession: ObservableObject {
         stopGeneration += 1
         clearResumeTarget()   // deliberate stop — never resurface as a "resume?" prompt next launch
         snapBack.stop()
+        TunnelHealthMonitor.shared.stopMonitoring()
         cancelReminder()
     }
 
@@ -268,6 +271,7 @@ final class SimulationSession: ObservableObject {
         stopGeneration += 1
         clearResumeTarget()   // deliberate stop — never resurface as a "resume?" prompt next launch
         snapBack.stop()
+        TunnelHealthMonitor.shared.stopMonitoring()
         // Suppress any already-queued resend SYNCHRONOUSLY (before the async clear below) so a
         // stray hold re-injection can't run after the clear and re-freeze the fake location — the
         // notification handler that stops the resend timer may land a beat later.
