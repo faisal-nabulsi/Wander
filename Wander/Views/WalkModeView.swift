@@ -13,7 +13,11 @@ import MapKit
 import CoreLocation
 
 struct WalkModeView: View {
-    private let tickInterval: TimeInterval = 0.5
+    // 1 Hz: matches a real GPS receiver's fix cadence and halves how many location injects hit the
+    // serial tunnel queue per second. Fewer, larger, smoothly-advancing steps read more like a real
+    // phone than a 2 Hz stream and give PoGo less to reject (the belt to the resend-suppression fix
+    // for "Failed to detect location (12)"). Ground speed is unchanged — distance scales with dt.
+    private let tickInterval: TimeInterval = 1.0
     private let joystickRadius: CGFloat = 52
 
     @State private var coordinate: CLLocationCoordinate2D?
@@ -39,6 +43,12 @@ struct WalkModeView: View {
     // Hands-free destination: when set, the avatar walks itself here (autonomous ⇒ full realism,
     // incl. micro-pauses) until it arrives. Grabbing the joystick cancels it.
     @State private var autoWalkTarget: CLLocationCoordinate2D?
+    // Slow keep-alive counter for when the stick is centered mid-walk. Because we suppress the Map
+    // tab's teleport resend for the whole walk (so it can't re-inject the old teleport point and
+    // rubber-band us backward → PoGo Error 12), WE must re-assert the current point every few
+    // seconds during a pause, or iOS drops the spoof.
+    @State private var idleTicks = 0
+    private var idleResendEveryTicks: Int { max(1, Int(4.0 / tickInterval)) }
 
     @State private var showAlert = false
     @State private var alertTitle = ""
@@ -207,6 +217,11 @@ struct WalkModeView: View {
             return
         }
         isWalking = true
+        // We are now the sole location writer. Silence the Map tab's teleport "hold" resend so it
+        // can't re-inject the frozen teleport point every 4 s and snap us backward mid-walk — the
+        // impossible backward jump is exactly what makes Pokémon GO throw "Failed to detect
+        // location (12)". step() re-asserts this each tick; we hand the hold back on stop/arrival.
+        LocationSimulationCommandQueue.suppressResends = true
         motion = HumanizedMotion(context: .steered)   // fresh gait for this run
         SimulationSession.shared.started()
         // Adventure Sync: start a fresh walk window so the first tick isn't measured
@@ -247,6 +262,10 @@ struct WalkModeView: View {
 
     private func step() {
         guard isWalking, var coord = coordinate else { return }
+        // During a walk WE own the location stream. Re-assert suppression of the Map tab's teleport
+        // resend every tick so nothing (e.g. a teleport on another tab) can silently re-enable it
+        // and rubber-band us back to the old point — the cause of PoGo's "Failed to detect (12)".
+        LocationSimulationCommandQueue.suppressResends = true
 
         // Pick this tick's intended heading + speed from whichever mode is active.
         let baseBearing: Double
@@ -259,7 +278,19 @@ struct WalkModeView: View {
             targetSpeed = speedMps                                    // set-speed, hands-free
         } else {
             let magnitude = min(hypot(knobOffset.width, knobOffset.height) / joystickRadius, 1)
-            guard magnitude > 0.02 else { return }
+            guard magnitude > 0.02 else {
+                // Stick centered but still in walk mode. The resend is suppressed above, so keep the
+                // CURRENT fix warm ourselves on a slow (~4 s) cadence — a rock-steady stationary
+                // re-assert PoGo accepts, so a pause can't let iOS drop the spoof. No gpsNoise here:
+                // a held point should not breathe.
+                idleTicks += 1
+                if idleTicks >= idleResendEveryTicks {
+                    idleTicks = 0
+                    send(coord)
+                }
+                return
+            }
+            idleTicks = 0
             // Screen up (-y) is north; +x is east.
             baseBearing = atan2(Double(knobOffset.width), Double(-knobOffset.height))
             targetSpeed = speedMps * Double(magnitude)
@@ -294,9 +325,13 @@ struct WalkModeView: View {
         coord.longitude += dLon
         coordinate = coord            // clean humanized path: display + next-tick anchor
         recenter(on: coord)
-        // Scatter only the REPORTED fix by a few metres of receiver error, so consecutive
-        // points don't trace a perfect line. Keeps `coord` clean for the map + Health.
-        send(MotionRealism.isEnabled ? HumanizedMotion.gpsNoise(coord) : coord)
+        // Scatter only the REPORTED fix by a few metres of receiver error, so consecutive points
+        // don't trace a perfect line. Keeps `coord` clean for the map + Health. Gated on the step
+        // being LARGER than the noise radius: at a tiny nudge the ±2.5 m random scatter would
+        // dominate a sub-metre step and read as jumpy, near-teleport motion (a second Error-12
+        // trigger), so send the clean point for small steps.
+        let reported = (MotionRealism.isEnabled && distance > 2.5) ? HumanizedMotion.gpsNoise(coord) : coord
+        send(reported)
         // Adventure Sync: mirror this simulated step into Health (no-op unless opted
         // in). Derived from the ACTUAL per-tick movement, at a human cadence.
         AdventureSyncManager.shared.recordSimulatedMovement(to: coord)
@@ -320,6 +355,8 @@ struct WalkModeView: View {
         autoWalkTarget = target
         knobOffset = .zero        // defensive: ensure step() takes the auto-walk path, not the stick
         isWalking = true
+        // Own the stream: suppress the Map tab's stale teleport resend for the duration (see start()).
+        LocationSimulationCommandQueue.suppressResends = true
         motion = HumanizedMotion(context: .autonomous)   // hands-free ⇒ full realism incl. micro-pauses
         SimulationSession.shared.started()
         AdventureSyncManager.shared.beginWalk()
@@ -337,7 +374,15 @@ struct WalkModeView: View {
         AdventureSyncManager.shared.endWalk()
         autoWalkTarget = nil
         isWalking = false
+        idleTicks = 0
         stopTimer()
+        // Park here: hand the warm-hold back to the Map tab's resend, re-seeded at THIS arrived
+        // point (re-enables resends at the correct spot instead of the pre-walk teleport origin,
+        // and keeps the fix alive now that our own tick loop has stopped).
+        NotificationCenter.default.post(
+            name: .holdLocationRequested, object: nil,
+            userInfo: ["lat": target.latitude, "lng": target.longitude]
+        )
     }
 
     private func distanceMeters(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {

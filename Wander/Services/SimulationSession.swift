@@ -13,6 +13,11 @@ import UserNotifications
 
 extension Notification.Name {
     static let stopSimulationRequested = Notification.Name("wander.stopSimulationRequested")
+    /// Ask the Map tab to (re)arm its 4 s warm-hold resend at a SPECIFIC coordinate. Posted when a
+    /// joystick / auto-walk session parks somewhere, so the hold that keeps the fix alive re-seeds
+    /// at the point the user actually stopped on — never the stale pre-walk teleport coordinate,
+    /// whose re-injection mid-walk is what rubber-bands the location and trips PoGo's Error 12.
+    static let holdLocationRequested = Notification.Name("wander.holdLocationRequested")
 }
 
 @MainActor

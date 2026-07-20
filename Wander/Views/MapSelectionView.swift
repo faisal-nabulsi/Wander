@@ -1361,6 +1361,13 @@ struct LocationSimulationView: View {
             endBackgroundTask()
             locationInfo.clear()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .holdLocationRequested)) { note in
+            guard let lat = note.userInfo?["lat"] as? Double,
+                  let lng = note.userInfo?["lng"] as? Double else { return }
+            // A joystick / auto-walk just parked here. Take over the warm-hold seeded at THIS
+            // point (re-enables the 4 s resend at the live position, not the old teleport origin).
+            startResendLoop(with: CLLocationCoordinate2D(latitude: lat, longitude: lng))
+        }
         .sheet(isPresented: $showPaywall) { PaywallView(onClose: { showPaywall = false }) }
         .onReceive(NotificationCenter.default.publisher(for: .teleportToRequested)) { note in
             guard let lat = note.userInfo?["lat"] as? Double,
