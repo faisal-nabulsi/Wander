@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "92",
+      "buildVersion": "93",
       "versionDate": "2026-07-19",
-      "versionDescription": "Fix: Pokémon GO \"Failed to detect location (12)\" while joystick-walking. After teleporting then walking, the map's background \"hold\" kept re-injecting your old teleport spot every few seconds — snapping you backward mid-step so PoGo rejected the fix. The joystick now fully owns your live position while you move (and hands a clean hold back when you stop), so PoGo keeps its lock. Also steadied tiny-nudge movement.",
+      "versionDescription": "Smoother movement: the joystick now updates at 1 Hz (like a real GPS), which further reduces Pokemon GO location errors while walking. Pairs with the build 92 fix for error 12.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17204759,
+      "size": 17202032,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "92",
+          "buildVersion": "93",
           "date": "2026-07-19",
-          "localizedDescription": "Fix: Pokémon GO \"Failed to detect location (12)\" while joystick-walking. After teleporting then walking, the map's background \"hold\" kept re-injecting your old teleport spot every few seconds — snapping you backward mid-step so PoGo rejected the fix. The joystick now fully owns your live position while you move (and hands a clean hold back when you stop), so PoGo keeps its lock. Also steadied tiny-nudge movement.",
+          "localizedDescription": "Smoother movement: the joystick now updates at 1 Hz (like a real GPS), which further reduces Pokemon GO location errors while walking. Pairs with the build 92 fix for error 12.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17204759,
+          "size": 17202032,
           "minOSVersion": "17.0"
         }
       ],
