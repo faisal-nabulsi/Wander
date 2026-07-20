@@ -76,6 +76,9 @@ final class RealGPSSeeder: NSObject, ObservableObject, CLLocationManagerDelegate
         LocationSimulationCommandQueue.shared.async {
             // Ordered on the serial queue ahead of the caller's target inject: the device sees the
             // real "you are here" fix first, then the jump to the target as the next command.
+            // Bail if a Stop/Clear landed during the async real-GPS fetch, so this one-shot can't
+            // re-freeze at the real location after a clear.
+            if LocationSimulationCommandQueue.suppressResends { return }
             _ = simulate_location(DeviceConnectionContext.targetIPAddress,
                                   real.latitude, real.longitude, pairingFilePath)
         }

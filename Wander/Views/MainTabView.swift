@@ -188,7 +188,8 @@ struct MainTabView: View {
                         }
                 }
             }
-            .overlay(alignment: .top) { spoofingBanner }
+            // Hidden while the low-memory nudge is up (both are top banners) so they don't stack.
+            .overlay(alignment: .top) { if !tunnelHealth.memoryPressureWarning { spoofingBanner } }
             .overlay(alignment: .bottomTrailing) { if panicButtonEnabled { panicButton } }
             .overlay(alignment: .top) { panicToast }
             .overlay(alignment: .top) { updateBanner }

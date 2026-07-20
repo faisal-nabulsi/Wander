@@ -194,6 +194,12 @@ final class TunnelHealthMonitor: ObservableObject {
 
     private func scheduleReconnectIfNeeded(force: Bool = false) {
         guard isActive else { return }
+        // Only auto-reconnect the Map teleport HOLD. When a movement mode (Walk/Route/Itinerary) is the
+        // active writer it holds suppressResends=true and self-heals via its own inject loop when the
+        // tunnel returns — re-asserting the Map resend here would add a SECOND writer to the serial queue
+        // AND re-inject the stale pre-walk `lastTeleportCoordinate` (a backward jump), regressing the
+        // Error-12 single-writer fix. So skip the reconnect while another mode owns the stream.
+        guard !LocationSimulationCommandQueue.suppressResends else { return }
         guard reconnectWork == nil else { return } // one in flight already
         guard force || reconnectAttempt < maxReconnectAttempts else { return }
         guard let target = SimulationSession.shared.lastTeleportCoordinate else { return }
