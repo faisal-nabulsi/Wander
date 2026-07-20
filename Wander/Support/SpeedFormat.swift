@@ -34,6 +34,10 @@ enum SpeedFormat {
 enum LocationJitter {
     /// Adds a small random horizontal drift so the point isn't perfectly static.
     /// If `maxMeters` is nil, uses the user's "jitterRadius" preference (default 1.5 m).
+    ///
+    /// This is a FLAT per-tick offset: each call is an independent random jump, which on a
+    /// STATIONARY hold reads as a series of tiny teleports. For a parked/idle location prefer
+    /// `BreathingJitter` (below), which wanders and drifts back like a real receiver.
     static func apply(_ c: CLLocationCoordinate2D, maxMeters: Double? = nil) -> CLLocationCoordinate2D {
         let stored = UserDefaults.standard.double(forKey: "jitterRadius")
         let maxM = maxMeters ?? (stored > 0 ? stored : 1.5)
@@ -44,6 +48,60 @@ enum LocationJitter {
         return CLLocationCoordinate2D(
             latitude: c.latitude + dLatMeters / metersPerDegLat,
             longitude: c.longitude + dLonMeters / (metersPerDegLat * lonScale)
+        )
+    }
+}
+
+/// Stateful "breathing" jitter for a STATIONARY / parked held location. A real GPS receiver
+/// sitting still doesn't report a mathematically-perfect frozen point, nor does it teleport a
+/// fresh random metre every fix — its reported position slowly wanders a metre or two and drifts
+/// back toward the true spot. Detectors (Life360, dating apps) can key on both extremes: a dead
+/// point looks parked-but-too-perfect, and flat per-tick scatter looks like micro-teleports.
+///
+/// This models an Ornstein–Uhlenbeck / mean-reverting random walk. We keep a current offset in
+/// metres (north/east) between calls, nudge it by a small random amount each tick, and pull it
+/// back toward 0 — so the reported point wanders within a soft ~1–3 m envelope and always returns,
+/// never a fresh independent jump. One instance models one hold session; the anchor coordinate
+/// passed to `next(around:)` stays clean (the wander lives only in this object's state), so the
+/// held point never drifts away over many minutes.
+///
+/// NOTE: the iOS injection FFI carries lat/lng ONLY — there is no horizontalAccuracy/altitude
+/// field to write — so the "accuracy-radius variation" idea can't be expressed here. This does the
+/// POSITIONAL breathing only.
+struct BreathingJitter {
+    /// Current offset from the anchor, in metres.
+    private var north: Double = 0
+    private var east: Double = 0
+
+    /// Mean-reversion factor per tick: how hard the offset is pulled back toward 0. Matches the
+    /// 0.9 pull-back used by HumanizedMotion's heading-bias walk.
+    private let reversion = 0.85
+    /// Std-dev of the random nudge applied each tick, in metres. Small so a single step is sub-metre.
+    private let stepMeters = 0.6
+    /// Soft clamp on the offset magnitude, in metres, so the wander stays in a believable envelope.
+    private let maxMeters = 3.0
+
+    /// Advance the walk one tick and return the anchor shifted by the current offset.
+    /// The passed-in coordinate is treated as the CLEAN anchor and is never mutated.
+    mutating func next(around c: CLLocationCoordinate2D) -> CLLocationCoordinate2D {
+        // Nudge (triangular ~ sum of two uniforms clusters near 0 like real receiver error),
+        // then pull back toward the anchor, then soft-clamp the magnitude.
+        let nudgeN = (Double.random(in: -1...1) + Double.random(in: -1...1)) / 2 * stepMeters
+        let nudgeE = (Double.random(in: -1...1) + Double.random(in: -1...1)) / 2 * stepMeters
+        north = north * reversion + nudgeN
+        east = east * reversion + nudgeE
+        let mag = (north * north + east * east).squareRoot()
+        if mag > maxMeters {
+            let scale = maxMeters / mag
+            north *= scale
+            east *= scale
+        }
+
+        let metersPerDegLat = 111_320.0
+        let lonScale = max(cos(c.latitude * .pi / 180), 0.000001)
+        return CLLocationCoordinate2D(
+            latitude: c.latitude + north / metersPerDegLat,
+            longitude: c.longitude + east / (metersPerDegLat * lonScale)
         )
     }
 }

@@ -850,6 +850,10 @@ struct LocationSimulationView: View {
 
     @State private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @State private var resendTimer: Timer?
+    /// Mean-reverting "breathing" jitter state for the current stationary hold, so a parked
+    /// location wanders ~1–3 m and drifts back instead of teleporting a fresh random metre each
+    /// tick. Created per hold in startResendLoop, cleared in stopResendLoop.
+    @State private var breathingJitter: BreathingJitter?
     @State private var routeLoadTask: Task<Void, Never>?
     @State private var routeSpeedPrefetchTask: Task<Void, Never>?
     @State private var routePlaybackTask: Task<Void, Never>?
@@ -1962,18 +1966,31 @@ struct LocationSimulationView: View {
 
     private func startResendLoop(with coordinate: CLLocationCoordinate2D) {
         simulatedCoordinate = coordinate
+        // Fresh breathing state per hold so the mean-reverting walk starts centered on this anchor
+        // (and never carries drift over from a previous hold).
+        breathingJitter = BreathingJitter()
         LocationSimulationCommandQueue.suppressResends = false   // a new hold re-enables re-injection
         resendTimer?.invalidate()
         resendTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { _ in
             guard let simulatedCoordinate else { return }
-            // "Hold perfectly still" (frozen hold) disables the breathing/idle jitter so a
-            // held location is rock-steady. Otherwise the existing jitter behavior applies.
+            // "Hold perfectly still" (frozen hold) disables the breathing jitter so a held
+            // location is rock-steady. Otherwise we drive the injected point through the
+            // mean-reverting BreathingJitter so a parked spot wanders ~1–3 m and drifts back
+            // instead of teleporting a fresh random metre each tick (which reads as micro-jumps).
+            // The underlying `simulatedCoordinate` anchor stays CLEAN — the wander lives only in
+            // the breathing state — so the held point never drifts away over a long hold.
+            //
+            // NOTE: the iOS injection FFI is lat/lng ONLY (no horizontalAccuracy/altitude field),
+            // so we can only breathe POSITIONALLY here — accuracy-radius variation isn't carryable.
             let frozen = UserDefaults.standard.bool(forKey: LocationPrivacyKeys.frozenHold)
             // Coarse offset is applied centrally in locationUpdateCode(for:), so we only
             // decide jitter here.
-            let target = (!frozen && UserDefaults.standard.bool(forKey: "jitterEnabled"))
-                ? LocationJitter.apply(simulatedCoordinate)
-                : simulatedCoordinate
+            let target: CLLocationCoordinate2D
+            if !frozen && UserDefaults.standard.bool(forKey: "jitterEnabled") {
+                target = breathingJitter?.next(around: simulatedCoordinate) ?? simulatedCoordinate
+            } else {
+                target = simulatedCoordinate
+            }
             LocationSimulationCommandQueue.shared.async {
                 // A Stop/Clear may have landed after this tick was queued — don't re-inject then.
                 if LocationSimulationCommandQueue.suppressResends { return }
@@ -1987,6 +2004,7 @@ struct LocationSimulationView: View {
         resendTimer?.invalidate()
         resendTimer = nil
         simulatedCoordinate = nil
+        breathingJitter = nil
     }
 
     private func cancelRoutePlayback(resetMarker: Bool) {
