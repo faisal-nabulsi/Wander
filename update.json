@@ -1,6 +1,6 @@
 {
   "build": 95,
   "version": "1.0",
-  "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
+  "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
   "notes": "Translations: the new Error 12 help guide and Long-distance stabilizer screens are now fully localized into German, Spanish, French, Italian, Japanese, Korean, Portuguese, Russian and Chinese."
 }

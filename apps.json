@@ -25,7 +25,7 @@
       "buildVersion": "95",
       "versionDate": "2026-07-20",
       "versionDescription": "Translations: the new Error 12 help guide and Long-distance stabilizer screens are now fully localized into German, Spanish, French, Italian, Japanese, Korean, Portuguese, Russian and Chinese.",
-      "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
+      "downloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
       "size": 17367107,
       "versions": [
         {
@@ -33,7 +33,7 @@
           "buildVersion": "95",
           "date": "2026-07-20",
           "localizedDescription": "Translations: the new Error 12 help guide and Long-distance stabilizer screens are now fully localized into German, Spanish, French, Italian, Japanese, Korean, Portuguese, Russian and Chinese.",
-          "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
+          "downloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
           "size": 17367107,
           "minOSVersion": "17.0"
         }

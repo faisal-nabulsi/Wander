@@ -2,14 +2,16 @@
 # ---------------------------------------------------------------------------
 # publish-ota.sh — ship a Wander OTA update.
 #
-# Bumps the build number, builds an unsigned IPA, stages it as the OTA payload
-# on the website, and writes update.json (the manifest the app reads on launch).
-# Everyone already running a build that contains WanderUpdater auto-updates on
-# their next launch — no computer.
+# Bumps the build number, builds an unsigned IPA, uploads it as the OTA payload
+# to the GitHub release (faisal-nabulsi/Wander), and writes update.json (the
+# manifest the app reads on launch). Everyone already running a build that
+# contains WanderUpdater auto-updates on their next launch — no computer.
 #
 #   ./publish-ota.sh "PoGo Mode + auto-refresh"
 #
-# Then push BOTH repos (the script prints the exact commands).
+# Then push THIS repo (the script prints the exact command). Payloads no longer
+# live in the wander-site repo — committing binaries there bloated its git
+# history past 4GB (migrated to Releases 2026-07-20).
 # ---------------------------------------------------------------------------
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -17,7 +19,7 @@ export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 
 NOTES="${1:-New update}"
 PBX="Wander.xcodeproj/project.pbxproj"
-SITE_DL="$HOME/Developer/wander-site/github-pages/downloads"
+PAYLOAD_URL="https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa"
 
 # 1) bump the build number (CURRENT_PROJECT_VERSION, both Debug+Release configs)
 CUR=$(grep -oE "CURRENT_PROJECT_VERSION = [0-9]+" "$PBX" | head -1 | grep -oE "[0-9]+$")
@@ -38,19 +40,26 @@ fi
 mkdir -p Payload && cp -R "build/Wander.xcarchive/Products/Applications/Wander.app" Payload/
 zip -qr Wander.ipa Payload && rm -rf Payload
 
-# 3) stage the payload the manifest points at
-cp Wander.ipa "$SITE_DL/Wander.ipa"
+# 3) publish the payload: replace the Wander.ipa asset on the GitHub release. This is
+#    the ONLY place the payload lives (update.json, apps.json and wander-installer's
+#    sideload.rs all read releases/latest/download/Wander.ipa), so the upload must
+#    succeed BEFORE the manifests advertise a build nobody can download — set -e
+#    aborts the publish if gh fails.
+LATEST_TAG=$(gh release list --repo faisal-nabulsi/Wander --limit 1 --json tagName --jq '.[0].tagName')
+[ -n "$LATEST_TAG" ] || { echo "FATAL: no release exists on faisal-nabulsi/Wander"; exit 1; }
+gh release upload "$LATEST_TAG" Wander.ipa --repo faisal-nabulsi/Wander --clobber
+echo "GitHub release ($LATEST_TAG) Wander.ipa updated to build $BUILD."
 
 # 4) write the manifest (the app fetches this from raw.githubusercontent .../main/update.json).
 #    Written via json.dump — NOT a heredoc — so notes containing double-quotes, newlines or unicode
 #    can never produce invalid JSON. A malformed update.json makes the app's strict JSON decode
 #    throw and the OTA check silently no-ops for EVERYONE (this bit build 92: notes had quotes).
-BUILD="$BUILD" VERSION="$VERSION" NOTES="$NOTES" python3 - <<'PY'
+BUILD="$BUILD" VERSION="$VERSION" NOTES="$NOTES" PAYLOAD_URL="$PAYLOAD_URL" python3 - <<'PY'
 import json, os
 d = {
     "build": int(os.environ["BUILD"]),
     "version": os.environ["VERSION"],
-    "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
+    "payloadURL": os.environ["PAYLOAD_URL"],
     "notes": os.environ["NOTES"],
 }
 with open("update.json", "w") as f:
@@ -128,6 +137,5 @@ PY
 fi
 
 echo
-echo "== IPA + manifest + apps.json + GitHub release ready (build $BUILD). Ship it by pushing BOTH repos: =="
+echo "== Payload uploaded + manifests written (build $BUILD). Ship it by pushing this repo: =="
 echo "  cd ~/Developer/wander-ios && git add update.json apps.json Wander.xcodeproj/project.pbxproj && git commit -m \"OTA build $BUILD: $NOTES\" && git push"
-echo "  cd ~/Developer/wander-site/github-pages && git add downloads/Wander.ipa && git commit -m \"OTA payload build $BUILD\" && git push"
