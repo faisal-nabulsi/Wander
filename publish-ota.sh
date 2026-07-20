@@ -108,7 +108,10 @@ body = {
     }],
 }
 try:
-    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    # A real User-Agent is required — Discord's webhook endpoint sits behind Cloudflare, which
+    # blocks urllib's default UA with a 1010 (looks like a 403).
+    req = urllib.request.Request(url, data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json", "User-Agent": "Wander-OTA/1.0 (+https://wanderspoofer.com)"})
     urllib.request.urlopen(req, timeout=15)
     print("== Announced build in Discord #updates ==")
 except Exception as e:
