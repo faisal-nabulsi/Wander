@@ -51,6 +51,7 @@ struct SettingsView: View {
     @ObservedObject private var adventureSync = AdventureSyncManager.shared
     @State private var showProSignIn = false
     @State private var showManageDevices = false
+    @State private var showLocationHelp = false
     @EnvironmentObject private var localization: LocalizationManager
 
     private var appVersion: String {
@@ -427,6 +428,12 @@ struct SettingsView: View {
                     Link(destination: SettingsLinks.localDevVPN) {
                         Label(L("settings.help.download_vpn", fallback: "Download LocalDevVPN"), systemImage: "arrow.down.circle")
                     }
+                    Button {
+                        showLocationHelp = true
+                    } label: {
+                        Label(L("settings.help.error12", fallback: "Location not detected? (Error 12)"),
+                              systemImage: "questionmark.circle")
+                    }
                 } header: {
                     Text(localized: "settings.help.header", fallback: "Help")
                 } footer: {
@@ -485,6 +492,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showManageDevices) {
             ManageDevicesView(overLimitContext: deviceActivation.atLimit && !deviceActivation.registered)
+        }
+        .sheet(isPresented: $showLocationHelp) {
+            LocationErrorHelpView()
         }
         .alert("Two-Factor Code", isPresented: wanderAccount.twoFactorPrompt(for: .settings)) {
             TextField("6-digit code", text: $twoFactorCode)

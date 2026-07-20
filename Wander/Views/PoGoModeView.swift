@@ -201,6 +201,10 @@ struct PoGoModeView: View {
     // data from the Worker).
     @State private var showEventsSheet = false
 
+    // "Failed to detect location (12)" troubleshooting sheet — the affected users are right here in
+    // the Pokémon GO tab, so surface the fix checklist one tap away.
+    @State private var showLocationHelp = false
+
     // When ON, teleports are blocked (not just warned) while a cooldown is active.
     @AppStorage("pogoBlockUntilCooldownEnds") private var blockUntilCooldownEnds = false
     // Optional per-game speed nudge (OFF by default) — warns on the Joystick, never clamps. See WalkModeView.
@@ -356,6 +360,18 @@ struct PoGoModeView: View {
             .navigationTitle("\(gamePreset.shortTitle) Mode")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // Error 12 troubleshooting — the fix checklist for "Failed to detect location (12)".
+                // Kept for every game preset since the Niantic soft-ban/fix rules apply broadly.
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showLocationHelp = true
+                    } label: {
+                        Image(systemName: "questionmark.circle")
+                    }
+                    .accessibilityLabel(L("error12.open",
+                                          fallback: "Location not detected? (Error 12) — troubleshooting"))
+                }
+
                 // The events hub is LeekDuck/ScrapedDuck data — Pokémon GO ONLY. Hide the calendar
                 // for the other game presets, where it would just show irrelevant PoGo raids/eggs.
                 if gamePreset == .pokemonGo {
@@ -389,6 +405,9 @@ struct PoGoModeView: View {
             }
             .sheet(isPresented: $showEventsSheet) {
                 PoGoEventsSheet()
+            }
+            .sheet(isPresented: $showLocationHelp) {
+                LocationErrorHelpView()
             }
         }
     }
