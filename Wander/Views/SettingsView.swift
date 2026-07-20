@@ -52,6 +52,7 @@ struct SettingsView: View {
     @State private var showProSignIn = false
     @State private var showManageDevices = false
     @State private var showLocationHelp = false
+    @State private var showStabilizerBeta = false
     @EnvironmentObject private var localization: LocalizationManager
 
     private var appVersion: String {
@@ -440,6 +441,29 @@ struct SettingsView: View {
                     Text("The tunnel connects Wander to your device. Use the LocalDevVPN app — on Wi-Fi, or without Wi-Fi by turning on Airplane Mode first, then connecting LocalDevVPN.")
                 }
 
+                // EXPERIMENTAL — opt-in, off-by-default beta features. Nothing here changes anything
+                // unless the user opens the screen and acts.
+                Section {
+                    Button {
+                        showStabilizerBeta = true
+                    } label: {
+                        HStack {
+                            Label(L("settings.experimental.stabilizer",
+                                    fallback: "Long-distance stabilizer (Beta)"),
+                                  systemImage: "point.3.connected.trianglepath.dotted")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tint(.primary)
+                } header: {
+                    Text(localized: "settings.experimental.header", fallback: "Experimental")
+                } footer: {
+                    Text(localized: "settings.experimental.footer",
+                         fallback: "Opt-in beta features. Off by default — nothing installs or changes until you open one and choose to turn it on.")
+                }
+
                 Section {
                     Button {
                         isShowingPairingFilePicker = true
@@ -495,6 +519,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showLocationHelp) {
             LocationErrorHelpView()
+        }
+        .sheet(isPresented: $showStabilizerBeta) {
+            StabilizerBetaView()
         }
         .alert("Two-Factor Code", isPresented: wanderAccount.twoFactorPrompt(for: .settings)) {
             TextField("6-digit code", text: $twoFactorCode)
