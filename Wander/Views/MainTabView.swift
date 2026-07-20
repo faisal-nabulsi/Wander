@@ -173,6 +173,13 @@ struct MainTabView: View {
             .overlay(alignment: .bottomTrailing) { if panicButtonEnabled { panicButton } }
             .overlay(alignment: .top) { panicToast }
             .overlay(alignment: .top) { updateBanner }
+            // Persistent soft-ban countdown chip — guidance only, visible across every tab while a
+            // cooldown runs, sitting just above the tab bar so it never covers the map controls.
+            .overlay(alignment: .bottom) {
+                CooldownGuardView()
+                    .padding(.bottom, 62)
+            }
+            .animation(.easeInOut(duration: 0.25), value: session.cooldownActive)
             .animation(.easeInOut(duration: 0.25), value: bannerVisible)
             .animation(.easeInOut(duration: 0.25), value: panicToastVisible)
             .animation(.easeInOut(duration: 0.25), value: updater.available != nil)

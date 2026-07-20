@@ -186,11 +186,8 @@ struct PoGoModeView: View {
     @State private var communityLinks: [String: CommunityLink] = [:]
     @State private var loadError: String?
 
-    // Cooldown tracking.
-    @State private var lastCoordinate: CLLocationCoordinate2D?
-    @State private var cooldownEndsAt: Date?
-    @State private var lastJumpKm: Double = 0
-    @State private var now: Date = Date()
+    // Cooldown is now owned by SimulationSession (single source of truth, app-wide + persistent).
+    // This view just reads/renders session.cooldownActive / cooldownRemaining / lastJumpKm.
 
     // Feedback.
     @State private var showAlert = false
@@ -219,8 +216,6 @@ struct PoGoModeView: View {
     // cooldown when the user actually confirms the teleport there.
     @AppStorage("primaryTabSelection") private var primaryTab = AppFeature.location.id
     @ObservedObject private var session = SimulationSession.shared
-
-    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private var pairingFileURL: URL { PairingFileStore.prepareURL() }
     private var pairingExists: Bool {
@@ -387,17 +382,8 @@ struct PoGoModeView: View {
                 }
             }
             .onAppear(perform: loadData)
-            .onChange(of: session.teleportTick) { _, _ in
-                // A teleport was just confirmed (from a PoGo preview, the Places list, or the map).
-                // Start/refresh the soft-ban cooldown from the previous spot to the new destination.
-                guard let dest = session.lastTeleportCoordinate else { return }
-                applyCooldown(from: lastCoordinate, to: dest)
-                lastCoordinate = dest
-            }
-            .onReceive(ticker) { date in
-                // Only drive the countdown while a cooldown is pending.
-                if cooldownEndsAt != nil { now = date }
-            }
+            // The cooldown itself (compute on teleport + 1 s countdown) is driven by
+            // SimulationSession now — this view just observes the published state below.
             .alert(alertTitle, isPresented: $showAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -414,14 +400,12 @@ struct PoGoModeView: View {
 
     // MARK: Cooldown UI
 
-    private var remainingSeconds: TimeInterval {
-        guard let cooldownEndsAt else { return 0 }
-        return max(0, cooldownEndsAt.timeIntervalSince(now))
-    }
+    /// Seconds left on the shared app-wide cooldown (single source of truth: SimulationSession).
+    private var remainingSeconds: TimeInterval { session.cooldownRemaining }
 
     @ViewBuilder private var cooldownSection: some View {
-        if let cooldownEndsAt {
-            let remaining = remainingSeconds
+        if session.cooldownActive {
+            let remaining = session.cooldownRemaining
             Section {
                 HStack(spacing: 12) {
                     Image(systemName: remaining > 0 ? "hourglass" : "checkmark.seal.fill")
@@ -447,8 +431,8 @@ struct PoGoModeView: View {
                         }
                     }
                     Spacer()
-                    if lastJumpKm > 0 {
-                        Text("\(formattedKm(lastJumpKm)) km")
+                    if session.lastJumpKm > 0 {
+                        Text("\(formattedKm(session.lastJumpKm)) km")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
@@ -457,7 +441,6 @@ struct PoGoModeView: View {
             } header: {
                 Text("\(gamePreset.shortTitle) cooldown")
             }
-            .id(cooldownEndsAt)   // reset the row when a new cooldown starts
         }
     }
 
@@ -529,54 +512,24 @@ struct PoGoModeView: View {
         }
 
         // Optional hard block: if enabled, refuse to teleport while a cooldown
-        // is still counting down (rather than only warning).
-        if blockUntilCooldownEnds {
-            // Keep `now` fresh so the check is accurate even if the ticker is idle.
-            now = Date()
-            let remaining = remainingSeconds
-            if remaining > 0 {
-                present(
-                    title: "Cooldown Active",
-                    message: "Wait \(timeString(remaining)) before teleporting again. Turn off \"Block until cooldown ends\" to override."
-                )
-                return
-            }
+        // is still counting down (rather than only warning). Reads the shared session cooldown.
+        if blockUntilCooldownEnds, session.cooldownActive, remainingSeconds > 0 {
+            present(
+                title: "Cooldown Active",
+                message: "Wait \(timeString(remainingSeconds)) before teleporting again. Turn off \"Block until cooldown ends\" to override."
+            )
+            return
         }
 
         // Preview, don't teleport: jump to the Teleport tab and center + pin this spot. The user
         // presses Simulate there to actually move — matching how a tapped saved Place behaves. The
-        // cooldown then starts on that confirm (see the `session.teleportTick` observer above).
+        // cooldown then starts on that confirm — SimulationSession.noteTeleport computes it app-wide.
         NotificationCenter.default.post(
             name: .previewLocationRequested,
             object: nil,
             userInfo: ["lat": coordinate.latitude, "lng": coordinate.longitude]
         )
         primaryTab = AppFeature.location.id
-    }
-
-    private func applyCooldown(from previous: CLLocationCoordinate2D?, to next: CLLocationCoordinate2D) {
-        // Pikmin Bloom is step-based and Ingress uses a real-time speed lock — neither has a
-        // distance-based teleport soft-ban, so we don't track/show a cooldown timer for them.
-        guard gamePreset.usesTeleportCooldown else {
-            lastJumpKm = 0
-            cooldownEndsAt = nil
-            return
-        }
-        guard let previous else {
-            // First teleport of the session: no prior coordinate, so no cooldown.
-            lastJumpKm = 0
-            cooldownEndsAt = nil
-            return
-        }
-        let km = PoGoCooldown.distanceKm(from: previous, to: next)
-        lastJumpKm = km
-        let seconds = PoGoCooldown.seconds(forKm: km)
-        now = Date()
-        if seconds > 0 {
-            cooldownEndsAt = Date().addingTimeInterval(seconds)
-        } else {
-            cooldownEndsAt = nil
-        }
     }
 
     // MARK: Loading

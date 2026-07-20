@@ -44,10 +44,89 @@ final class SimulationSession: ObservableObject {
     @Published private(set) var teleportTick: Int = 0
     private(set) var lastTeleportCoordinate: CLLocationCoordinate2D?
 
+    // MARK: - App-wide soft-ban cooldown
+    //
+    // Guidance only. We CANNOT gate Pokémon GO's in-app catch/spin/gym taps (that's server-side,
+    // with no hook) — this is a persistent timer + countdown so the user knows how long to WAIT
+    // before interacting after a big jump. Teleport and walk stay free. The countdown lives on
+    // this shared singleton so it survives tab switches and every teleport writer feeds it.
+
+    /// Seconds left on the current soft-ban cooldown (0 when clear). Ticked down once per second.
+    @Published private(set) var cooldownRemaining: TimeInterval = 0
+    /// Whether a cooldown is currently counting down. Drives the persistent countdown chip.
+    @Published private(set) var cooldownActive = false
+    /// Great-circle distance (km) of the jump that started the current cooldown — shown for context.
+    @Published private(set) var lastJumpKm: Double = 0
+
+    /// Wall-clock end of the current cooldown; the 1 s ticker derives `cooldownRemaining` from it so
+    /// the countdown stays accurate across missed ticks (backgrounding, tab switches).
+    private var cooldownEndsAt: Date?
+    private var cooldownTimer: Timer?
+
+    /// Extra padding on top of the raw curve value (guidance is a floor, not a promise), and the
+    /// hard cap the PoGo curve itself already tops out at.
+    private let cooldownBuffer = 1.10
+    private let cooldownCapSeconds: TimeInterval = 120 * 60
+
     /// Record a confirmed teleport destination. Called from the Teleport tab's simulate paths.
+    /// Computes the app-wide soft-ban cooldown from the previous teleport coordinate to this one
+    /// using the EXISTING PoGoCooldown curve (same math, +buffer, capped), then starts/refreshes
+    /// the countdown. Re-teleporting while a cooldown runs simply restarts it from the new distance.
     func noteTeleport(to coordinate: CLLocationCoordinate2D) {
+        let previous = lastTeleportCoordinate
         lastTeleportCoordinate = coordinate
         teleportTick &+= 1
+        applyCooldown(from: previous, to: coordinate)
+    }
+
+    /// Start (or refresh) the cooldown for a jump `previous -> next`. No-op'd to "clear" when the
+    /// selected game doesn't use a distance cooldown (Pikmin/Ingress) or when there's no prior
+    /// coordinate (the first teleport of the session).
+    private func applyCooldown(from previous: CLLocationCoordinate2D?, to next: CLLocationCoordinate2D) {
+        let preset = GamePreset(rawValue: UserDefaults.standard.string(forKey: "pogoGamePreset") ?? "")
+            ?? .pokemonGo
+        guard preset.usesTeleportCooldown, let previous else {
+            clearCooldown()
+            return
+        }
+        let km = PoGoCooldown.distanceKm(from: previous, to: next)
+        lastJumpKm = km
+        // Reuse the existing curve verbatim; add a small buffer (guidance is a floor) and keep the
+        // curve's own 120-min ceiling as a hard cap.
+        let seconds = min(PoGoCooldown.seconds(forKm: km) * cooldownBuffer, cooldownCapSeconds)
+        guard seconds > 0 else {
+            clearCooldown()
+            return
+        }
+        cooldownEndsAt = Date().addingTimeInterval(seconds)
+        cooldownRemaining = seconds
+        cooldownActive = true
+        startCooldownTimer()
+    }
+
+    private func clearCooldown() {
+        cooldownEndsAt = nil
+        cooldownRemaining = 0
+        cooldownActive = false
+        lastJumpKm = 0
+        cooldownTimer?.invalidate()
+        cooldownTimer = nil
+    }
+
+    private func startCooldownTimer() {
+        cooldownTimer?.invalidate()
+        cooldownTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tickCooldown() }
+        }
+    }
+
+    private func tickCooldown() {
+        guard let endsAt = cooldownEndsAt else { return }
+        let remaining = max(0, endsAt.timeIntervalSinceNow)
+        cooldownRemaining = remaining
+        if remaining <= 0 {
+            clearCooldown()
+        }
     }
 
     /// Set to `true` for one run-loop tick when spoofing starts while on cellular, to ask the

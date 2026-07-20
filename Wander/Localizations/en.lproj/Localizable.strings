@@ -328,3 +328,7 @@
 "settings.experimental.stabilizer" = "Long-distance stabilizer (Beta)";
 "settings.experimental.header" = "Experimental";
 "settings.experimental.footer" = "Opt-in beta features. Off by default — nothing installs or changes until you open one and choose to turn it on.";
+
+/* Soft-ban cooldown chip (guidance only — we can't gate the game's in-app taps). */
+"cooldown.chip" = "Safe to catch/spin in";
+"cooldown.chip.a11y" = "Soft-ban cooldown — wait before catching or spinning";
