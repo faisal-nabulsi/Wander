@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "94",
+      "buildVersion": "95",
       "versionDate": "2026-07-20",
-      "versionDescription": "More Pokemon GO Error 12 fixes: routes and hands-free auto-walk now hold your location as steadily as the joystick already does, so a far teleport followed by a route no longer snaps backward. New: an in-app Error 12 help guide (Pokemon GO tab and Settings), and an experimental Long-distance stabilizer for far teleports under Settings, Experimental.",
+      "versionDescription": "Translations: the new Error 12 help guide and Long-distance stabilizer screens are now fully localized into German, Spanish, French, Italian, Japanese, Korean, Portuguese, Russian and Chinese.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17347472,
+      "size": 17367107,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "94",
+          "buildVersion": "95",
           "date": "2026-07-20",
-          "localizedDescription": "More Pokemon GO Error 12 fixes: routes and hands-free auto-walk now hold your location as steadily as the joystick already does, so a far teleport followed by a route no longer snaps backward. New: an in-app Error 12 help guide (Pokemon GO tab and Settings), and an experimental Long-distance stabilizer for far teleports under Settings, Experimental.",
+          "localizedDescription": "Translations: the new Error 12 help guide and Long-distance stabilizer screens are now fully localized into German, Spanish, French, Italian, Japanese, Korean, Portuguese, Russian and Chinese.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17347472,
+          "size": 17367107,
           "minOSVersion": "17.0"
         }
       ],
