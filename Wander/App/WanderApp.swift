@@ -50,6 +50,12 @@ struct WanderApp: App {
                 // (re)schedules start-time notifications, and evaluates the current window.
                 await MainActor.run { ScheduleManager.shared.startup() }
                 await MainActor.run { WanderAccount.shared.restoreSession() }
+                // Reboot-aware recovery: touch the session singleton at launch so its persisted
+                // "was spoofing" state is ready. If the last run ended WITHOUT a clean Stop (the
+                // app/tunnel died or the phone rebooted mid-session), MainTabView reads
+                // `pendingResumeTarget()` on appear and offers a gentle one-tap resume — which
+                // re-teleports via the EXISTING teleport path (never automatic, never a DDI remount).
+                await MainActor.run { _ = SimulationSession.shared.pendingResumeTarget() }
                 // Restore the OPTIONAL Wander-account Pro state (Firebase). Touching the
                 // singleton loads the cached isPro from the Keychain and kicks off a background
                 // entitlement re-check; folds into License.isLicensed so the gates honor it.

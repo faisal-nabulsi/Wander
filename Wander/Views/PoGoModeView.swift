@@ -262,6 +262,11 @@ struct PoGoModeView: View {
                     Text(gamePreset.mechanicNote)
                 }
 
+                // Pre-flight coherence checks: the two highest-yield Error-12 causes (Location
+                // Services off / Precise off) plus the IP↔GPS detection vector. Checked against the
+                // last teleport target so the IP↔GPS hint reflects where the user actually is spoofing.
+                PreFlightCard(spoofedTarget: session.lastTeleportCoordinate)
+
                 cooldownSection
 
                 if gamePreset.usesTeleportCooldown {

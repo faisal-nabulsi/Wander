@@ -332,3 +332,28 @@
 /* Soft-ban cooldown chip (guidance only — we can't gate the game's in-app taps). */
 "cooldown.chip" = "Safe to catch/spin in";
 "cooldown.chip.a11y" = "Soft-ban cooldown — wait before catching or spinning";
+
+/* Pre-flight coherence checks (PoGo tab). Advisory only — never block a teleport. */
+"preflight.header" = "Pre-flight checks";
+"preflight.ok" = "Pre-flight looks coherent";
+"preflight.footer" = "Advisory only — these never block a teleport. They flag the most common causes of Error 12 and one detection vector.";
+"preflight.open_settings" = "Open Settings";
+"preflight.auth.title" = "Location Services is off for Wander";
+"preflight.auth.body" = "iOS needs a real fix to seed from — with location off, a teleport can read as an impossible jump and trigger Error 12. Turn Location Services on for Wander.";
+"preflight.precise.title" = "Precise Location is off";
+"preflight.precise.body" = "A coarse real fix fights the injected precise fix and can trip Error 12. Turn Precise Location on for Wander.";
+"preflight.ipgps.title" = "Your network still looks local";
+"preflight.ipgps.body" = "Your network still looks like %@ while GPS says %@. Consider a VPN in that region so the two agree.";
+"preflight.ipgps.your_area" = "your area";
+"preflight.ipgps.the_target" = "the target";
+
+/* Reboot-aware recovery: resume a spoof that ended without a clean Stop. */
+"resume.title" = "Resume your spoof?";
+"resume.action" = "Resume";
+"resume.dismiss" = "Not now";
+"resume.body" = "Wander stopped without a clean Stop last time — a reboot or the app closing clears the spoof. Resume at %.4f, %.4f?";
+
+/* Gentle snap-back recovery — shown only after a real detected bounce-back. */
+"snapback.title" = "Location snapped back";
+"snapback.reteleport" = "Re-teleport";
+"snapback.body" = "Your device pulled back toward your real location. Tap Re-teleport to jump back.\n\nCommunity-reported for iOS 26 (not guaranteed): if it keeps snapping back, restart your iPhone — iOS 26 holds a cached location that toggles no longer clear. Wander will put you back here when you reopen it.";

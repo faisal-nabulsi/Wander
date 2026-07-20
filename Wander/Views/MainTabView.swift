@@ -85,6 +85,14 @@ struct MainTabView: View {
     @State private var panicToastVisible = false
     @State private var panicToastHideWork: DispatchWorkItem?
 
+    // Reboot-aware recovery: a spoof session that ended WITHOUT a clean Stop (app/tunnel died or the
+    // phone rebooted mid-session). Offered as a one-tap resume at launch — NOT resumed automatically.
+    @State private var pendingResume: SimulationSession.ResumeTarget?
+    @State private var didCheckPendingResume = false
+    // Gentle in-session snap-back recovery — shown ONLY after SnapBackWatcher detects a real
+    // bounce-back (never proactively).
+    @ObservedObject private var snapBack = SimulationSession.shared.snapBack
+
     var body: some View {
         ZStack {
             Color.clear.ignoresSafeArea()
@@ -108,6 +116,15 @@ struct MainTabView: View {
                 }
                 gate.refresh()
                 maybeShowWhatsNew()
+                // Reboot-aware recovery: if the last run ended without a clean Stop (app/tunnel death
+                // or a reboot mid-session), offer a one-tap resume. Checked once per launch; never
+                // auto-resumes. Skipped if a session is somehow already active.
+                if !didCheckPendingResume {
+                    didCheckPendingResume = true
+                    if !session.isActive {
+                        pendingResume = session.pendingResumeTarget()
+                    }
+                }
             }
             .onChange(of: setupChecker.hasRunOnce) { _, ran in
                 // After the first launch check, nudge the setup sheet only if something's missing.
@@ -215,6 +232,46 @@ struct MainTabView: View {
                 }
             } message: {
                 Text(localized: "tip.cellular.body", fallback: "On cellular your real area can still leak — even with a VPN. For the most believable spoof, connect to Wi-Fi or turn on Airplane Mode.")
+            }
+            // Reboot-aware recovery: offer to resume a spoof that ended without a clean Stop. One tap
+            // re-teleports via the NORMAL teleport path (which re-mounts the tunnel) — never automatic.
+            .alert(
+                L("resume.title", fallback: "Resume your spoof?"),
+                isPresented: Binding(get: { pendingResume != nil }, set: { if !$0 { pendingResume = nil } }),
+                presenting: pendingResume
+            ) { target in
+                Button(L("resume.action", fallback: "Resume")) {
+                    session.resume(to: target.coordinate)
+                    pendingResume = nil
+                }
+                Button(L("resume.dismiss", fallback: "Not now"), role: .cancel) {
+                    session.dismissPendingResume()
+                    pendingResume = nil
+                }
+            } message: { target in
+                Text(String(
+                    format: L("resume.body",
+                              fallback: "Wander stopped without a clean Stop last time — a reboot or the app closing clears the spoof. Resume at %.4f, %.4f?"),
+                    target.coordinate.latitude, target.coordinate.longitude))
+            }
+            // Gentle snap-back recovery — shown ONLY after an ACTUAL detected bounce-back (the
+            // device's real location drifted away from the spoofed target while spoofing). Offers a
+            // one-tap re-teleport plus a community-reported (not guaranteed) reboot suggestion.
+            .alert(
+                L("snapback.title", fallback: "Location snapped back"),
+                isPresented: Binding(get: { snapBack.didBounceBack }, set: { if !$0 { snapBack.reset() } })
+            ) {
+                if let target = session.lastTeleportCoordinate {
+                    Button(L("snapback.reteleport", fallback: "Re-teleport")) {
+                        session.resume(to: target)
+                    }
+                }
+                Button(L("action.ok", fallback: "OK"), role: .cancel) {
+                    snapBack.reset()
+                }
+            } message: {
+                Text(L("snapback.body",
+                       fallback: "Your device pulled back toward your real location. Tap Re-teleport to jump back.\n\nCommunity-reported for iOS 26 (not guaranteed): if it keeps snapping back, restart your iPhone — iOS 26 holds a cached location that toggles no longer clear. Wander will put you back here when you reopen it."))
             }
             // Apple-ID 2FA prompt for the OTA re-sign. The update banner and launch-time
             // auto-install kick the re-sign from HERE (not Settings), so without this alert the

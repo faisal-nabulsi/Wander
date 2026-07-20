@@ -44,6 +44,11 @@ final class SimulationSession: ObservableObject {
     @Published private(set) var teleportTick: Int = 0
     private(set) var lastTeleportCoordinate: CLLocationCoordinate2D?
 
+    /// Watches for a real "snap-back" (the device's real reported location bouncing away from the
+    /// spoofed target while spoofing). Exposed so the UI can observe `didBounceBack` and offer the
+    /// gentle recovery prompt — which appears ONLY after an actual detected bounce-back.
+    let snapBack = SnapBackWatcher()
+
     // MARK: - App-wide soft-ban cooldown
     //
     // Guidance only. We CANNOT gate Pokémon GO's in-app catch/spin/gym taps (that's server-side,
@@ -77,6 +82,95 @@ final class SimulationSession: ObservableObject {
         lastTeleportCoordinate = coordinate
         teleportTick &+= 1
         applyCooldown(from: previous, to: coordinate)
+        // Persist for reboot-aware recovery: if the app/tunnel dies or the phone reboots mid-session,
+        // the next launch can offer a one-tap resume back to THIS target. Written on every confirmed
+        // teleport so the persisted point always matches where the user last actually was.
+        persistResumeTarget(coordinate)
+        // (Re)arm snap-back detection against the fresh target — clears any prior bounce-back signal
+        // and starts watching from THIS coordinate.
+        snapBack.start(guarding: coordinate)
+    }
+
+    // MARK: - Reboot-aware recovery (persist + resume)
+    //
+    // iOS clears the spoof the moment the app/tunnel dies (or the phone reboots), snapping the device
+    // back to its real location. We persist the last teleport target + a "was spoofing" flag so the
+    // NEXT launch can offer a gentle one-tap resume — re-teleporting via the EXISTING simulate path
+    // (which re-mounts the tunnel). Nothing here re-mounts a tunnel itself or resumes automatically.
+
+    private enum ResumeKeys {
+        static let wasSpoofing = "resume.wasSpoofing"
+        static let lat = "resume.lat"
+        static let lng = "resume.lng"
+        static let timestamp = "resume.timestamp"
+    }
+
+    /// A saved spoof session that a fresh launch can offer to resume.
+    struct ResumeTarget {
+        let coordinate: CLLocationCoordinate2D
+        let savedAt: Date
+    }
+
+    /// Write the current teleport target + "was spoofing" flag + timestamp so a bounce-back to the
+    /// real location (app death / reboot) can be recovered on next launch.
+    private func persistResumeTarget(_ coordinate: CLLocationCoordinate2D) {
+        let d = UserDefaults.standard
+        d.set(true, forKey: ResumeKeys.wasSpoofing)
+        d.set(coordinate.latitude, forKey: ResumeKeys.lat)
+        d.set(coordinate.longitude, forKey: ResumeKeys.lng)
+        d.set(Date().timeIntervalSince1970, forKey: ResumeKeys.timestamp)
+    }
+
+    /// Clear the persisted resume state. Called on a clean Stop so a deliberate stop never resurfaces
+    /// as a "resume?" prompt on the next launch.
+    private func clearResumeTarget() {
+        let d = UserDefaults.standard
+        d.removeObject(forKey: ResumeKeys.wasSpoofing)
+        d.removeObject(forKey: ResumeKeys.lat)
+        d.removeObject(forKey: ResumeKeys.lng)
+        d.removeObject(forKey: ResumeKeys.timestamp)
+    }
+
+    /// If the previous run ended WITHOUT a clean Stop (app/tunnel died or the phone rebooted
+    /// mid-session), returns the target to offer resuming. `nil` when there's nothing to resume or
+    /// the saved session is stale. Read once at launch by `WanderApp`.
+    ///
+    /// - Parameter maxAge: ignore saved sessions older than this (default 12h) so a days-old flag
+    ///   doesn't nag. Advisory recovery is only useful right after an unexpected bounce-back.
+    func pendingResumeTarget(maxAge: TimeInterval = 12 * 60 * 60) -> ResumeTarget? {
+        let d = UserDefaults.standard
+        guard d.bool(forKey: ResumeKeys.wasSpoofing) else { return nil }
+        let lat = d.double(forKey: ResumeKeys.lat)
+        let lng = d.double(forKey: ResumeKeys.lng)
+        let coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lng)
+        guard CLLocationCoordinate2DIsValid(coordinate), lat != 0 || lng != 0 else { return nil }
+        let savedAt = Date(timeIntervalSince1970: d.double(forKey: ResumeKeys.timestamp))
+        guard Date().timeIntervalSince(savedAt) <= maxAge else {
+            clearResumeTarget()
+            return nil
+        }
+        return ResumeTarget(coordinate: coordinate, savedAt: savedAt)
+    }
+
+    /// Dismiss the launch-time resume offer without resuming — the user chose not to. Clears the
+    /// persisted flag so it won't reappear next launch.
+    func dismissPendingResume() {
+        clearResumeTarget()
+    }
+
+    /// Re-teleport to `coordinate` via the EXISTING teleport path — posts `.teleportToRequested`,
+    /// which the Map screen handles by selecting the coordinate and calling `simulate()` (that
+    /// re-mounts the tunnel through the normal flow). Used for both the launch-time reboot resume and
+    /// the in-session snap-back "re-teleport" tap. Deliberately reuses the normal path — it does NOT
+    /// build a separate DDI remount. Also switches to the Map tab so the resume is visible.
+    func resume(to coordinate: CLLocationCoordinate2D) {
+        snapBack.reset()
+        UserDefaults.standard.set(AppFeature.location.id, forKey: "primaryTabSelection")
+        NotificationCenter.default.post(
+            name: .teleportToRequested,
+            object: nil,
+            userInfo: ["lat": coordinate.latitude, "lng": coordinate.longitude]
+        )
     }
 
     /// Start (or refresh) the cooldown for a jump `previous -> next`. No-op'd to "clear" when the
@@ -163,6 +257,8 @@ final class SimulationSession: ObservableObject {
     func markStopped() {
         isActive = false
         stopGeneration += 1
+        clearResumeTarget()   // deliberate stop — never resurface as a "resume?" prompt next launch
+        snapBack.stop()
         cancelReminder()
     }
 
@@ -170,6 +266,8 @@ final class SimulationSession: ObservableObject {
     func stopAll() {
         isActive = false
         stopGeneration += 1
+        clearResumeTarget()   // deliberate stop — never resurface as a "resume?" prompt next launch
+        snapBack.stop()
         // Suppress any already-queued resend SYNCHRONOUSLY (before the async clear below) so a
         // stray hold re-injection can't run after the clear and re-freeze the fake location — the
         // notification handler that stops the resend timer may land a beat later.
