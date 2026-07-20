@@ -91,6 +91,31 @@ else
   echo "WARN: gh not installed — update the GitHub release Wander.ipa manually or the installer stays stale."
 fi
 
+# 4b) Auto-announce the release in the Discord #updates channel. The webhook URL lives in a
+#     gitignored local file (.updates-webhook) so the secret never enters git.
+if [ -f .updates-webhook ]; then
+  python3 - "$(cat .updates-webhook)" "$VERSION" "$BUILD" "$NOTES" <<'PY'
+import sys, json, urllib.request
+url, version, build, notes = sys.argv[1:5]
+body = {
+    "username": "Wander",
+    "avatar_url": "https://wanderspoofer.com/favicon-192.png",
+    "embeds": [{
+        "title": f"\U0001F680 Wander v{version} (build {build}) is out",
+        "description": notes[:3800] + "\n\n_Open Wander with the tunnel connected and it updates itself over the air — no computer._",
+        "color": 1597349,  # brand #185FA5
+        "footer": {"text": "Wander • auto-update", "icon_url": "https://wanderspoofer.com/favicon-192.png"},
+    }],
+}
+try:
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    urllib.request.urlopen(req, timeout=15)
+    print("== Announced build in Discord #updates ==")
+except Exception as e:
+    print(f"WARN: couldn't post to #updates ({e})")
+PY
+fi
+
 echo
 echo "== IPA + manifest + apps.json + GitHub release ready (build $BUILD). Ship it by pushing BOTH repos: =="
 echo "  cd ~/Developer/wander-ios && git add update.json apps.json Wander.xcodeproj/project.pbxproj && git commit -m \"OTA build $BUILD: $NOTES\" && git push"

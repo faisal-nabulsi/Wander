@@ -1,6 +1,6 @@
 {
-  "build": 90,
+  "build": 91,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Pro multi-device sync now covers your saved ROUTES too (builder + recorded), not just places — turn it on in Settings and your route library merges across your iPhone, iPad, and other devices. Same safe additive merge: routes are only ever added, never deleted. Plus the developer log file is now size-capped."
+  "notes": "Crashes are now caught and auto-reported to us so we can fix them fast (no coordinates or personal data — just the technical stack). Plus this update itself is the first to auto-announce here in #updates."
 }

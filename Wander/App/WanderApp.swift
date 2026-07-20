@@ -23,6 +23,8 @@ struct WanderApp: App {
 
     init() {
         AppBootstrapper.configure()
+        // Install crash handlers ASAP so a crash anywhere after this is captured + auto-reported.
+        CrashReporter.install()
     }
 
     var body: some Scene {
@@ -42,6 +44,8 @@ struct WanderApp: App {
             // that reads through L(...) picks up the new bundle immediately.
             .id(localization.currentLanguage)
             .task {
+                // If we crashed last run, quietly ship that report to support now.
+                CrashReporter.sendPendingIfAny()
                 // Arm the in-app scheduler: turns on the keep-alive if any schedule is armed,
                 // (re)schedules start-time notifications, and evaluates the current window.
                 await MainActor.run { ScheduleManager.shared.startup() }

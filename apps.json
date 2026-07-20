@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "90",
+      "buildVersion": "91",
       "versionDate": "2026-07-19",
-      "versionDescription": "Pro multi-device sync now covers your saved ROUTES too (builder + recorded), not just places — turn it on in Settings and your route library merges across your iPhone, iPad, and other devices. Same safe additive merge: routes are only ever added, never deleted. Plus the developer log file is now size-capped.",
+      "versionDescription": "Crashes are now caught and auto-reported to us so we can fix them fast (no coordinates or personal data — just the technical stack). Plus this update itself is the first to auto-announce here in #updates.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17186096,
+      "size": 17201536,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "90",
+          "buildVersion": "91",
           "date": "2026-07-19",
-          "localizedDescription": "Pro multi-device sync now covers your saved ROUTES too (builder + recorded), not just places — turn it on in Settings and your route library merges across your iPhone, iPad, and other devices. Same safe additive merge: routes are only ever added, never deleted. Plus the developer log file is now size-capped.",
+          "localizedDescription": "Crashes are now caught and auto-reported to us so we can fix them fast (no coordinates or personal data — just the technical stack). Plus this update itself is the first to auto-announce here in #updates.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17186096,
+          "size": 17201536,
           "minOSVersion": "17.0"
         }
       ],
