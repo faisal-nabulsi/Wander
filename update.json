@@ -1,6 +1,6 @@
 {
-  "build": 93,
+  "build": 94,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Smoother movement: the joystick now updates at 1 Hz (like a real GPS), which further reduces Pokemon GO location errors while walking. Pairs with the build 92 fix for error 12."
+  "notes": "More Pokemon GO Error 12 fixes: routes and hands-free auto-walk now hold your location as steadily as the joystick already does, so a far teleport followed by a route no longer snaps backward. New: an in-app Error 12 help guide (Pokemon GO tab and Settings), and an experimental Long-distance stabilizer for far teleports under Settings, Experimental."
 }
