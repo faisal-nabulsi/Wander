@@ -260,6 +260,49 @@
 "error12.cooldown.header" = "Interaction cooldown by distance";
 "error12.cooldown.disclaimer" = "Community estimates, not official Niantic values.";
 "error12.footer.discord" = "Still stuck? Tell us in the Discord #bug-reports channel.";
+
+/* Error 12 help — error taxonomy ("which error is it?") */
+"error12.taxonomy.header" = "Which error are you seeing?";
+"error12.taxonomy.err11.title" = "\"Failed to detect location (11)\" — no location at all";
+"error12.taxonomy.err11.detail" = "Error 11 means the game is getting NO location stream — the tunnel/connection dropped, so nothing is reaching Pokémon GO. Fix: make sure Wander is open with the tunnel connected, reconnect it, then reopen Pokémon GO.";
+"error12.taxonomy.err12.title" = "\"Failed to detect location (12)\" — a bad or jumpy stream";
+"error12.taxonomy.err12.detail" = "Error 12 means the location IS arriving but looks inconsistent to the game. Wander already smooths this on its side (a single writer for your movement). Remaining user-side fixes: set Pokémon GO's Location to Always + Precise; try the airplane-mode trick (Airplane Mode ON, connect the tunnel, then Wi-Fi back on) for a clean fix right after a teleport. On iOS 26, if the location keeps snapping back, the community reports a reboot clears the cached real location that the usual toggles no longer clear — not guaranteed, but worth a try.";
+"error12.taxonomy.auth.title" = "\"Unable to authenticate\" — a login problem, not a GPS one";
+"error12.taxonomy.auth.detail" = "This one isn't about location. Log into Pokémon GO BEFORE connecting the tunnel: sign in while you're still on your real GPS, then connect the tunnel and teleport.";
+
+/* Error 12 help — plain-language ban ladder */
+"error12.ban.header" = "The ban ladder, in plain language";
+"error12.ban.intro" = "If you rush, Niantic responds in steps. Knowing the ladder keeps you calm — most of what people call a \"ban\" is just a cooldown.";
+"error12.ban.softban.title" = "Soft ban / cooldown";
+"error12.ban.softban.detail" = "Pokémon flee, PokéStops give you nothing, for anywhere from a few minutes to about an hour. This is not a real ban — just wait it out. Respect the cooldown after teleporting (see the cooldown table above).";
+"error12.ban.strike1.title" = "Strike 1 — shadowban / \"research quest\" warning";
+"error12.ban.strike1.detail" = "About 7–14 days of degraded catches — no rares show up for you. Play legit and lightly for the duration; it lifts on its own.";
+"error12.ban.strike23.title" = "Strikes 2 & 3 — suspension, then permanent ban";
+"error12.ban.strike23.detail" = "Further strikes escalate to temporary suspensions and finally a permanent ban. Slow down: real cooldowns, no rapid long-distance hops.";
+"error12.ban.caveat" = "A sudden wave of fleeing Pokémon can be a Niantic-side bug, not necessarily a ban on you.";
+"error12.ban.notvpn" = "Wander's tunnel is Apple's on-device developer tunnel — it is NOT an IP-VPN and does not change your IP address.";
+
+/* Error 12 help — link to the tunnel-connection help sheet */
+"error12.tunnel_link.title" = "Tunnel won't connect or keeps dropping?";
+"error12.tunnel_link.detail" = "Open the tunnel-connection help.";
+
+/* Tunnel connection help sheet */
+"tunnel.title" = "Tunnel won't connect?";
+"tunnel.intro" = "The tunnel is what carries Wander's location to your device. If LocalDevVPN won't connect or keeps dropping, the game loses its fix. These steps get it connected and keep it up.";
+"tunnel.step.foreground.title" = "Keep Wander in the foreground";
+"tunnel.step.foreground.detail" = "The tunnel needs Wander open and on screen while it connects. If you swipe Wander away or lock the phone before it's up, the connection can fail. Open Wander first, then connect.";
+"tunnel.step.wifi.title" = "Connect on Wi-Fi";
+"tunnel.step.wifi.detail" = "The tunnel is most reliable over Wi-Fi. Join a Wi-Fi network, then open LocalDevVPN and connect. If it connects on Wi-Fi, you can usually stay connected after switching Wi-Fi off.";
+"tunnel.step.airplane.title" = "No Wi-Fi? Use the airplane-mode-first trick";
+"tunnel.step.airplane.detail" = "Turn Airplane Mode ON, then open LocalDevVPN and connect the tunnel, then turn Wi-Fi back on. This brings the tunnel up cleanly without a Wi-Fi network to start.";
+"tunnel.step.memory.title" = "Free up memory if it keeps dropping";
+"tunnel.step.memory.detail" = "Low memory or too many apps in the background can make iOS drop the tunnel. Close some background apps (and Pokémon GO if it's a heavy session), then reconnect.";
+"tunnel.step.reconnect.title" = "Clean reconnect";
+"tunnel.step.reconnect.detail" = "If the tunnel is stuck, disconnect it in LocalDevVPN, make sure Wander is open, then connect again. If it still won't come up, reopen LocalDevVPN and Wander and try the steps above in order.";
+"tunnel.notvpn.header" = "What this tunnel is";
+"tunnel.notvpn.body" = "This is Apple's on-device developer tunnel — not an IP-VPN. It doesn't change your IP address, route your web traffic, or hide anything on the network. It only carries Wander's location to your device on this phone.";
+"tunnel.footer.discord" = "Still can't connect? Tell us in the Discord #bug-reports channel.";
+"settings.help.tunnel" = "Tunnel won't connect?";
 "stabilizer.title" = "Long-distance stabilizer (Beta)";
 "stabilizer.intro" = "Experimental. Helps a FAR teleport hold steady instead of drifting back.";
 "stabilizer.what.header" = "What this does";

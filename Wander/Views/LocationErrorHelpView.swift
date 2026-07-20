@@ -15,6 +15,8 @@ import SwiftUI
 struct LocationErrorHelpView: View {
     @Environment(\.dismiss) private var dismiss
 
+    @State private var showTunnelHelp = false
+
     /// One step in the fix checklist.
     private struct Step: Identifiable {
         let id = UUID()
@@ -22,6 +24,74 @@ struct LocationErrorHelpView: View {
         let icon: String
         let title: String
         let detail: String
+    }
+
+    /// One entry in the error-taxonomy / "which error is it?" guide.
+    private struct ErrorCase: Identifiable {
+        let id = UUID()
+        let icon: String
+        let title: String
+        let detail: String
+    }
+
+    /// One rung on the plain-language ban ladder.
+    private struct BanRung: Identifiable {
+        let id = UUID()
+        let icon: String
+        let title: String
+        let detail: String
+    }
+
+    private var errorCases: [ErrorCase] {
+        [
+            ErrorCase(
+                icon: "wifi.slash",
+                title: L("error12.taxonomy.err11.title",
+                         fallback: "\"Failed to detect location (11)\" — no location at all"),
+                detail: L("error12.taxonomy.err11.detail",
+                          fallback: "Error 11 means the game is getting NO location stream — the tunnel/connection dropped, so nothing is reaching Pokémon GO. Fix: make sure Wander is open with the tunnel connected, reconnect it, then reopen Pokémon GO.")
+            ),
+            ErrorCase(
+                icon: "waveform.path.ecg",
+                title: L("error12.taxonomy.err12.title",
+                         fallback: "\"Failed to detect location (12)\" — a bad or jumpy stream"),
+                detail: L("error12.taxonomy.err12.detail",
+                          fallback: "Error 12 means the location IS arriving but looks inconsistent to the game. Wander already smooths this on its side (a single writer for your movement). Remaining user-side fixes: set Pokémon GO's Location to Always + Precise; try the airplane-mode trick (Airplane Mode ON, connect the tunnel, then Wi-Fi back on) for a clean fix right after a teleport. On iOS 26, if the location keeps snapping back, the community reports a reboot clears the cached real location that the usual toggles no longer clear — not guaranteed, but worth a try.")
+            ),
+            ErrorCase(
+                icon: "person.badge.key",
+                title: L("error12.taxonomy.auth.title",
+                         fallback: "\"Unable to authenticate\" — a login problem, not a GPS one"),
+                detail: L("error12.taxonomy.auth.detail",
+                          fallback: "This one isn't about location. Log into Pokémon GO BEFORE connecting the tunnel: sign in while you're still on your real GPS, then connect the tunnel and teleport.")
+            ),
+        ]
+    }
+
+    private var banRungs: [BanRung] {
+        [
+            BanRung(
+                icon: "hourglass",
+                title: L("error12.ban.softban.title",
+                         fallback: "Soft ban / cooldown"),
+                detail: L("error12.ban.softban.detail",
+                          fallback: "Pokémon flee, PokéStops give you nothing, for anywhere from a few minutes to about an hour. This is not a real ban — just wait it out. Respect the cooldown after teleporting (see the cooldown table above).")
+            ),
+            BanRung(
+                icon: "1.circle",
+                title: L("error12.ban.strike1.title",
+                         fallback: "Strike 1 — shadowban / \"research quest\" warning"),
+                detail: L("error12.ban.strike1.detail",
+                          fallback: "About 7–14 days of degraded catches — no rares show up for you. Play legit and lightly for the duration; it lifts on its own.")
+            ),
+            BanRung(
+                icon: "exclamationmark.2",
+                title: L("error12.ban.strike23.title",
+                         fallback: "Strikes 2 & 3 — suspension, then permanent ban"),
+                detail: L("error12.ban.strike23.detail",
+                          fallback: "Further strikes escalate to temporary suspensions and finally a permanent ban. Slow down: real cooldowns, no rapid long-distance hops.")
+            ),
+        ]
     }
 
     private var steps: [Step] {
@@ -101,6 +171,12 @@ struct LocationErrorHelpView: View {
 
                     cooldownCard
 
+                    taxonomyCard
+
+                    banLadderCard
+
+                    tunnelHelpLink
+
                     Text(L("error12.footer.discord",
                            fallback: "Still stuck? Tell us in the Discord #bug-reports channel."))
                         .font(.footnote)
@@ -119,6 +195,9 @@ struct LocationErrorHelpView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L("action.done", fallback: "Done")) { dismiss() }
                 }
+            }
+            .sheet(isPresented: $showTunnelHelp) {
+                TunnelConnectionHelpView()
             }
         }
     }
@@ -202,6 +281,130 @@ struct LocationErrorHelpView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    // MARK: - Error-taxonomy card ("which error is it?")
+
+    private var taxonomyCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(L("error12.taxonomy.header", fallback: "Which error are you seeing?"),
+                  systemImage: "list.bullet.rectangle")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            VStack(spacing: 0) {
+                ForEach(Array(errorCases.enumerated()), id: \.element.id) { index, item in
+                    infoRow(icon: item.icon, title: item.title, detail: item.detail)
+                    if index < errorCases.count - 1 {
+                        Divider().padding(.leading, 44)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    // MARK: - Ban-ladder card (plain-language education)
+
+    private var banLadderCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(L("error12.ban.header", fallback: "The ban ladder, in plain language"),
+                  systemImage: "stairs")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            Text(L("error12.ban.intro",
+                   fallback: "If you rush, Niantic responds in steps. Knowing the ladder keeps you calm — most of what people call a \"ban\" is just a cooldown."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(spacing: 0) {
+                ForEach(Array(banRungs.enumerated()), id: \.element.id) { index, rung in
+                    infoRow(icon: rung.icon, title: rung.title, detail: rung.detail)
+                    if index < banRungs.count - 1 {
+                        Divider().padding(.leading, 44)
+                    }
+                }
+            }
+
+            Text(L("error12.ban.caveat",
+                   fallback: "A sudden wave of fleeing Pokémon can be a Niantic-side bug, not necessarily a ban on you."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(L("error12.ban.notvpn",
+                   fallback: "Wander's tunnel is Apple's on-device developer tunnel — it is NOT an IP-VPN and does not change your IP address."))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    // MARK: - Link to the tunnel-connection help sheet
+
+    private var tunnelHelpLink: some View {
+        Button {
+            showTunnelHelp = true
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(Wander.brand.opacity(0.12))
+                        .frame(width: 34, height: 34)
+                    Image(systemName: "cable.connector.horizontal")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Wander.brand)
+                }
+                .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L("error12.tunnel_link.title", fallback: "Tunnel won't connect or keeps dropping?"))
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(L("error12.tunnel_link.detail", fallback: "Open the tunnel-connection help."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    // MARK: - Shared info row (icon + title + detail) for the taxonomy / ban cards
+
+    private func infoRow(icon: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Wander.brand)
+                .frame(width: 24)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 10)
     }
 }
 

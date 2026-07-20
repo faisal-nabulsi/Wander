@@ -52,6 +52,7 @@ struct SettingsView: View {
     @State private var showProSignIn = false
     @State private var showManageDevices = false
     @State private var showLocationHelp = false
+    @State private var showTunnelHelp = false
     @State private var showStabilizerBeta = false
     @EnvironmentObject private var localization: LocalizationManager
 
@@ -435,6 +436,12 @@ struct SettingsView: View {
                         Label(L("settings.help.error12", fallback: "Location not detected? (Error 12)"),
                               systemImage: "questionmark.circle")
                     }
+                    Button {
+                        showTunnelHelp = true
+                    } label: {
+                        Label(L("settings.help.tunnel", fallback: "Tunnel won't connect?"),
+                              systemImage: "cable.connector.horizontal")
+                    }
                 } header: {
                     Text(localized: "settings.help.header", fallback: "Help")
                 } footer: {
@@ -519,6 +526,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showLocationHelp) {
             LocationErrorHelpView()
+        }
+        .sheet(isPresented: $showTunnelHelp) {
+            TunnelConnectionHelpView()
         }
         .sheet(isPresented: $showStabilizerBeta) {
             StabilizerBetaView()
