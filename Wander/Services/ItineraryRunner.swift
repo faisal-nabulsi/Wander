@@ -72,6 +72,13 @@ final class ItineraryRunner: ObservableObject {
 
         isRunning = true
         phase = .moving
+        // We are now the sole location writer for the whole itinerary. Silence the Map tab's teleport
+        // "hold" resend so it can't keep re-injecting a stale prior-teleport point every 4 s while we
+        // drive/teleport between steps — the impossible backward jump is exactly what makes Pokémon GO
+        // throw "Failed to detect location (12)". sendOnce() re-asserts this on every write (incl. the
+        // stay keep-alive) so a cross-tab teleport can't silently re-enable it; the terminal stopAll()
+        // both sets it true and clears the device location.
+        LocationSimulationCommandQueue.suppressResends = true
         SimulationSession.shared.started()
 
         runTask = Task { [weak self] in
@@ -171,6 +178,10 @@ final class ItineraryRunner: ObservableObject {
             ? LocationJitter.apply(coordinate)
             : coordinate
         let target = CoarseLocation.apply(jittered)
+        // Every itinerary write funnels through here (teleport steps, per-sample drive points, and the
+        // stay keep-alive), so re-assert single-writer suppression of the Map tab's stale resend at
+        // this one choke-point (mirrors WalkModeView.step()'s per-tick re-assert).
+        LocationSimulationCommandQueue.suppressResends = true
         LocationSimulationCommandQueue.shared.async {
             _ = simulate_location(DeviceConnectionContext.targetIPAddress, target.latitude, target.longitude, path)
         }

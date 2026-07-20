@@ -2184,6 +2184,14 @@ struct LocationSimulationView: View {
                 try? await Task.sleep(for: .seconds(sample.delayFromPrevious))
                 guard !Task.isCancelled else { return }
 
+                // While the route drives the location WE are the sole writer. Re-assert suppression of
+                // the Map tab's teleport "hold" resend every step so nothing (e.g. an auto-walk arrival
+                // on the Joystick tab posting .holdLocationRequested) can silently re-enable it and
+                // re-inject a STALE point every 4 s that rubber-bands us backward mid-route — the
+                // impossible backward jump that trips PoGo's "Failed to detect location (12)".
+                // simulateRoute()/glideTeleport() already cleared it at start; this keeps it clear.
+                LocationSimulationCommandQueue.suppressResends = true
+
                 let code = await sendLocationUpdate(for: sample.coordinate)
                 guard code == 0 else {
                     await MainActor.run {
