@@ -76,8 +76,8 @@ enum StabilizerLink: Equatable {
                 return (.unavailable(L("stabilizer.error.unavailable",
                                        fallback: "Not available right now — please try again later.")), 200)
             case 401: return (.notSignedIn, 401)
-            case 503: return (.unavailable(L("stabilizer.error.unavailable",
-                                             fallback: "Not available right now — please try again later.")), 503)
+            case 500: return (.unavailable(L("stabilizer.error.unavailable",
+                                             fallback: "Not available right now — please try again later.")), 500)
             default:  return (.unavailable(L("stabilizer.error.unavailable",
                                              fallback: "Not available right now — please try again later.")), status)
             }
@@ -323,8 +323,13 @@ struct StabilizerBetaView: View {
         case .link(let url):
             // Open in SAFARI (not an in-app browser) so iOS downloads the .mobileconfig and shows
             // the install flow. An app-opened local profile would NOT install — this must be Safari.
-            await UIApplication.shared.open(url)
-            didOpenSafari = true
+            // Only advance to the "downloading" next-steps card if Safari actually opened.
+            if await UIApplication.shared.open(url) {
+                didOpenSafari = true
+            } else {
+                errorMessage = L("stabilizer.error.safari",
+                                 fallback: "Couldn't open Safari to download the profile. Please try again.")
+            }
         case .notSignedIn:
             needsSignIn = true
         case .unavailable(let message):

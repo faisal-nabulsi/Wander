@@ -1415,6 +1415,12 @@ struct RouteModeView: View {
             visibleRegion = region
         }
         SimulationSession.shared.started()
+        // We own the location stream for the whole drive: silence the Map tab's teleport "hold"
+        // resend so it can't re-inject a stale prior-teleport point every 4 s and rubber-band us
+        // backward mid-route — the impossible backward jump that trips PoGo "Failed to detect
+        // location (12)". Re-asserted each step in the playback loop (see below); handed back on
+        // completion. Mirrors WalkModeView / MapSelectionView route playback / ItineraryRunner.
+        LocationSimulationCommandQueue.suppressResends = true
         // Adventure Sync: open a fresh walk window for this drive (no-op unless
         // opted in). Per-sample deltas below feed the incremental Health writer.
         AdventureSyncManager.shared.beginWalk()
@@ -1447,6 +1453,10 @@ struct RouteModeView: View {
                     let outgoing = (!frozen && jitterEnabled)
                         ? (MotionRealism.isEnabled ? HumanizedMotion.gpsNoise(sample.coordinate) : LocationJitter.apply(sample.coordinate))
                         : sample.coordinate
+                    // Re-assert single-writer ownership each step (mirrors WalkModeView.step()): nothing
+                    // (e.g. a cross-tab teleport, or an auto-walk arrival posting .holdLocationRequested)
+                    // may silently re-enable the map resend and rubber-band us backward mid-drive.
+                    LocationSimulationCommandQueue.suppressResends = true
                     send(outgoing)
                     currentPosition = sample.coordinate
                     // Adventure Sync: mirror the SIMULATED movement (true path
@@ -1463,7 +1473,19 @@ struct RouteModeView: View {
                     remainingSeconds = max(totalPlanned - elapsed, 0) / max(playbackRate, 0.1)
                 }
             } while shouldLoop && !Task.isCancelled
-            if !Task.isCancelled { isDriving = false }
+            if !Task.isCancelled {
+                isDriving = false
+                // Drive finished naturally — park at the destination. Hand the warm-hold back to the
+                // Map tab's resend, re-seeded at the ARRIVED point, so the fix stays alive now that our
+                // playback loop has stopped (mirrors WalkModeView.arriveAutoWalk). A user Stop instead
+                // goes through stopAll() (clears + suppresses), so this only runs on natural completion.
+                if let end = samples.last?.coordinate {
+                    NotificationCenter.default.post(
+                        name: .holdLocationRequested, object: nil,
+                        userInfo: ["lat": end.latitude, "lng": end.longitude]
+                    )
+                }
+            }
         }
     }
 

@@ -66,12 +66,29 @@ struct WalkModeView: View {
             } message: {
                 Text(alertMessage)
             }
-            .onDisappear { stopTimer() }
+            .onDisappear {
+                stopTimer()
+                // Leaving the tab mid-walk stops our tick — which is also the only thing keeping the
+                // fix warm while the map resend is suppressed. Hand the hold to the Map tab's resend at
+                // the current point so the spoof doesn't decay off-screen. onAppear re-takes ownership.
+                if isWalking, let c = coordinate {
+                    NotificationCenter.default.post(
+                        name: .holdLocationRequested, object: nil,
+                        userInfo: ["lat": c.latitude, "lng": c.longitude]
+                    )
+                }
+            }
             .sheet(isPresented: $showPaywall) { PaywallView(onClose: { showPaywall = false }) }
             .onReceive(NotificationCenter.default.publisher(for: .stopSimulationRequested)) { _ in
                 localReset()
             }
-            .onAppear { currentLocation.request() }
+            .onAppear {
+                currentLocation.request()
+                // Returning to an in-progress walk: restart our tick so we re-take ownership
+                // (step() re-asserts suppressResends) and resume keeping the fix warm — otherwise the
+                // stopped timer would leave the joystick dead until the user hit Stop and restarted.
+                if isWalking { startTimer() }
+            }
             .onReceive(currentLocation.$coordinate.compactMap { $0 }) { c in
                 if coordinate == nil && !isWalking {
                     cameraPosition = .region(MKCoordinateRegion(center: c, latitudinalMeters: 2500, longitudinalMeters: 2500))
@@ -369,7 +386,9 @@ struct WalkModeView: View {
     private func arriveAutoWalk(at target: CLLocationCoordinate2D) {
         coordinate = target
         recenter(on: target)
-        send(MotionRealism.isEnabled ? HumanizedMotion.gpsNoise(target) : target)
+        // Parked exactly on the destination — send the CLEAN point (no ±2.5 m gpsNoise scatter); a
+        // held point must be rock-steady, and the resend re-seed below holds this same clean point.
+        send(target)
         AdventureSyncManager.shared.recordSimulatedMovement(to: target)
         AdventureSyncManager.shared.endWalk()
         autoWalkTarget = nil
