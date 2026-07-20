@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "91",
+      "buildVersion": "92",
       "versionDate": "2026-07-19",
-      "versionDescription": "Crashes are now caught and auto-reported to us so we can fix them fast (no coordinates or personal data — just the technical stack). Plus this update itself is the first to auto-announce here in #updates.",
+      "versionDescription": "Fix: Pokémon GO \"Failed to detect location (12)\" while joystick-walking. After teleporting then walking, the map's background \"hold\" kept re-injecting your old teleport spot every few seconds — snapping you backward mid-step so PoGo rejected the fix. The joystick now fully owns your live position while you move (and hands a clean hold back when you stop), so PoGo keeps its lock. Also steadied tiny-nudge movement.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17201536,
+      "size": 17204759,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "91",
+          "buildVersion": "92",
           "date": "2026-07-19",
-          "localizedDescription": "Crashes are now caught and auto-reported to us so we can fix them fast (no coordinates or personal data — just the technical stack). Plus this update itself is the first to auto-announce here in #updates.",
+          "localizedDescription": "Fix: Pokémon GO \"Failed to detect location (12)\" while joystick-walking. After teleporting then walking, the map's background \"hold\" kept re-injecting your old teleport spot every few seconds — snapping you backward mid-step so PoGo rejected the fix. The joystick now fully owns your live position while you move (and hands a clean hold back when you stop), so PoGo keeps its lock. Also steadied tiny-nudge movement.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17201536,
+          "size": 17204759,
           "minOSVersion": "17.0"
         }
       ],
