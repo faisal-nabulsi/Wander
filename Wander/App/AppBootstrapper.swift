@@ -23,7 +23,10 @@ enum AppBootstrapper {
             UserDefaults.Keys.txmOverride: false,
             UserDefaults.Keys.confirmExternalJITRequests: true,
             "keepAliveAudio": true,
-            "keepAliveLocation": true
+            "keepAliveLocation": true,
+            // "First fix is real" ban-guardrail — OFF by default (hidden flag, no UI toggle yet).
+            // Enable only after verifying the real→fake handoff timing on a device; see RealGPSSeeder.
+            RealGPSSeeder.enabledKey: false
         ])
     }
 

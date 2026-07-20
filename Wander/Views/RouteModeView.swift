@@ -176,6 +176,13 @@ struct RouteModeView: View {
     @State private var selectedRouteIndex = 0
     @AppStorage("useMph") private var useMph = false
     @AppStorage("jitterEnabled") private var jitterEnabled = false
+    // Same per-game context the Joystick + Games tabs read. Used ONLY to scope the hard speed
+    // clamp during playback (see startDrive's loop): when the user is framing movement around a
+    // location game we cap the effective route speed at that game's ban-triggering ceiling. Left OFF
+    // for a general drive/flight so legitimate high-speed modes (highway drive, PLANE) aren't broken.
+    @AppStorage("gameSpeedWarn") private var gameSpeedWarn = false
+    @AppStorage("pogoGamePreset") private var gamePresetRaw = GamePreset.pokemonGo.rawValue
+    private var gamePreset: GamePreset { GamePreset(rawValue: gamePresetRaw) ?? .pokemonGo }
     // Avoid options (Pro, Google Routes API) — only meaningful for Drive.
     @AppStorage("routeAvoidHighways") private var avoidHighways = false
     @AppStorage("routeAvoidTolls") private var avoidTolls = false
@@ -1428,6 +1435,10 @@ struct RouteModeView: View {
 
         let totalPlanned = samples.reduce(0) { $0 + $1.delayFromPrevious }
         let shouldLoop = loopRoute
+        // HARD speed clamp for playback (see SpeedGovernor). Scoped to an active game context only:
+        // capped at the game's community-cited safe speed when the user is framing movement around a
+        // location game, and OFF otherwise so a general highway-drive / PLANE flight isn't throttled.
+        let clampPreset: GamePreset? = gameSpeedWarn ? gamePreset : nil
         playbackTask = Task {
             let total = samples.count
             // One full pass over the route. When looping, we re-run it from the
@@ -1441,7 +1452,19 @@ struct RouteModeView: View {
                     }
                     if Task.isCancelled { break }
                     if sample.delayFromPrevious > 0 {
-                        let scaled = sample.delayFromPrevious / max(playbackRate, 0.1)
+                        var scaled = sample.delayFromPrevious / max(playbackRate, 0.1)
+                        // Enforce the hard ceiling on the ACTUAL (post-playbackRate) step speed: if
+                        // this sample's distance over `scaled` seconds would exceed the ceiling, stretch
+                        // the sleep so the effective advance rate is held at the cap. Guards against a
+                        // fast route sample (or a 4× rate) implying an impossible, ban-triggering jump.
+                        if let clampPreset, index > 0 {
+                            let stepMeters = CLLocation(latitude: samples[index - 1].coordinate.latitude,
+                                                        longitude: samples[index - 1].coordinate.longitude)
+                                .distance(from: CLLocation(latitude: sample.coordinate.latitude,
+                                                           longitude: sample.coordinate.longitude))
+                            let minDelay = stepMeters / SpeedGovernor.hardCeilingMps(for: clampPreset)
+                            if minDelay > scaled { scaled = minDelay }
+                        }
                         try? await Task.sleep(nanoseconds: UInt64(scaled * 1_000_000_000))
                     }
                     if Task.isCancelled { break }

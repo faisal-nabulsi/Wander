@@ -331,7 +331,16 @@ struct WalkModeView: View {
         let (spd, wanderHeading) = motion.next(targetSpeed: targetSpeed, baseHeading: baseBearing,
                                                dt: tickInterval, allowPause: !onFinalApproach)
         let heading = onFinalApproach ? baseBearing : wanderHeading
-        let distance = autoWalkTarget != nil ? min(spd * tickInterval, remaining) : spd * tickInterval
+        // HARD speed clamp (ALWAYS ON, not user-disableable): cap the per-tick advance so the
+        // effective ground speed can never exceed a ban-triggering ceiling — even if the slider (or
+        // the humanized pace variance) pushed it higher. Applies to both joystick and auto-walk. If
+        // the user opted into a game context (gameSpeedWarn) we cap at THAT game's community-cited
+        // safe speed; otherwise SpeedGovernor uses its absolute ~35 km/h fallback. Either way the cap
+        // is applied every tick. The soft `gameSpeedWarn` above still fires as a nudge; this is the
+        // safety net that can't be turned off.
+        let clampPreset: GamePreset? = gameSpeedWarn ? gamePreset : nil
+        let cappedSpd = SpeedGovernor.clampSpeedMps(spd, preset: clampPreset)
+        let distance = autoWalkTarget != nil ? min(cappedSpd * tickInterval, remaining) : cappedSpd * tickInterval
 
         let metersPerDegLat = 111_320.0
         let dLat = (distance * cos(heading)) / metersPerDegLat

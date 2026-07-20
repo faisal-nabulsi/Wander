@@ -847,6 +847,9 @@ struct LocationSimulationView: View {
     @StateObject private var currentLocation = CurrentLocation()
     @StateObject private var locationInfo = LocationInfoService()
     @ObservedObject private var reachability = NetworkReachability.shared
+    // "First fix is real" guardrail (OFF by default — see RealGPSSeeder). When enabled, seeds the
+    // device's real location before a teleport so the opening jump isn't an instant impossible delta.
+    @StateObject private var realGPSSeeder = RealGPSSeeder()
 
     @State private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @State private var resendTimer: Timer?
@@ -1784,6 +1787,22 @@ struct LocationSimulationView: View {
             showPaywall = true
             return
         }
+        // "First fix is real" guardrail (OFF by default): seed the device's REAL location before the
+        // teleport so the opening move isn't an instant impossible-speed delta. Fail-safe — a nil real
+        // fix (flag off / denied / no fix) just falls straight through to the normal teleport. When
+        // the flag is off (the default) this is a synchronous no-op and the path is unchanged.
+        if RealGPSSeeder.isEnabled {
+            let path = pairingFilePath
+            Task {
+                await realGPSSeeder.seedRealFirstFix(pairingFilePath: path)
+                performSimulate(coord: coord)
+            }
+            return
+        }
+        performSimulate(coord: coord)
+    }
+
+    private func performSimulate(coord: CLLocationCoordinate2D) {
         SavedPlacesStore.recordRecent(coord, name: "Pinned location")
         locationInfo.refresh(lat: coord.latitude, lng: coord.longitude)
 

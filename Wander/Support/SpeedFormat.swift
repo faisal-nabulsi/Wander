@@ -31,6 +31,43 @@ enum SpeedFormat {
     }
 }
 
+/// HARD, always-on speed ceiling on injected movement — a self-inflicted-ban guardrail.
+///
+/// Separate from the existing SOFT warn (`gameSpeedWarn` + `GamePreset.maxSafeSpeedKmh`): that
+/// only shows an orange nudge and is opt-in. This is a non-disableable clamp on the ADVANCE RATE
+/// (distance moved per tick), so the joystick slider / auto-walk / route playback can never push the
+/// simulated position faster than a speed apps treat as an instant impossible-teleport ban trigger.
+///
+/// The clamp caps the effective per-tick distance; the slider VALUE is left alone, so a user who
+/// drags past the game's safe speed still sees the soft warn while their actual movement is held at
+/// the ceiling. FFI is lat/lng only — there is no speed field — so this governs the step size, the
+/// only thing that expresses "how fast" over the wire.
+enum SpeedGovernor {
+    /// Absolute fallback ceiling when no game context applies (~35 km/h — PoGo's "driving" throttle
+    /// point, the most permissive of the games we frame around, so it never clamps legitimate use).
+    static let absoluteCeilingMps = 35_000.0 / 3_600.0   // ≈ 9.72 m/s
+
+    /// Hard ceiling in m/s. When a `GamePreset` is supplied, use ITS community-cited safe speed as
+    /// the hard cap (Ingress ~60, PoGo ~35, MH Now ~16, Pikmin ~8); otherwise the absolute fallback.
+    static func hardCeilingMps(for preset: GamePreset?) -> Double {
+        guard let preset else { return absoluteCeilingMps }
+        return Double(preset.maxSafeSpeedKmh) / 3.6
+    }
+
+    /// Clamp a speed (m/s) to the hard ceiling for the given game context.
+    static func clampSpeedMps(_ mps: Double, preset: GamePreset?) -> Double {
+        min(mps, hardCeilingMps(for: preset))
+    }
+
+    /// Clamp a per-tick distance (metres) so the implied speed can't exceed the hard ceiling.
+    /// `dt` is the tick interval in seconds. Used by route playback, where pacing is expressed as
+    /// distance-over-delay rather than an explicit speed.
+    static func clampDistance(_ meters: Double, dt: TimeInterval, preset: GamePreset?) -> Double {
+        guard dt > 0 else { return meters }
+        return min(meters, hardCeilingMps(for: preset) * dt)
+    }
+}
+
 enum LocationJitter {
     /// Adds a small random horizontal drift so the point isn't perfectly static.
     /// If `maxMeters` is nil, uses the user's "jitterRadius" preference (default 1.5 m).
