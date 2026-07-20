@@ -2,5 +2,5 @@
   "build": 92,
   "version": "1.0",
   "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "Fix: Pokémon GO "Failed to detect location (12)" while joystick-walking. After teleporting then walking, the map's background "hold" kept re-injecting your old teleport spot every few seconds — snapping you backward mid-step so PoGo rejected the fix. The joystick now fully owns your live position while you move (and hands a clean hold back when you stop), so PoGo keeps its lock. Also steadied tiny-nudge movement."
+  "notes": "Fixes Pokémon GO error 'Failed to detect location (12)' while joystick-walking. After teleporting then walking, the map's background hold kept re-injecting your old teleport spot every few seconds, snapping you backward mid-step so PoGo rejected the fix. The joystick now fully owns your live position while you move, and hands a clean hold back when you stop, so PoGo keeps its lock. Also steadied tiny-nudge movement."
 }

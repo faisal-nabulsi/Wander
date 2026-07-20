@@ -41,15 +41,23 @@ zip -qr Wander.ipa Payload && rm -rf Payload
 # 3) stage the payload the manifest points at
 cp Wander.ipa "$SITE_DL/Wander.ipa"
 
-# 4) write the manifest (the app fetches this from raw.githubusercontent .../main/update.json)
-cat > update.json <<JSON
-{
-  "build": $BUILD,
-  "version": "$VERSION",
-  "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-  "notes": "$NOTES"
+# 4) write the manifest (the app fetches this from raw.githubusercontent .../main/update.json).
+#    Written via json.dump — NOT a heredoc — so notes containing double-quotes, newlines or unicode
+#    can never produce invalid JSON. A malformed update.json makes the app's strict JSON decode
+#    throw and the OTA check silently no-ops for EVERYONE (this bit build 92: notes had quotes).
+BUILD="$BUILD" VERSION="$VERSION" NOTES="$NOTES" python3 - <<'PY'
+import json, os
+d = {
+    "build": int(os.environ["BUILD"]),
+    "version": os.environ["VERSION"],
+    "payloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
+    "notes": os.environ["NOTES"],
 }
-JSON
+with open("update.json", "w") as f:
+    json.dump(d, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+print(f"update.json -> build {d['build']}")
+PY
 
 # 4b) Keep the SideStore source apps.json in LOCKSTEP. SideStore installs/refreshes whatever
 #     apps.json declares; if it drifts from update.json (as it did — stale July build), new
