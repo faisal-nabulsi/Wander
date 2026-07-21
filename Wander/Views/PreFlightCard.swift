@@ -95,7 +95,7 @@ struct PreFlightCard: View {
                 Button {
                     UIApplication.shared.open(LocationChecker.recommendedVPNURL)
                 } label: {
-                    Label(L("preflight.ipgps.vpn_button", fallback: "Match your IP with a VPN"),
+                    Label(L("preflight.ipgps.vpn_button", fallback: "Match your IP with NordVPN"),
                           systemImage: "shield.lefthalf.filled")
                         .font(.caption.weight(.semibold))
                 }
@@ -110,11 +110,11 @@ struct PreFlightCard: View {
     private func vpnGuidance(for warning: LocationWarning) -> String {
         if let city = warning.spoofedCity {
             let template = L("preflight.ipgps.vpn_guidance",
-                             fallback: "Open the VPN and connect to a server in %@ so your network location matches.")
+                             fallback: "Open NordVPN and connect to a server in %@ so your network location matches.")
             return String(format: template, city)
         }
         return L("preflight.ipgps.vpn_guidance_generic",
-                 fallback: "Open the VPN and connect to a server in the spoofed city so your network location matches.")
+                 fallback: "Open NordVPN and connect to a server in the spoofed city so your network location matches.")
     }
 
     private func openAppSettings() {

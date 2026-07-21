@@ -358,9 +358,9 @@
 "preflight.ipgps.body" = "Your network still looks like %@ while GPS says %@. Consider a VPN in that region so the two agree.";
 "preflight.ipgps.your_area" = "your area";
 "preflight.ipgps.the_target" = "the target";
-"preflight.ipgps.vpn_button" = "Match your IP with a VPN";
-"preflight.ipgps.vpn_guidance" = "Open the VPN and connect to a server in %@ so your network location matches.";
-"preflight.ipgps.vpn_guidance_generic" = "Open the VPN and connect to a server in the spoofed city so your network location matches.";
+"preflight.ipgps.vpn_button" = "Match your IP with NordVPN";
+"preflight.ipgps.vpn_guidance" = "Open NordVPN and connect to a server in %@ so your network location matches.";
+"preflight.ipgps.vpn_guidance_generic" = "Open NordVPN and connect to a server in the spoofed city so your network location matches.";
 
 /* Reboot-aware recovery: resume a spoof that ended without a clean Stop. */
 "resume.title" = "Resume your spoof?";

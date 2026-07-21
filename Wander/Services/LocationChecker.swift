@@ -121,8 +121,9 @@ final class LocationChecker: ObservableObject {
 
     /// The VPN we point the user at from the IP↔GPS mismatch card. Single swappable constant so the
     /// owner can drop in an affiliate link without touching the UI.
-    // TODO(owner): replace with your affiliate link
-    static let recommendedVPNURL = URL(string: "https://surfshark.com/")!
+    // NordVPN affiliate link (owner aff_id 152605). NordVPN offers city-level server selection,
+    // which is exactly what the "connect to a server in <spoofed city>" guidance needs.
+    static let recommendedVPNURL = URL(string: "https://go.nordvpn.net/aff_c?offer_id=15&aff_id=152605&url_id=902")!
 
     private static let baseURL = "https://wander-payments.wanderlocation.workers.dev"
 
