@@ -1,6 +1,6 @@
 {
-  "build": 97,
+  "build": 98,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Stability fixes: prevents a false 'location snapped back' alert during a walk/route (and the Error 12 it could cause), stops re-teleports from wiping your soft-ban cooldown, routes offline-map teleports through the same safe path, and turns on GPS 'breathing' so a held location looks natural."
+  "notes": "New: a notification pings you the moment your Pokémon GO cooldown clears; the IP/GPS-mismatch warning now offers a one-tap VPN fix; long-distance jumps show a 'log off ~8h' safety tip; and a heads-up if you start moving while a cooldown is running. Also fewer overlapping pop-ups and a more accurate network-mismatch check."
 }

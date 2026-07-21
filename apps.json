@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "97",
+      "buildVersion": "98",
       "versionDate": "2026-07-20",
-      "versionDescription": "Stability fixes: prevents a false 'location snapped back' alert during a walk/route (and the Error 12 it could cause), stops re-teleports from wiping your soft-ban cooldown, routes offline-map teleports through the same safe path, and turns on GPS 'breathing' so a held location looks natural.",
+      "versionDescription": "New: a notification pings you the moment your Pokémon GO cooldown clears; the IP/GPS-mismatch warning now offers a one-tap VPN fix; long-distance jumps show a 'log off ~8h' safety tip; and a heads-up if you start moving while a cooldown is running. Also fewer overlapping pop-ups and a more accurate network-mismatch check.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17607599,
+      "size": 17650030,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "97",
+          "buildVersion": "98",
           "date": "2026-07-20",
-          "localizedDescription": "Stability fixes: prevents a false 'location snapped back' alert during a walk/route (and the Error 12 it could cause), stops re-teleports from wiping your soft-ban cooldown, routes offline-map teleports through the same safe path, and turns on GPS 'breathing' so a held location looks natural.",
+          "localizedDescription": "New: a notification pings you the moment your Pokémon GO cooldown clears; the IP/GPS-mismatch warning now offers a one-tap VPN fix; long-distance jumps show a 'log off ~8h' safety tip; and a heads-up if you start moving while a cooldown is running. Also fewer overlapping pop-ups and a more accurate network-mismatch check.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17607599,
+          "size": 17650030,
           "minOSVersion": "17.0"
         }
       ],
