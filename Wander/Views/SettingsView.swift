@@ -56,6 +56,7 @@ struct SettingsView: View {
     @State private var showLocationHelp = false
     @State private var showTunnelHelp = false
     @State private var showStabilizerBeta = false
+    @State private var showLocationDiagnostic = false
     @EnvironmentObject private var localization: LocalizationManager
 
     private var appVersion: String {
@@ -524,6 +525,20 @@ struct SettingsView: View {
                         }
                     }
                     .tint(.primary)
+
+                    Button {
+                        showLocationDiagnostic = true
+                    } label: {
+                        HStack {
+                            Label(L("settings.experimental.diagnostic",
+                                    fallback: "Location diagnostic"),
+                                  systemImage: "scope")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tint(.primary)
                 } header: {
                     Text(localized: "settings.experimental.header", fallback: "Experimental")
                 } footer: {
@@ -592,6 +607,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showStabilizerBeta) {
             StabilizerBetaView()
+        }
+        .sheet(isPresented: $showLocationDiagnostic) {
+            LocationDiagnosticView()
         }
         .alert("Two-Factor Code", isPresented: wanderAccount.twoFactorPrompt(for: .settings)) {
             TextField("6-digit code", text: $twoFactorCode)
