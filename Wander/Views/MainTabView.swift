@@ -49,6 +49,27 @@ private enum ExternalLocationAction: Identifiable {
     }
 }
 
+/// The single, mutually-exclusive plain alert currently on screen. SwiftUI presents only one
+/// `.alert` at a time, so when two used to arm together (e.g. a snap-back landing while the cellular
+/// tip is up) one was silently dropped. We funnel every plain alert through ONE `.alert(item:)`
+/// driven by this enum, with a priority order (see `ActiveAlert.priority`), and re-present the next
+/// still-armed alert when the current one dismisses — so nothing is lost, they queue instead.
+///
+/// The external-location request stays on its own `.confirmationDialog` (different control style).
+private enum ActiveAlert: Int, Identifiable {
+    // Ordered high→low priority. 2FA is mid-operation + time-sensitive; the sign-in-needed alert is a
+    // direct response to a tap; snap-back / resume are recovery; the cellular tip is pure coaching.
+    case twoFactor
+    case appleSignIn
+    case snapBack
+    case resume
+    case cellularTip
+
+    var id: Int { rawValue }
+    /// Lower rawValue == higher priority (declaration order above).
+    var priority: Int { rawValue }
+}
+
 struct MainTabView: View {
     @AppStorage("primaryTabSelection") private var selection: String = AppFeature.location.id
     // The floating red "panic" stop button can be hidden from Settings → Safety. Defaults on so
@@ -74,6 +95,12 @@ struct MainTabView: View {
     @ObservedObject private var wanderAccount = WanderAccount.shared
     @State private var twoFactorCode = ""
     @State private var showAppleSignInNeeded = false
+
+    // Single-slot presentation for all mutually-exclusive plain alerts (see `ActiveAlert`). The
+    // per-alert source flags below still own the actual state (2FA continuations, resume target,
+    // snap-back coordinate, cellular latch); this just decides which one is on screen right now so
+    // two never fight to present and drop one.
+    @State private var activeAlert: ActiveAlert?
     @ObservedObject private var license = License.shared
     @ObservedObject private var session = SimulationSession.shared
     @ObservedObject private var updater = WanderUpdater.shared
@@ -127,6 +154,9 @@ struct MainTabView: View {
                         pendingResume = session.pendingResumeTarget()
                     }
                 }
+                // Present whatever alert is armed at launch (e.g. a pending reboot-resume) through the
+                // single-slot queue. onChange handlers cover every change after this.
+                syncActiveAlert()
             }
             .onChange(of: setupChecker.hasRunOnce) { _, ran in
                 // After the first launch check, nudge the setup sheet only if something's missing.
@@ -241,94 +271,201 @@ struct MainTabView: View {
             .onChange(of: updater.latestManifest?.build) { _, _ in
                 maybeShowWhatsNew()
             }
-            // One-time-per-session coaching tip: spoofing was just started while on cellular.
-            // Advisory only — spoofing already started; this never blocks it. Shown at most once
-            // per app session (see SimulationSession.didShowCellularTip); reappears next launch.
-            .alert(
-                L("tip.cellular.title", fallback: "Heads up: you're on cellular"),
-                isPresented: $session.showCellularTip
-            ) {
-                Button(L("action.ok", fallback: "Got it"), role: .cancel) {
-                    session.showCellularTip = false
-                }
-            } message: {
-                Text(localized: "tip.cellular.body", fallback: "On cellular your real area can still leak — even with a VPN. For the most believable spoof, connect to Wi-Fi or turn on Airplane Mode.")
-            }
-            // Reboot-aware recovery: offer to resume a spoof that ended without a clean Stop. One tap
-            // re-teleports via the NORMAL teleport path (which re-mounts the tunnel) — never automatic.
-            .alert(
-                L("resume.title", fallback: "Resume your spoof?"),
-                isPresented: Binding(get: { pendingResume != nil }, set: { if !$0 { pendingResume = nil } }),
-                presenting: pendingResume
-            ) { target in
-                Button(L("resume.action", fallback: "Resume")) {
-                    session.resume(to: target.coordinate)
-                    pendingResume = nil
-                }
-                Button(L("resume.dismiss", fallback: "Not now"), role: .cancel) {
-                    session.dismissPendingResume()
-                    pendingResume = nil
-                }
-            } message: { target in
-                Text(String(
-                    format: L("resume.body",
-                              fallback: "Wander stopped without a clean Stop last time — a reboot or the app closing clears the spoof. Resume at %.4f, %.4f?"),
-                    target.coordinate.latitude, target.coordinate.longitude))
-            }
-            // Gentle snap-back recovery — shown ONLY after an ACTUAL detected bounce-back (the
-            // device's real location drifted away from the spoofed target while spoofing). Offers a
-            // one-tap re-teleport plus a community-reported (not guaranteed) reboot suggestion.
-            .alert(
-                L("snapback.title", fallback: "Location snapped back"),
-                isPresented: Binding(get: { snapBack.didBounceBack }, set: { if !$0 { snapBack.reset() } })
-            ) {
-                if let target = session.lastTeleportCoordinate {
-                    Button(L("snapback.reteleport", fallback: "Re-teleport")) {
-                        // Only re-teleport when the Map teleport HOLD owns the stream. A movement mode
-                        // (walk/route/itinerary) holds suppressResends=true and self-heals via its own
-                        // inject loop — routing `resume` (→ .teleportToRequested → startResendLoop, which
-                        // flips suppressResends=false) through it while it's still writing would create a
-                        // SECOND writer and re-trigger Error 12. Movement modes disarm this watcher on
-                        // start, so this guard is just a belt-and-suspenders against a race.
-                        if !LocationSimulationCommandQueue.suppressResends {
-                            session.resume(to: target)
-                        } else {
-                            snapBack.reset()
-                        }
+            .modifier(consolidatedAlerts)
+        }
+    }
+
+    /// Bundles the single consolidated plain-alert presentation (see `ActiveAlert`) plus the source
+    /// flags that feed it. Extracted from `body` into its own expression so the big modifier chain
+    /// type-checks in reasonable time. Each alert's exact copy + actions is preserved; on dismiss the
+    /// current one clears its own source flag and `syncActiveAlert` re-presents the next still-armed
+    /// alert (queueing, never clobbering) so two arming together no longer drops one.
+    private var consolidatedAlerts: some ViewModifier {
+        ConsolidatedAlertsModifier(
+            // Single consolidated presentation. The item binding hides the 2FA case (SwiftUI's `Alert`
+            // value type can't host a TextField), which the dedicated 2FA `.alert(isPresented:)` handles.
+            itemBinding: consolidatedAlertBinding,
+            alertBuilder: { consolidatedAlert(for: $0) },
+            twoFactorBinding: Binding(
+                get: { wanderAccount.twoFactorPrompt(for: .system).wrappedValue && activeAlert == .twoFactor },
+                set: { presented in
+                    if !presented {
+                        wanderAccount.twoFactorPrompt(for: .system).wrappedValue = false
+                        if activeAlert == .twoFactor { activeAlert = nil }
+                        syncActiveAlert()
                     }
                 }
-                Button(L("action.ok", fallback: "OK"), role: .cancel) {
-                    snapBack.reset()
-                }
-            } message: {
-                Text(L("snapback.body",
-                       fallback: "Your device pulled back toward your real location. Tap Re-teleport to jump back.\n\nCommunity-reported for iOS 26 (not guaranteed): if it keeps snapping back, restart your iPhone — iOS 26 holds a cached location that toggles no longer clear. Wander will put you back here when you reopen it."))
+            ),
+            twoFactorCode: $twoFactorCode,
+            onSubmitTwoFactor: {
+                wanderAccount.submitTwoFactorCode(twoFactorCode.trimmingCharacters(in: .whitespaces))
+                twoFactorCode = ""
+                if activeAlert == .twoFactor { activeAlert = nil }
+                syncActiveAlert()
+            },
+            onCancelTwoFactor: {
+                wanderAccount.submitTwoFactorCode(nil)
+                twoFactorCode = ""
+                if activeAlert == .twoFactor { activeAlert = nil }
+                syncActiveAlert()
+            },
+            // Re-pick the highest-priority still-armed alert whenever any source flag changes.
+            cellularTip: session.showCellularTip,
+            resumeSavedAt: pendingResume?.savedAt,
+            snapBackBounced: snapBack.didBounceBack,
+            awaiting2FA: wanderAccount.awaiting2FA,
+            presenter: wanderAccount.twoFactorPresenter,
+            appleSignIn: showAppleSignInNeeded,
+            onSync: { syncActiveAlert() }
+        )
+    }
+
+    /// Item binding for the single consolidated `.alert(item:)`. Hides the 2FA case (SwiftUI's `Alert`
+    /// value type can't host a TextField, so `.twoFactor` is presented by the dedicated
+    /// `.alert(isPresented:)`), keeping exactly ONE alert on screen for that case (never two).
+    private var consolidatedAlertBinding: Binding<ActiveAlert?> {
+        Binding(
+            get: { activeAlert == .twoFactor ? nil : activeAlert },
+            set: { newValue in
+                // SwiftUI calls this with nil when the alert is dismissed. Don't force `activeAlert`
+                // to nil here (a button action may have already cleared its source flag AND promoted
+                // the next queued alert — clobbering it would drop that alert, the exact bug we fix).
+                // Instead recompute from the live source flags: the dismissed alert's flag is now
+                // clear, so syncActiveAlert() presents the next still-armed alert (or nil). The 2FA
+                // case is mapped to nil by `get`, so ignore nils while it's the active alert.
+                if newValue == nil && activeAlert != .twoFactor { syncActiveAlert() }
             }
-            // Apple-ID 2FA prompt for the OTA re-sign. The update banner and launch-time
-            // auto-install kick the re-sign from HERE (not Settings), so without this alert the
-            // code Apple sends has nowhere to go and the update stalls. Settings and the login
-            // view carry their own copy for their own flows; the flag is transient (cleared on
-            // submit/cancel) so these never fight to present.
-            .alert("Two-Factor Code", isPresented: wanderAccount.twoFactorPrompt(for: .system)) {
-                TextField("6-digit code", text: $twoFactorCode)
-                    .keyboardType(.numberPad)
-                Button("Submit") {
-                    wanderAccount.submitTwoFactorCode(twoFactorCode.trimmingCharacters(in: .whitespaces))
-                    twoFactorCode = ""
+        )
+    }
+
+    /// Build the `Alert` for the given case. Each alert's exact copy + actions is preserved from the
+    /// old chained `.alert`s; each dismissal clears its own source flag and calls `syncActiveAlert`
+    /// so the next still-armed alert is presented instead of being dropped.
+    private func consolidatedAlert(for alert: ActiveAlert) -> Alert {
+        switch alert {
+        case .cellularTip:
+            // One-time-per-session coaching tip: spoofing was just started while on cellular.
+            // Advisory only — spoofing already started; this never blocks it. Shown at most once per
+            // app session (see SimulationSession.didShowCellularTip); reappears next launch.
+            return Alert(
+                title: Text(L("tip.cellular.title", fallback: "Heads up: you're on cellular")),
+                message: Text(L("tip.cellular.body", fallback: "On cellular your real area can still leak — even with a VPN. For the most believable spoof, connect to Wi-Fi or turn on Airplane Mode.")),
+                dismissButton: .cancel(Text(L("action.ok", fallback: "Got it"))) {
+                    session.showCellularTip = false
+                    syncActiveAlert()
                 }
-                Button("Cancel", role: .cancel) {
-                    wanderAccount.submitTwoFactorCode(nil)
-                    twoFactorCode = ""
+            )
+
+        case .resume:
+            // Reboot-aware recovery: offer to resume a spoof that ended without a clean Stop. One tap
+            // re-teleports via the NORMAL teleport path (re-mounts the tunnel) — never automatic.
+            let coord = pendingResume?.coordinate
+            let body = coord.map {
+                String(format: L("resume.body",
+                                 fallback: "Wander stopped without a clean Stop last time — a reboot or the app closing clears the spoof. Resume at %.4f, %.4f?"),
+                        $0.latitude, $0.longitude)
+            } ?? ""
+            return Alert(
+                title: Text(L("resume.title", fallback: "Resume your spoof?")),
+                message: Text(body),
+                primaryButton: .default(Text(L("resume.action", fallback: "Resume"))) {
+                    if let coord { session.resume(to: coord) }
+                    pendingResume = nil
+                    syncActiveAlert()
+                },
+                secondaryButton: .cancel(Text(L("resume.dismiss", fallback: "Not now"))) {
+                    session.dismissPendingResume()
+                    pendingResume = nil
+                    syncActiveAlert()
                 }
-            } message: {
-                Text("Enter the 6-digit code Apple sent to your trusted device. No popup? Get it from Settings → your name → Sign-In & Security → Get Verification Code.")
+            )
+
+        case .snapBack:
+            // Gentle snap-back recovery — shown ONLY after an ACTUAL detected bounce-back (the device's
+            // real location drifted away from the spoofed target while spoofing). Offers a one-tap
+            // re-teleport plus a community-reported (not guaranteed) reboot suggestion.
+            let target = session.lastTeleportCoordinate
+            let message = Text(L("snapback.body",
+                                 fallback: "Your device pulled back toward your real location. Tap Re-teleport to jump back.\n\nCommunity-reported for iOS 26 (not guaranteed): if it keeps snapping back, restart your iPhone — iOS 26 holds a cached location that toggles no longer clear. Wander will put you back here when you reopen it."))
+            let cancel = Alert.Button.cancel(Text(L("action.ok", fallback: "OK"))) {
+                snapBack.reset()
+                syncActiveAlert()
             }
-            .alert(L("update.needs_apple_id.title", fallback: "Sign in to install"), isPresented: $showAppleSignInNeeded) {
-                Button(L("action.ok", fallback: "OK"), role: .cancel) { }
-            } message: {
-                Text(L("update.needs_apple_id.body", fallback: "To install the update, first sign in to your Apple ID in More → Settings → Sign in to Apple ID, then tap the update again."))
+            guard let target else {
+                return Alert(
+                    title: Text(L("snapback.title", fallback: "Location snapped back")),
+                    message: message,
+                    dismissButton: cancel
+                )
             }
+            return Alert(
+                title: Text(L("snapback.title", fallback: "Location snapped back")),
+                message: message,
+                primaryButton: .default(Text(L("snapback.reteleport", fallback: "Re-teleport"))) {
+                    // Only re-teleport when the Map teleport HOLD owns the stream. A movement mode
+                    // (walk/route/itinerary) holds suppressResends=true and self-heals via its own inject
+                    // loop — routing `resume` (→ .teleportToRequested → startResendLoop, which flips
+                    // suppressResends=false) through it while it's still writing would create a SECOND
+                    // writer and re-trigger Error 12. Movement modes disarm this watcher on start, so this
+                    // guard is just a belt-and-suspenders against a race.
+                    if !LocationSimulationCommandQueue.suppressResends {
+                        session.resume(to: target)
+                    } else {
+                        snapBack.reset()
+                    }
+                    syncActiveAlert()
+                },
+                secondaryButton: cancel
+            )
+
+        case .appleSignIn:
+            return Alert(
+                title: Text(L("update.needs_apple_id.title", fallback: "Sign in to install")),
+                message: Text(L("update.needs_apple_id.body", fallback: "To install the update, first sign in to your Apple ID in More → Settings → Sign in to Apple ID, then tap the update again.")),
+                dismissButton: .cancel(Text(L("action.ok", fallback: "OK"))) {
+                    showAppleSignInNeeded = false
+                    syncActiveAlert()
+                }
+            )
+
+        case .twoFactor:
+            // Unreachable: `.twoFactor` is presented by the dedicated `.alert(isPresented:)` (it needs a
+            // TextField, which `Alert` can't hold) and is mapped to nil by `consolidatedAlertBinding`.
+            return Alert(title: Text(""))
         }
+    }
+
+    /// Pick the highest-priority currently-armed plain alert and route it through the single
+    /// `.alert(item:)` slot. Called whenever any source flag changes and after each dismissal so a
+    /// second alert that armed while the first was up gets presented next instead of being dropped.
+    /// Never demotes: if the alert on screen is still armed we leave it be until it dismisses.
+    private func syncActiveAlert() {
+        // Build the set of alerts that WANT to show, from their real source flags.
+        var armed: [ActiveAlert] = []
+        if wanderAccount.awaiting2FA && wanderAccount.twoFactorPresenter == .system { armed.append(.twoFactor) }
+        if showAppleSignInNeeded { armed.append(.appleSignIn) }
+        if snapBack.didBounceBack { armed.append(.snapBack) }
+        if pendingResume != nil { armed.append(.resume) }
+        if session.showCellularTip { armed.append(.cellularTip) }
+
+        // If the one on screen is still armed, don't disturb it — let it finish.
+        if let current = activeAlert, armed.contains(current) { return }
+
+        // Highest-priority armed alert (lowest priority value), or nil if none.
+        let next = armed.min(by: { $0.priority < $1.priority })
+
+        // Swapping one alert straight for another in the SAME runloop turn (the just-dismissed one →
+        // the next queued one) can make SwiftUI drop the new presentation. Clear first, then present
+        // the next on the following turn so the queued alert reliably shows.
+        if activeAlert != nil, next != nil, activeAlert != next {
+            activeAlert = nil
+            DispatchQueue.main.async { [self] in
+                // Re-check on the next turn in case flags changed meanwhile.
+                if activeAlert == nil { syncActiveAlert() }
+            }
+            return
+        }
+        activeAlert = next
     }
 
     /// Always-available safety control (FREE): instantly stops ALL spoofing and reverts
@@ -660,6 +797,53 @@ struct MainTabView: View {
             guard let matchRange = Range(match.range, in: text) else { return nil }
             return Double(text[matchRange])
         }
+    }
+}
+
+/// Self-contained modifier that applies the consolidated plain-alert presentation. Everything it
+/// needs is threaded in as plain values / bindings / closures, so it type-checks independently of
+/// `MainTabView.body` (splitting the large chain that otherwise blows the type-checker's budget).
+/// It carries NO presentation logic of its own — the `Alert`s are built by `MainTabView` and the
+/// dismissals route back through the `onSync` closure (`syncActiveAlert`).
+private struct ConsolidatedAlertsModifier: ViewModifier {
+    let itemBinding: Binding<ActiveAlert?>
+    let alertBuilder: (ActiveAlert) -> Alert
+    let twoFactorBinding: Binding<Bool>
+    let twoFactorCode: Binding<String>
+    let onSubmitTwoFactor: () -> Void
+    let onCancelTwoFactor: () -> Void
+
+    // Source-flag snapshots: any change re-picks the highest-priority still-armed alert via onSync.
+    let cellularTip: Bool
+    let resumeSavedAt: Date?
+    let snapBackBounced: Bool
+    let awaiting2FA: Bool
+    let presenter: WanderAccount.TwoFactorPresenter
+    let appleSignIn: Bool
+    let onSync: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .alert(item: itemBinding) { alert in alertBuilder(alert) }
+            // The 2FA prompt needs a TextField, which SwiftUI's `Alert` value type can't hold, so it
+            // stays a `.alert(isPresented:)` with a ViewBuilder. It's gated on BOTH the account's
+            // per-context binding AND activeAlert == .twoFactor (folded into `twoFactorBinding`), so it
+            // presents through the same single-slot queue and never overlaps another alert.
+            .alert("Two-Factor Code", isPresented: twoFactorBinding) {
+                TextField("6-digit code", text: twoFactorCode)
+                    .keyboardType(.numberPad)
+                Button("Submit") { onSubmitTwoFactor() }
+                Button("Cancel", role: .cancel) { onCancelTwoFactor() }
+            } message: {
+                Text("Enter the 6-digit code Apple sent to your trusted device. No popup? Get it from Settings → your name → Sign-In & Security → Get Verification Code.")
+            }
+            // Feed the single-slot presenter from each alert's own source flag.
+            .onChange(of: cellularTip) { _, _ in onSync() }
+            .onChange(of: resumeSavedAt) { _, _ in onSync() }
+            .onChange(of: snapBackBounced) { _, _ in onSync() }
+            .onChange(of: awaiting2FA) { _, _ in onSync() }
+            .onChange(of: presenter) { _, _ in onSync() }
+            .onChange(of: appleSignIn) { _, _ in onSync() }
     }
 }
 

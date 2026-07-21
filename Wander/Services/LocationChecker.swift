@@ -90,6 +90,15 @@ struct LocationWarning: Identifiable, Equatable {
         case .ipGpsMismatch: return false
         }
     }
+
+    /// The spoofed city name for the IP↔GPS mismatch case, so the VPN affordance can name the
+    /// region to connect to (e.g. "connect to a server in <spoofed city>"). `nil` for other kinds.
+    var spoofedCity: String? {
+        switch kind {
+        case .ipGpsMismatch(_, let spoofedCity): return spoofedCity
+        default: return nil
+        }
+    }
 }
 
 /// Real-network geolocation returned by the Worker's `/ip-geo` endpoint (derived from the
@@ -110,6 +119,11 @@ final class LocationChecker: ObservableObject {
     /// Current advisory warnings, most recently refreshed. Empty == everything looks coherent.
     @Published private(set) var warnings: [LocationWarning] = []
 
+    /// The VPN we point the user at from the IP↔GPS mismatch card. Single swappable constant so the
+    /// owner can drop in an affiliate link without touching the UI.
+    // TODO(owner): replace with your affiliate link
+    static let recommendedVPNURL = URL(string: "https://surfshark.com/")!
+
     private static let baseURL = "https://wander-payments.wanderlocation.workers.dev"
 
     /// A CLLocationManager is authoritative for BOTH the authorization status and the
@@ -118,8 +132,12 @@ final class LocationChecker: ObservableObject {
     private let geocoder = CLGeocoder()
 
     /// Distance beyond which we treat the real-network city and the spoofed city as a real
-    /// mismatch worth surfacing. Conservative on purpose (a neighbouring town shouldn't nag).
-    private let mismatchThresholdKm: Double = 150
+    /// mismatch worth surfacing. Deliberately LARGE: the `/ip-geo` reading is coarse Cloudflare
+    /// IP-geo, which for many carriers/CGNAT egresses resolves to a POP hundreds of km from the
+    /// user's actual location. At 150 km an honest, un-spoofing user on such a carrier got falsely
+    /// nagged. Widened to ~500 km and paired with a required city-NAME mismatch below so the warning
+    /// only fires on a genuine, high-confidence mismatch (CF geo is treated as low-confidence).
+    private let mismatchThresholdKm: Double = 500
 
     /// Re-run all checks for a given spoofed target. Synchronous on-device checks land first (so the
     /// card populates instantly); the IP↔GPS check folds in asynchronously when/if it resolves.
@@ -165,40 +183,45 @@ final class LocationChecker: ObservableObject {
     // MARK: - IP↔GPS mismatch (VERIFY-FIRST on device)
     //
     // This is the part to sanity-check on a real device before leaning on it: the /ip-geo egress
-    // reading, the reverse-geocode of the spoofed point, and the 150 km threshold all interact. It's
-    // deliberately conservative + advisory so a false positive costs nothing, but the exact
-    // wording/threshold should be validated against a couple of real VPN/no-VPN runs on-device.
+    // reading, the reverse-geocode of BOTH points, and the ~500 km threshold all interact. It's
+    // deliberately conservative + advisory so a false positive costs nothing; the warning now
+    // requires BOTH a large distance AND a differing city name (CF geo is low-confidence) so an
+    // honest user on a carrier with a distant IP-geo POP is never falsely nagged.
 
     /// Fetch the real-network city (Worker `/ip-geo`) and compare it to the spoofed point's city.
-    /// Returns a mismatch warning only when both cities resolve AND they're far apart. Fail-safe:
-    /// any missing piece (offline, geocoder miss, malformed response) returns nil (no warning).
+    /// Returns a mismatch warning only on a GENUINE, HIGH-CONFIDENCE mismatch: BOTH the coarse CF
+    /// IP-geo point is far (~500 km+) from the spoofed target AND the two city NAMES actually differ.
+    /// Requiring both keeps an honest user — whose carrier egresses from a distant CF POP that
+    /// happens to be 150+ km away — from being falsely nagged. Fail-safe: any missing piece (offline,
+    /// geocoder miss, malformed response) returns nil (no warning). CF geo is low-confidence, so we
+    /// never fire on distance alone.
     private func ipGpsMismatchWarning(spoofedTarget: CLLocationCoordinate2D) async -> LocationWarning? {
         guard let realGeo = await fetchRealNetworkGeo() else { return nil }
 
-        // Prefer a coordinate-distance gate (robust to differing city-name spellings/localizations),
-        // falling back to city-name inequality only when the real geo lacks coordinates.
-        if let realLat = realGeo.latitude, let realLng = realGeo.longitude {
-            let real = CLLocationCoordinate2D(latitude: realLat, longitude: realLng)
-            let km = PoGoCooldown.distanceKm(from: real, to: spoofedTarget)
-            guard km >= mismatchThresholdKm else { return nil }
-        } else if realGeo.city == nil {
+        // Distance gate: require the coarse CF IP-geo point to be far from the spoofed target. If the
+        // real geo lacks coordinates we can't measure distance → don't nag (low-confidence, bail).
+        guard let realLat = realGeo.latitude, let realLng = realGeo.longitude else { return nil }
+        let real = CLLocationCoordinate2D(latitude: realLat, longitude: realLng)
+        let km = PoGoCooldown.distanceKm(from: real, to: spoofedTarget)
+        guard km >= mismatchThresholdKm else { return nil }
+
+        // City-NAME gate: reverse-geocode BOTH the CF IP-geo point and the spoofed target, and require
+        // their localities to actually differ. This is the confidence check — a distant CF POP that
+        // still resolves to the same city name as the target is not a real mismatch, so we stay quiet.
+        // If either name is unresolvable we can't confirm the mismatch → don't nag.
+        let resolvedIPCity: String?
+        if let city = realGeo.city {
+            resolvedIPCity = city
+        } else {
+            resolvedIPCity = await reverseGeocodeCity(real)
+        }
+        guard let ipCity = resolvedIPCity,
+              let spoofedCity = await reverseGeocodeCity(spoofedTarget) else {
             return nil
         }
+        guard ipCity.caseInsensitiveCompare(spoofedCity) != .orderedSame else { return nil }
 
-        let spoofedCity = await reverseGeocodeCity(spoofedTarget)
-        let realCity = realGeo.city
-            ?? realGeo.region
-            ?? realGeo.country
-            ?? L("preflight.ipgps.your_area", fallback: "your area")
-        let shownSpoofedCity = spoofedCity
-            ?? L("preflight.ipgps.the_target", fallback: "the target")
-
-        // If we somehow resolved the SAME city name despite the distance gate, don't nag.
-        if let spoofedCity, spoofedCity.caseInsensitiveCompare(realCity) == .orderedSame {
-            return nil
-        }
-
-        return LocationWarning(kind: .ipGpsMismatch(realCity: realCity, spoofedCity: shownSpoofedCity))
+        return LocationWarning(kind: .ipGpsMismatch(realCity: ipCity, spoofedCity: spoofedCity))
     }
 
     private func fetchRealNetworkGeo() async -> IPGeo? {

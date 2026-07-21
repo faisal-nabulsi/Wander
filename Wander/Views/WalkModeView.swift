@@ -54,6 +54,12 @@ struct WalkModeView: View {
     @State private var alertTitle = ""
     @State private var alertMessage = ""
 
+    // Cooldown-aware advisory: a non-blocking note shown briefly if the user starts moving while a
+    // soft-ban cooldown is still running. Advisory only — it NEVER blocks or delays movement.
+    @ObservedObject private var session = SimulationSession.shared
+    @State private var cooldownNoteVisible = false
+    @State private var cooldownNoteHideWork: DispatchWorkItem?
+
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
@@ -121,6 +127,9 @@ struct WalkModeView: View {
     private var controls: some View {
         WanderCard {
             VStack(spacing: 14) {
+                if cooldownNoteVisible {
+                    cooldownNote
+                }
                 if coordinate == nil {
                     AddressSearchBar(placeholder: "Search a place to start") { coord, _ in
                         coordinate = coord
@@ -175,6 +184,42 @@ struct WalkModeView: View {
                 }
             }
         }
+    }
+
+    /// Non-blocking advisory shown when movement starts during a live cooldown. Reads the live
+    /// remaining time so the MM:SS stays current while the note is up. Advisory only — never blocks.
+    private var cooldownNote: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "hourglass")
+                .font(.caption)
+                .foregroundStyle(.orange)
+            Text(String(
+                format: L("joystick.cooldown_note",
+                          fallback: "Heads up — moving still counts as interacting; your soft-ban cooldown is still running (%@)."),
+                cooldownClock(session.cooldownRemaining)))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .transition(.opacity)
+    }
+
+    /// Show the cooldown-aware note (once, briefly) IF a cooldown is currently running. Called from
+    /// both start() and startAutoWalk(). Non-blocking: it never gates or delays the movement start.
+    private func noteCooldownIfActive() {
+        guard session.cooldownActive, session.cooldownRemaining > 0 else { return }
+        cooldownNoteHideWork?.cancel()
+        withAnimation { cooldownNoteVisible = true }
+        let work = DispatchWorkItem { withAnimation { cooldownNoteVisible = false } }
+        cooldownNoteHideWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
+    }
+
+    private func cooldownClock(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds.rounded(.up))
+        return String(format: "%02d:%02d", total / 60, total % 60)
     }
 
     private var joystick: some View {
@@ -233,6 +278,9 @@ struct WalkModeView: View {
             showPaywall = true
             return
         }
+        // Advisory only (never blocks): if a soft-ban cooldown is still running, remind the user that
+        // moving still counts as interacting. Shown before we flip isWalking; movement proceeds either way.
+        noteCooldownIfActive()
         isWalking = true
         // We are now the sole location writer. Silence the Map tab's teleport "hold" resend so it
         // can't re-inject the frozen teleport point every 4 s and snap us backward mid-walk — the
@@ -382,6 +430,8 @@ struct WalkModeView: View {
             showPaywall = true
             return
         }
+        // Advisory only (never blocks): remind about a running soft-ban cooldown before auto-walk begins.
+        noteCooldownIfActive()
         autoWalkTarget = target
         knobOffset = .zero        // defensive: ensure step() takes the auto-walk path, not the stick
         isWalking = true

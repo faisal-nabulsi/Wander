@@ -82,8 +82,39 @@ struct PreFlightCard: View {
                 .buttonStyle(.borderless)
                 .tint(Wander.brand)
             }
+
+            // IP↔GPS mismatch is the one warning whose fix is a VPN, not an app setting. Make it
+            // actionable: one-line honest guidance (name the spoofed city if we have it) plus a
+            // button that opens a recommended VPN. Never claims it prevents bans — it only makes the
+            // network egress location agree with GPS.
+            if warning.id == "ipGpsMismatch" {
+                Text(vpnGuidance(for: warning))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    UIApplication.shared.open(LocationChecker.recommendedVPNURL)
+                } label: {
+                    Label(L("preflight.ipgps.vpn_button", fallback: "Match your IP with a VPN"),
+                          systemImage: "shield.lefthalf.filled")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.borderless)
+                .tint(Wander.brand)
+            }
         }
         .padding(.vertical, 2)
+    }
+
+    /// One line of honest guidance for the VPN affordance, naming the spoofed city when we have it.
+    private func vpnGuidance(for warning: LocationWarning) -> String {
+        if let city = warning.spoofedCity {
+            let template = L("preflight.ipgps.vpn_guidance",
+                             fallback: "Open the VPN and connect to a server in %@ so your network location matches.")
+            return String(format: template, city)
+        }
+        return L("preflight.ipgps.vpn_guidance_generic",
+                 fallback: "Open the VPN and connect to a server in the spoofed city so your network location matches.")
     }
 
     private func openAppSettings() {

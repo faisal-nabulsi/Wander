@@ -202,6 +202,12 @@ struct PoGoModeView: View {
     // the Pokémon GO tab, so surface the fix checklist one tap away.
     @State private var showLocationHelp = false
 
+    // Long-haul advisory: after a very big jump (>1500 km) many players stay logged OUT of the game
+    // for ~8h to avoid a strike. Shown once per such jump — dismissing hides it until the NEXT
+    // long-haul teleport (tracked by teleportTick so a fresh big jump re-surfaces it).
+    private static let longHaulKm: Double = 1500
+    @State private var dismissedLongHaulTick: Int = -1
+
     // When ON, teleports are blocked (not just warned) while a cooldown is active.
     @AppStorage("pogoBlockUntilCooldownEnds") private var blockUntilCooldownEnds = false
     // Optional per-game speed nudge (OFF by default) — warns on the Joystick, never clamps. See WalkModeView.
@@ -268,6 +274,8 @@ struct PoGoModeView: View {
                 PreFlightCard(spoofedTarget: session.lastTeleportCoordinate)
 
                 cooldownSection
+
+                longHaulSection
 
                 if gamePreset.usesTeleportCooldown {
                     Section {
@@ -445,6 +453,48 @@ struct PoGoModeView: View {
                 .padding(.vertical, 2)
             } header: {
                 Text("\(gamePreset.shortTitle) cooldown")
+            }
+        }
+    }
+
+    // MARK: Long-haul advisory
+
+    /// Whether the most recent teleport was a long haul we haven't dismissed the advisory for yet.
+    private var showLongHaul: Bool {
+        gamePreset.usesTeleportCooldown
+            && session.lastJumpKm > Self.longHaulKm
+            && dismissedLongHaulTick != session.teleportTick
+    }
+
+    /// One-time advisory after a very big jump: community guidance (NOT a guarantee) to stay logged
+    /// out of the game for ~8h after a long teleport. Dismissible; re-surfaces on the next long haul.
+    @ViewBuilder private var longHaulSection: some View {
+        if showLongHaul {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "airplane.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.orange)
+                            .frame(width: 28)
+                        Text(String(
+                            format: L("advisory.longhaul.body",
+                                      fallback: "Big jump (%@ km) — many players stay logged OUT of the game for ~8 hours after a long teleport to avoid a strike. Community guidance, not a guarantee."),
+                            formattedKm(session.lastJumpKm)))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Button(L("advisory.longhaul.dismiss", fallback: "Got it")) {
+                        dismissedLongHaulTick = session.teleportTick
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption.weight(.semibold))
+                    .tint(Wander.brand)
+                }
+                .padding(.vertical, 2)
+            } header: {
+                Text(L("advisory.longhaul.header", fallback: "Long-haul jump"))
             }
         }
     }

@@ -44,6 +44,8 @@
 "joystick.walk" = "Walk";
 "joystick.run" = "Run";
 "joystick.drive" = "Drive";
+/* Non-blocking advisory when movement starts during a live soft-ban cooldown (%@ = MM:SS). */
+"joystick.cooldown_note" = "Heads up — moving still counts as interacting; your soft-ban cooldown is still running (%@).";
 
 /* Route screen */
 "route.title" = "Route";
@@ -333,6 +335,16 @@
 "cooldown.chip" = "Safe to catch/spin in";
 "cooldown.chip.a11y" = "Soft-ban cooldown — wait before catching or spinning";
 
+/* Local notification fired when the soft-ban cooldown clears. */
+"notif.cooldown_cleared.title" = "Cooldown cleared";
+"notif.cooldown_cleared.body" = "Safe to catch & spin in Pokémon GO now.";
+
+/* Long-haul advisory after a very big teleport (>1500 km). Community guidance, not a guarantee.
+   %@ = jump distance in km. */
+"advisory.longhaul.header" = "Long-haul jump";
+"advisory.longhaul.body" = "Big jump (%@ km) — many players stay logged OUT of the game for ~8 hours after a long teleport to avoid a strike. Community guidance, not a guarantee.";
+"advisory.longhaul.dismiss" = "Got it";
+
 /* Pre-flight coherence checks (PoGo tab). Advisory only — never block a teleport. */
 "preflight.header" = "Pre-flight checks";
 "preflight.ok" = "Pre-flight looks coherent";
@@ -346,6 +358,9 @@
 "preflight.ipgps.body" = "Your network still looks like %@ while GPS says %@. Consider a VPN in that region so the two agree.";
 "preflight.ipgps.your_area" = "your area";
 "preflight.ipgps.the_target" = "the target";
+"preflight.ipgps.vpn_button" = "Match your IP with a VPN";
+"preflight.ipgps.vpn_guidance" = "Open the VPN and connect to a server in %@ so your network location matches.";
+"preflight.ipgps.vpn_guidance_generic" = "Open the VPN and connect to a server in the spoofed city so your network location matches.";
 
 /* Reboot-aware recovery: resume a spoof that ended without a clean Stop. */
 "resume.title" = "Resume your spoof?";

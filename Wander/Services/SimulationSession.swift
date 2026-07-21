@@ -27,6 +27,12 @@ final class SimulationSession: ObservableObject {
     private let reminderID = "wander.reminder.2h"
     private let reminderInterval: TimeInterval = 2 * 60 * 60   // 2 hours
 
+    /// Distinct id (separate from the 2h reminder) for the "cooldown cleared" local notification —
+    /// fires at `cooldownEndsAt` so the user knows it's safe to catch/spin again without watching the
+    /// in-app countdown. Rescheduled on each new teleport; cancelled when the cooldown is cleared
+    /// early or on Stop.
+    private let cooldownDoneID = "wander.cooldown.cleared"
+
     /// Whether a location simulation is currently running. Drives the "keep Wander open"
     /// banner: iOS 18+ clears the spoof the moment the app/tunnel dies, so the user must
     /// keep Wander foregrounded.
@@ -211,10 +217,17 @@ final class SimulationSession: ObservableObject {
             clearCooldown()
             return
         }
-        cooldownEndsAt = Date().addingTimeInterval(seconds)
+        let endsAt = Date().addingTimeInterval(seconds)
+        cooldownEndsAt = endsAt
         cooldownRemaining = seconds
         cooldownActive = true
         startCooldownTimer()
+        // Schedule a local notification for when the cooldown clears, so the user doesn't have to
+        // watch the in-app countdown. Rescheduled here on every new teleport that (re)starts a
+        // cooldown; cancelled in clearCooldown() on an early clear or Stop. The natural expiry ticks
+        // through clearCooldown() too, but by then this notification has already fired at endsAt —
+        // removing a delivered request is a harmless no-op.
+        scheduleCooldownClearedNotification(at: endsAt)
     }
 
     private func clearCooldown() {
@@ -224,6 +237,33 @@ final class SimulationSession: ObservableObject {
         lastJumpKm = 0
         cooldownTimer?.invalidate()
         cooldownTimer = nil
+        cancelCooldownClearedNotification()
+    }
+
+    /// Schedule the "cooldown cleared" local notification to fire AT `endsAt`. Mirrors the 2h
+    /// reminder's auth + scheduling; uses a distinct id so the two never collide. Best-effort: if
+    /// notifications aren't granted it simply doesn't fire (the in-app countdown still shows).
+    private func scheduleCooldownClearedNotification(at endsAt: Date) {
+        let center = UNUserNotificationCenter.current()
+        let id = cooldownDoneID
+        let interval = max(1, endsAt.timeIntervalSinceNow)   // UNTimeIntervalTrigger needs > 0
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = L("notif.cooldown_cleared.title", fallback: "Cooldown cleared")
+            content.body = L("notif.cooldown_cleared.body",
+                             fallback: "Safe to catch & spin in Pokémon GO now.")
+            content.sound = .default
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
+            let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
+            // Replace any earlier pending one so a re-teleport reschedules cleanly.
+            center.removePendingNotificationRequests(withIdentifiers: [id])
+            center.add(request)
+        }
+    }
+
+    private func cancelCooldownClearedNotification() {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [cooldownDoneID])
     }
 
     private func startCooldownTimer() {
@@ -282,6 +322,9 @@ final class SimulationSession: ObservableObject {
         snapBack.stop()
         TunnelHealthMonitor.shared.stopMonitoring()
         cancelReminder()
+        // A deliberate stop ends the session — cancel the pending "cooldown cleared" ping so it can't
+        // fire after the user has already stopped (the in-app chip still counts down if it re-shows).
+        cancelCooldownClearedNotification()
     }
 
     /// Global stop: clears the device location, tells every mode to reset, cancels the reminder.
@@ -303,6 +346,8 @@ final class SimulationSession: ObservableObject {
             }
         }
         cancelReminder()
+        // A deliberate global stop ends the session — cancel the pending "cooldown cleared" ping.
+        cancelCooldownClearedNotification()
     }
 
     /// Re-arm the 2h timer (called when the app becomes active so it only fires after real inactivity).
