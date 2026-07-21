@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "96",
+      "buildVersion": "97",
       "versionDate": "2026-07-20",
-      "versionDescription": "Big anti-ban + stability update. New: a soft-ban cooldown timer with a live 'safe to catch/spin' countdown; a speed governor that keeps movement under ban-triggering speeds; GPS 'breathing' so a parked location looks natural instead of frozen; a tunnel health indicator with best-effort auto-reconnect and a low-memory warning; pre-flight checks (Precise Location + network-vs-GPS mismatch); resume-your-spoof after an interruption; and an expanded Error 11/12 + tunnel help guide with a plain-language ban ladder.",
+      "versionDescription": "Stability fixes: prevents a false 'location snapped back' alert during a walk/route (and the Error 12 it could cause), stops re-teleports from wiping your soft-ban cooldown, routes offline-map teleports through the same safe path, and turns on GPS 'breathing' so a held location looks natural.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17605842,
+      "size": 17607599,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "96",
+          "buildVersion": "97",
           "date": "2026-07-20",
-          "localizedDescription": "Big anti-ban + stability update. New: a soft-ban cooldown timer with a live 'safe to catch/spin' countdown; a speed governor that keeps movement under ban-triggering speeds; GPS 'breathing' so a parked location looks natural instead of frozen; a tunnel health indicator with best-effort auto-reconnect and a low-memory warning; pre-flight checks (Precise Location + network-vs-GPS mismatch); resume-your-spoof after an interruption; and an expanded Error 11/12 + tunnel help guide with a plain-language ban ladder.",
+          "localizedDescription": "Stability fixes: prevents a false 'location snapped back' alert during a walk/route (and the Error 12 it could cause), stops re-teleports from wiping your soft-ban cooldown, routes offline-map teleports through the same safe path, and turns on GPS 'breathing' so a held location looks natural.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17605842,
+          "size": 17607599,
           "minOSVersion": "17.0"
         }
       ],
