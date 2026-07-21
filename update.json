@@ -1,6 +1,6 @@
 {
-  "build": 99,
+  "build": 100,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Match your IP with NordVPN — when your network still looks local, the pre-flight tip now one-taps into a VPN in your spoofed city so your network location matches your GPS."
+  "notes": "Location Diagnostic (Settings > Experimental): a read-only screen that shows the exact GPS fields apps receive during a spoof — for pinning down the iOS 26 Error 12 cause. Nothing else changes."
 }
