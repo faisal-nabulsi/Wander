@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "98",
+      "buildVersion": "99",
       "versionDate": "2026-07-20",
-      "versionDescription": "New: a notification pings you the moment your Pokémon GO cooldown clears; the IP/GPS-mismatch warning now offers a one-tap VPN fix; long-distance jumps show a 'log off ~8h' safety tip; and a heads-up if you start moving while a cooldown is running. Also fewer overlapping pop-ups and a more accurate network-mismatch check.",
+      "versionDescription": "Match your IP with NordVPN — when your network still looks local, the pre-flight tip now one-taps into a VPN in your spoofed city so your network location matches your GPS.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17650030,
+      "size": 17649940,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "98",
+          "buildVersion": "99",
           "date": "2026-07-20",
-          "localizedDescription": "New: a notification pings you the moment your Pokémon GO cooldown clears; the IP/GPS-mismatch warning now offers a one-tap VPN fix; long-distance jumps show a 'log off ~8h' safety tip; and a heads-up if you start moving while a cooldown is running. Also fewer overlapping pop-ups and a more accurate network-mismatch check.",
+          "localizedDescription": "Match your IP with NordVPN — when your network still looks local, the pre-flight tip now one-taps into a VPN in your spoofed city so your network location matches your GPS.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17650030,
+          "size": 17649940,
           "minOSVersion": "17.0"
         }
       ],

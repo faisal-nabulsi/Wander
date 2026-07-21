@@ -1,6 +1,6 @@
 {
-  "build": 98,
+  "build": 99,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "New: a notification pings you the moment your Pokémon GO cooldown clears; the IP/GPS-mismatch warning now offers a one-tap VPN fix; long-distance jumps show a 'log off ~8h' safety tip; and a heads-up if you start moving while a cooldown is running. Also fewer overlapping pop-ups and a more accurate network-mismatch check."
+  "notes": "Match your IP with NordVPN — when your network still looks local, the pre-flight tip now one-taps into a VPN in your spoofed city so your network location matches your GPS."
 }
