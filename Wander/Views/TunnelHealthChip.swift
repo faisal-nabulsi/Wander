@@ -108,6 +108,12 @@ struct TunnelHealthChip: View {
     }
 
     private var accessibilityLabel: String {
+        // Mirror the visible `label`: reconnecting takes precedence over the raw state there, so the
+        // a11y label must surface it too (otherwise VoiceOver reads a stale "unstable/disconnected"
+        // while the pill visibly says "reconnecting…").
+        if monitor.isReconnecting {
+            return L("tunnel.chip.a11y.reconnecting", fallback: "Tunnel reconnecting — tap for options")
+        }
         switch monitor.state {
         case .connected: return L("tunnel.chip.a11y.connected", fallback: "Tunnel connected")
         case .unstable: return L("tunnel.chip.a11y.unstable", fallback: "Tunnel unstable — tap for options")

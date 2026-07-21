@@ -366,6 +366,7 @@
 "tunnel.chip.a11y.connected" = "Tunnel connected";
 "tunnel.chip.a11y.unstable" = "Tunnel unstable — tap for options";
 "tunnel.chip.a11y.disconnected" = "Tunnel disconnected — tap for options";
+"tunnel.chip.a11y.reconnecting" = "Tunnel reconnecting — tap for options";
 "tunnel.actions.title" = "Tunnel connection";
 "tunnel.actions.body" = "The connection Wander injects location through looks unhealthy, so your location may snap back to real GPS. You can try to reconnect, or stop and return to real GPS.";
 "tunnel.action.reconnect" = "Try to reconnect";
@@ -374,3 +375,12 @@
 "tunnel.stability.header" = "Tunnel stability";
 "tunnel.stability.idle" = "Not spoofing — the heartbeat shows while a simulation is running.";
 "tunnel.stability.footer" = "Wander watches the connection it injects location through and, if it drops, tries to reconnect on its own — best-effort only, since iOS can close the tunnel when memory runs low or the app is backgrounded (nothing can prevent that). Low memory can drop it, so close background apps for a steadier spoof.";
+
+/* One-time-per-session coaching tip: spoofing started while on cellular. Advisory only. */
+"tip.cellular.title" = "Heads up: you're on cellular";
+"tip.cellular.body" = "On cellular your real area can still leak — even with a VPN. For the most believable spoof, connect to Wi-Fi or turn on Airplane Mode.";
+
+/* OTA update: the install re-sign needs a signed-in Apple ID; and the tappable update banner. */
+"update.needs_apple_id.title" = "Sign in to install";
+"update.needs_apple_id.body" = "To install the update, first sign in to your Apple ID in More → Settings → Sign in to Apple ID, then tap the update again.";
+"update.banner" = "Update ready — tap to install";

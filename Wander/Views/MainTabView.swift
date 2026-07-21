@@ -284,7 +284,17 @@ struct MainTabView: View {
             ) {
                 if let target = session.lastTeleportCoordinate {
                     Button(L("snapback.reteleport", fallback: "Re-teleport")) {
-                        session.resume(to: target)
+                        // Only re-teleport when the Map teleport HOLD owns the stream. A movement mode
+                        // (walk/route/itinerary) holds suppressResends=true and self-heals via its own
+                        // inject loop — routing `resume` (→ .teleportToRequested → startResendLoop, which
+                        // flips suppressResends=false) through it while it's still writing would create a
+                        // SECOND writer and re-trigger Error 12. Movement modes disarm this watcher on
+                        // start, so this guard is just a belt-and-suspenders against a race.
+                        if !LocationSimulationCommandQueue.suppressResends {
+                            session.resume(to: target)
+                        } else {
+                            snapBack.reset()
+                        }
                     }
                 }
                 Button(L("action.ok", fallback: "OK"), role: .cancel) {

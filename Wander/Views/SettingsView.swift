@@ -23,7 +23,7 @@ struct SettingsView: View {
     @AppStorage("reminderEnabled") private var reminderEnabled = false
     @AppStorage("useMph") private var useMph = false
     @AppStorage(MotionRealism.key) private var realisticMotion = true
-    @AppStorage("jitterEnabled") private var jitterEnabled = false
+    @AppStorage("jitterEnabled") private var jitterEnabled = true
     @AppStorage("jitterRadius") private var jitterRadius = 1.5
     @AppStorage("smoothLongJumps") private var smoothLongJumps = false
     @AppStorage("panicButtonEnabled") private var panicButtonEnabled = true

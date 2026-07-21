@@ -94,6 +94,11 @@ final class SnapBackWatcher: NSObject, ObservableObject, CLLocationManagerDelega
 
     private func evaluate(realLocation: CLLocationCoordinate2D) {
         guard let target = guardedTarget, !didBounceBack else { return }
+        // With Precise Location OFF, iOS reports a reduced-accuracy fix fuzzed by a stable per-app
+        // offset that can sit hundreds of metres to >1 km from the true point — well past our 500 m
+        // bounce-back threshold — so it would false-fire. We can't tell that fuzz from a real
+        // bounce-back, so we simply don't guard when accuracy is reduced. Stay quiet.
+        guard manager.accuracyAuthorization != .reducedAccuracy else { return }
         // Settle window: ignore fixes right after arming so a stale cached fix can't false-trigger.
         guard Date().timeIntervalSince(armedAt) >= settleWindow else { return }
         let real = CLLocation(latitude: realLocation.latitude, longitude: realLocation.longitude)

@@ -448,13 +448,19 @@ struct OfflineMapsSheet: View {
             )
             return
         }
-        let path = pairingPath
-        let lat = coordinate.latitude
-        let lng = coordinate.longitude
-        LocationSimulationCommandQueue.shared.async {
-            _ = simulate_location(DeviceConnectionContext.targetIPAddress, lat, lng, path)
-        }
-        SimulationSession.shared.started()
+        // Route through the SHARED teleport path (like every other teleport entry point) instead of a
+        // bespoke simulate_location inject: post .teleportToRequested, which the Map screen handles by
+        // selecting the coordinate and calling simulate() — that runs noteTeleport (cooldown + snap-back
+        // arm) AND startResendLoop with proper suppressResends handling. A bare inject here had no
+        // resend loop (the fix decayed) and no single-writer gating, so it competed as a stray writer
+        // during a movement session. Dismiss so the resulting teleport is visible on the Map tab.
+        UserDefaults.standard.set(AppFeature.location.id, forKey: "primaryTabSelection")
+        NotificationCenter.default.post(
+            name: .teleportToRequested,
+            object: nil,
+            userInfo: ["lat": coordinate.latitude, "lng": coordinate.longitude]
+        )
+        dismiss()
     }
 
     private func alert(_ title: String, _ message: String) {

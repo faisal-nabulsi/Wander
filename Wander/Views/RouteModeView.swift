@@ -175,7 +175,7 @@ struct RouteModeView: View {
     @State private var routeAlternatives: [RouteOption] = []
     @State private var selectedRouteIndex = 0
     @AppStorage("useMph") private var useMph = false
-    @AppStorage("jitterEnabled") private var jitterEnabled = false
+    @AppStorage("jitterEnabled") private var jitterEnabled = true
     // Same per-game context the Joystick + Games tabs read. Used ONLY to scope the hard speed
     // clamp during playback (see startDrive's loop): when the user is framing movement around a
     // location game we cap the effective route speed at that game's ban-triggering ceiling. Left OFF
@@ -1428,6 +1428,9 @@ struct RouteModeView: View {
         // location (12)". Re-asserted each step in the playback loop (see below); handed back on
         // completion. Mirrors WalkModeView / MapSelectionView route playback / ItineraryRunner.
         LocationSimulationCommandQueue.suppressResends = true
+        // Moving writer now — stand the stationary-teleport snap-back watcher down so the drive
+        // moving away from the teleport target can't false-fire its re-teleport (a second writer).
+        SimulationSession.shared.movementModeDidBecomeActiveWriter()
         // Adventure Sync: open a fresh walk window for this drive (no-op unless
         // opted in). Per-sample deltas below feed the incremental Health writer.
         AdventureSyncManager.shared.beginWalk()

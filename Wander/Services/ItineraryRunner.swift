@@ -79,6 +79,10 @@ final class ItineraryRunner: ObservableObject {
         // stay keep-alive) so a cross-tab teleport can't silently re-enable it; the terminal stopAll()
         // both sets it true and clears the device location.
         LocationSimulationCommandQueue.suppressResends = true
+        // Moving writer for the whole itinerary — stand the stationary-teleport snap-back watcher
+        // down so driving/teleporting between steps can't false-fire its re-teleport (a second
+        // writer). Per-step teleports here are part of an active movement session, not a held spot.
+        SimulationSession.shared.movementModeDidBecomeActiveWriter()
         SimulationSession.shared.started()
 
         runTask = Task { [weak self] in
@@ -134,6 +138,10 @@ final class ItineraryRunner: ObservableObject {
             stopTickTimer()
             isRunning = false
             activeIndex = nil
+            // Null the run task BEFORE stopAll(): stopAll() re-broadcasts .stopSimulationRequested,
+            // which re-enters stop() via the observer. With runTask still set, stop()'s
+            // `isRunning || runTask != nil` guard would pass and fire a redundant second stopAll().
+            runTask = nil
             SimulationSession.shared.stopAll()
         }
     }

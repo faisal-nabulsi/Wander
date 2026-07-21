@@ -239,6 +239,10 @@ struct WalkModeView: View {
         // impossible backward jump is exactly what makes Pokémon GO throw "Failed to detect
         // location (12)". step() re-asserts this each tick; we hand the hold back on stop/arrival.
         LocationSimulationCommandQueue.suppressResends = true
+        // We are the moving writer now — stand the stationary-teleport snap-back watcher down so a
+        // legitimate walk away from the teleport target can't false-fire it (its "Re-teleport" would
+        // re-assert the stale target as a second writer mid-walk → Error 12).
+        SimulationSession.shared.movementModeDidBecomeActiveWriter()
         motion = HumanizedMotion(context: .steered)   // fresh gait for this run
         SimulationSession.shared.started()
         // Adventure Sync: start a fresh walk window so the first tick isn't measured
@@ -383,6 +387,8 @@ struct WalkModeView: View {
         isWalking = true
         // Own the stream: suppress the Map tab's stale teleport resend for the duration (see start()).
         LocationSimulationCommandQueue.suppressResends = true
+        // Moving writer now — stand the stationary snap-back watcher down (see start()).
+        SimulationSession.shared.movementModeDidBecomeActiveWriter()
         motion = HumanizedMotion(context: .autonomous)   // hands-free ⇒ full realism incl. micro-pauses
         SimulationSession.shared.started()
         AdventureSyncManager.shared.beginWalk()

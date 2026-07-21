@@ -24,6 +24,10 @@ enum AppBootstrapper {
             UserDefaults.Keys.confirmExternalJITRequests: true,
             "keepAliveAudio": true,
             "keepAliveLocation": true,
+            // Breathing-jitter (OTA-96): ON by default so startResendLoop re-injects a gently
+            // varying fix instead of the frozen perfect point every 4 s. Still opt-out via the
+            // "Hold perfectly still" (frozenHold) toggle, which each writer checks before jittering.
+            "jitterEnabled": true,
             // "First fix is real" ban-guardrail — OFF by default (hidden flag, no UI toggle yet).
             // Enable only after verifying the real→fake handoff timing on a device; see RealGPSSeeder.
             RealGPSSeeder.enabledKey: false

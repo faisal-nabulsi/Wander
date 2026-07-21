@@ -91,6 +91,18 @@ final class SimulationSession: ObservableObject {
         snapBack.start(guarding: coordinate)
     }
 
+    /// Disarm the snap-back watcher because a MOVEMENT mode (walk / auto-walk / route / itinerary)
+    /// has just become the active location writer. The watcher only makes sense while guarding a
+    /// STATIONARY teleport hold: during a walk the reported fix legitimately moves hundreds of metres
+    /// away from the teleport target, which would false-fire `didBounceBack` — and its "Re-teleport"
+    /// recovery re-asserts the stale target through `resume`, adding a SECOND writer to the serial
+    /// queue mid-walk (the exact two-writer / Error-12 regression we guard against). Movement modes
+    /// self-heal via their own inject loop, so they own the stream and the watcher stands down until
+    /// the next stationary teleport re-arms it via `noteTeleport`.
+    func movementModeDidBecomeActiveWriter() {
+        snapBack.stop()
+    }
+
     // MARK: - Reboot-aware recovery (persist + resume)
     //
     // iOS clears the spoof the moment the app/tunnel dies (or the phone reboots), snapping the device
@@ -184,6 +196,13 @@ final class SimulationSession: ObservableObject {
             return
         }
         let km = PoGoCooldown.distanceKm(from: previous, to: next)
+        // A re-assert of the SAME point (auto-reconnect / resume / snap-back re-teleport all re-post
+        // the current coordinate) has ~0 distance → 0 seconds. That must NOT wipe a cooldown that's
+        // still counting down from the real jump that started it. Only a genuine NEW jump (moved more
+        // than ~50 m) recomputes/clears the cooldown; a near-in-place re-assert leaves it running.
+        if km * 1000 < 50, cooldownActive {
+            return
+        }
         lastJumpKm = km
         // Reuse the existing curve verbatim; add a small buffer (guidance is a floor) and keep the
         // curve's own 120-min ceiling as a hard cap.
