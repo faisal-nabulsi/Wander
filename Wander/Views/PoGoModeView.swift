@@ -275,6 +275,13 @@ struct PoGoModeView: View {
                 // last teleport target so the IP↔GPS hint reflects where the user actually is spoofing.
                 PreFlightCard(spoofedTarget: session.lastTeleportCoordinate)
 
+                // gs-loc mode only: "are you ACTUALLY spoofed?" — reads Wander's own Core Location fix and
+                // compares it to the pushed target, so the user gets a green/amber answer instead of
+                // eyeballing Apple Maps. Meaningless on the dev-tunnel path, so gate on GslocMode.enabled.
+                if GslocMode.enabled {
+                    GslocVerifyCard()
+                }
+
                 cooldownSection
 
                 longHaulSection

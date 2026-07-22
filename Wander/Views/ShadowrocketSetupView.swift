@@ -65,6 +65,9 @@ struct ShadowrocketSetupView: View {
     @State private var seededPassthrough = false
 
     private let moduleURL = "https://wander-payments.wanderlocation.workers.dev/gsloc/wander.sgmodule"
+    // Full config (beta): a .sgmodule can't carry "HTTPS Decryption ON", but a config can — so importing
+    // this collapses steps 2–3 into one import. See betaConfigCard.
+    private let confURL = "https://wander-payments.wanderlocation.workers.dev/gsloc/wander.conf"
     private let appStoreURL = "itms-apps://apps.apple.com/app/id932747118"
 
     var body: some View {
@@ -72,6 +75,7 @@ struct ShadowrocketSetupView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     intro
+                    betaConfigCard   // optional one-import accelerator for steps 2–3
                     step1
                     step2
                     step3
@@ -102,6 +106,41 @@ struct ShadowrocketSetupView: View {
                 }
             }
         }
+    }
+
+    // MARK: Beta one-import accelerator
+
+    // A .sgmodule can only carry the scripts + which hosts to decrypt — the user still hand-flips "HTTPS
+    // Decryption ON" (step 3). A full CONFIG can carry "[MITM] enable = true", so importing it does steps
+    // 2–3 in one shot. It does NOT bundle a certificate (that would put one shared private key in a public
+    // file), so step 4's generate-and-trust stays. Marked beta: config import replaces the active config,
+    // and whether a URL-imported config honors the inline decryption toggle is still being field-tested.
+    private var betaConfigCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(L("gsloc.setup.beta.title", fallback: "Faster setup (beta): one import"),
+                  systemImage: "bolt.badge.clock")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Wander.brand)
+            Text(L("gsloc.setup.beta.body",
+                   fallback: "Instead of steps 2–3, import a single Wander config that already has the rewrite AND HTTPS Decryption switched on. You still do step 1 (install Shadowrocket), step 4 (generate + trust the certificate), and step 5 (connect). Best if you use Shadowrocket only for Wander — importing a full config replaces your active one."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                linkButton(L("gsloc.setup.beta.import", fallback: "Import Wander config"),
+                           url: "shadowrocket://config/add/\(confURL)")
+                Spacer()
+                Button {
+                    UIPasteboard.general.string = confURL
+                } label: {
+                    Label(L("gsloc.setup.beta.copy", fallback: "Copy config link"), systemImage: "doc.on.doc")
+                        .font(.caption)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     // MARK: Intro (honest limits first)

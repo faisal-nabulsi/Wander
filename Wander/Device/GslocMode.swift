@@ -47,6 +47,13 @@ enum GslocMode {
         set { UserDefaults.standard.set(newValue, forKey: defaultsKey) }
     }
 
+    /// Thread-safe snapshot of the coordinate currently being pushed, for the verification banner to
+    /// compare against the phone's own Core Location fix. nil when not spoofing (reset / never pushed).
+    /// `q.sync` is a short critical section; safe to call from the main thread.
+    static var currentTargetSnapshot: (lat: Double, lng: Double)? {
+        q.sync { currentTarget }
+    }
+
     // MARK: - Keep-alive + jitter state
 
     /// Serial queue that owns `currentTarget`, the keep-alive timer, and `lastFireUptimeNs`, so a

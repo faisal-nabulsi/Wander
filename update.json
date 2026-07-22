@@ -1,6 +1,6 @@
 {
-  "build": 114,
+  "build": 115,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "PoGo cooldown timer now survives closing and reopening the app. Added in-app step-by-step guides for gs-loc mode: first spoof, re-teleport, and reset to your real location. Faster, cleaner status handling."
+  "notes": "New in PoGo mode: a Check My Spoof card that confirms iOS is actually reporting your spoofed location (green) or tells you exactly what to fix (amber) - no more guessing from Apple Maps. Also added a beta one-import option in gs-loc setup."
 }
