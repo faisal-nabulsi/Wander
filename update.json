@@ -1,6 +1,6 @@
 {
-  "build": 103,
+  "build": 104,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Fix: gs-loc mode no longer false-alarms the tunnel-health chip (it uses Shadowrocket, not LocalDevVPN); spell out the one-VPN-at-a-time swap in setup + settings"
+  "notes": "Setup checklist is now gs-loc-aware: in PoGo (gs-loc) mode it no longer probes/nags for LocalDevVPN or wakes the dev tunnel — shows a gs-loc notice instead"
 }

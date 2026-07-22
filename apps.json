@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "103",
+      "buildVersion": "104",
       "versionDate": "2026-07-21",
-      "versionDescription": "Fix: gs-loc mode no longer false-alarms the tunnel-health chip (it uses Shadowrocket, not LocalDevVPN); spell out the one-VPN-at-a-time swap in setup + settings",
+      "versionDescription": "Setup checklist is now gs-loc-aware: in PoGo (gs-loc) mode it no longer probes/nags for LocalDevVPN or wakes the dev tunnel — shows a gs-loc notice instead",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17796189,
+      "size": 17807349,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "103",
+          "buildVersion": "104",
           "date": "2026-07-21",
-          "localizedDescription": "Fix: gs-loc mode no longer false-alarms the tunnel-health chip (it uses Shadowrocket, not LocalDevVPN); spell out the one-VPN-at-a-time swap in setup + settings",
+          "localizedDescription": "Setup checklist is now gs-loc-aware: in PoGo (gs-loc) mode it no longer probes/nags for LocalDevVPN or wakes the dev tunnel — shows a gs-loc notice instead",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17796189,
+          "size": 17807349,
           "minOSVersion": "17.0"
         }
       ],

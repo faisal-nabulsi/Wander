@@ -106,6 +106,9 @@ struct SetupChecklistView: View {
                 VStack(spacing: 16) {
                     header
 
+                    if GslocMode.enabled {
+                        gslocNotice
+                    } else {
                     VStack(spacing: 0) {
                         row(
                             title: "Pairing file",
@@ -185,6 +188,7 @@ struct SetupChecklistView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.large)
                     .disabled(checker.isChecking)
+                    } // end !GslocMode.enabled
                 }
                 .padding()
             }
@@ -228,6 +232,9 @@ struct SetupChecklistView: View {
     /// checklist bring the tunnel up (and then mount the DDI) on its own once LocalDevVPN is connected,
     /// instead of leaving the user staring at a red "Tunnel connected" until they tap Re-check.
     private func kickTunnelIfNeeded() {
+        // In PoGo (gs-loc) mode Wander spoofs through Shadowrocket, not the dev tunnel — don't wake
+        // LocalDevVPN (iOS allows only one VPN at a time, so it would fight the proxy).
+        guard !GslocMode.enabled else { return }
         if checker.hasPairing && !checker.reachable {
             startTunnelInBackground(showErrorUI: false)
         }
@@ -266,6 +273,24 @@ struct SetupChecklistView: View {
 
     private var rowDivider: some View {
         Divider().padding(.leading, 52)
+    }
+
+    /// Shown instead of the dev-tunnel checklist when PoGo (gs-loc) mode is on — those steps (pairing,
+    /// LocalDevVPN, DDI, Developer Mode) don't apply, since gs-loc spoofs through Shadowrocket.
+    private var gslocNotice: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(L("setup.gsloc.title", fallback: "PoGo (gs-loc) mode is on"),
+                  systemImage: "antenna.radiowaves.left.and.right")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Wander.brand)
+            Text(L("setup.gsloc.body",
+                   fallback: "This checklist is for the LocalDevVPN dev tunnel, which gs-loc mode doesn't use — it spoofs through Shadowrocket instead. You don't need the pairing file, tunnel, or Developer Mode here. Set it up in Settings → Experimental → “Set up gs-loc mode,” or turn PoGo mode off there to go back to normal spoofing."))
+                .font(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func row(title: String, detail: String, ok: Bool, checking: Bool) -> some View {
