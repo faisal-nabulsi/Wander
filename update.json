@@ -1,6 +1,6 @@
 {
-  "build": 107,
+  "build": 108,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Update installer now detects an Apple ID / signing-team mismatch and explains exactly how to fix it, instead of silently bouncing back to Update ready"
+  "notes": "Fix: Settings 'Update Wander' button now shows the Apple 2FA prompt (was routing it behind the Settings sheet, so signing hung with nothing happening)"
 }

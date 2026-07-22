@@ -783,6 +783,11 @@ struct SettingsView: View {
                 updater.status = "Sign in to your Apple ID first (above)."
                 return
             }
+            // Route any 2FA prompt to THIS sheet's alert (line ~645). Without this the presenter stays
+            // on `.system` (the root screen behind the Settings sheet), so a required 2FA code prompt
+            // never appears and the sign-in step hangs forever ("signing into Apple, then nothing").
+            // Mirrors the self-refresh button above.
+            wanderAccount.twoFactorPresenter = .settings
             do {
                 try await updater.installUpdate()
             } catch {

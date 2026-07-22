@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "107",
-      "versionDate": "2026-07-21",
-      "versionDescription": "Update installer now detects an Apple ID / signing-team mismatch and explains exactly how to fix it, instead of silently bouncing back to Update ready",
+      "buildVersion": "108",
+      "versionDate": "2026-07-22",
+      "versionDescription": "Fix: Settings 'Update Wander' button now shows the Apple 2FA prompt (was routing it behind the Settings sheet, so signing hung with nothing happening)",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17812648,
+      "size": 17817432,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "107",
-          "date": "2026-07-21",
-          "localizedDescription": "Update installer now detects an Apple ID / signing-team mismatch and explains exactly how to fix it, instead of silently bouncing back to Update ready",
+          "buildVersion": "108",
+          "date": "2026-07-22",
+          "localizedDescription": "Fix: Settings 'Update Wander' button now shows the Apple 2FA prompt (was routing it behind the Settings sheet, so signing hung with nothing happening)",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17812648,
+          "size": 17817432,
           "minOSVersion": "17.0"
         }
       ],
