@@ -1,6 +1,6 @@
 {
-  "build": 110,
+  "build": 111,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Critical: Apple-ID sign-in now fails over across multiple anisette servers instead of dying when one (ani.sidestore.io) goes down — fixes the widespread 'Couldn't reach Apple' at sign-in"
+  "notes": "No-Wi-Fi tunnel UX: only shows the Airplane Mode step when there's actually no Wi-Fi. Plus an experimental loopback-tunnel test (Settings → Experimental) to try running without LocalDevVPN."
 }

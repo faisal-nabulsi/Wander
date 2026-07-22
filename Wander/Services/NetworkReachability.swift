@@ -22,7 +22,7 @@ final class NetworkReachability: ObservableObject {
     /// NWPathMonitor's serial queue and the main-actor probe) and read off the main actor (the tile
     /// queue, the spoof-start funnel). Bool reads are atomic on ARM so the prior `nonisolated(unsafe)`
     /// was benign, but the lock makes it correct-by-construction with negligible cost on the readers.
-    private struct Snapshots: Sendable { var online = true; var cellular = false; var hasInternet = true }
+    private struct Snapshots: Sendable { var online = true; var cellular = false; var hasInternet = true; var wifi = true }
     private static let snapshotLock = OSAllocatedUnfairLock(initialState: Snapshots())
 
     /// True once the monitor has seen a satisfied path. Starts `true` so we never flash an
@@ -49,6 +49,13 @@ final class NetworkReachability: ObservableObject {
     /// makes us conservative: if Wi-Fi is present at all we do NOT warn, so we never nag a user
     /// who is actually on Wi-Fi even if cellular is also listed as available.
     @Published private(set) var isOnCellular: Bool = false
+
+    /// True when a Wi-Fi (or Wi-Fi-hotspot) interface backs the current path. Drives the no-Wi-Fi
+    /// tunnel UX (Lead A): when Wi-Fi is present the LocalDevVPN tunnel comes up directly, so the
+    /// "turn on Airplane Mode first" instruction is NOISE — we only surface it when Wi-Fi is absent
+    /// (cellular-only), where the loopback route sometimes won't install without the airplane toggle.
+    /// Same underlying-interface read as isOnCellular, so Wander's own utun tunnel doesn't fool it.
+    @Published private(set) var hasWiFi: Bool = true
 
     /// A nonisolated, thread-safe mirror of `isOnline` for callers that run off the main actor
     /// (e.g. `WanderTileOverlay.loadTile`, invoked on a background tile-loading queue) and can't
@@ -81,9 +88,11 @@ final class NetworkReachability: ObservableObject {
             let onCellular = online
                 && path.usesInterfaceType(.cellular)
                 && !path.usesInterfaceType(.wifi)
+            let hasWiFi = online && path.usesInterfaceType(.wifi)
             NetworkReachability.snapshotLock.withLock {
                 $0.online = online
                 $0.cellular = onCellular
+                $0.wifi = hasWiFi
                 // No path at all → definitely no internet; reflect it immediately (no probe needed).
                 if !online { $0.hasInternet = false }
             }
@@ -91,6 +100,7 @@ final class NetworkReachability: ObservableObject {
                 guard let self else { return }
                 if self.isOnline != online { self.isOnline = online }
                 if self.isOnCellular != onCellular { self.isOnCellular = onCellular }
+                if self.hasWiFi != hasWiFi { self.hasWiFi = hasWiFi }
                 self.refreshHasInternet(pathSatisfied: online)
             }
         }

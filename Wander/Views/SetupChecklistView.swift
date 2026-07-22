@@ -94,6 +94,7 @@ struct SetupChecklistView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var showPairingImporter = false
     @State private var importResult: (text: String, isError: Bool)?
+    @ObservedObject private var reachability = NetworkReachability.shared
 
     /// While the sheet is open and not everything is green, re-probe on a gentle cadence so the
     /// checklist resolves itself — the tunnel handshake and DDI mount both complete a beat AFTER
@@ -123,7 +124,9 @@ struct SetupChecklistView: View {
                             title: "Tunnel connected",
                             detail: checker.reachable
                                 ? "Your device is reachable."
-                                : "Connect LocalDevVPN. On Wi-Fi it just works; no Wi-Fi? Turn on Airplane Mode first, then connect it.",
+                                : (reachability.hasWiFi
+                                    ? "Open LocalDevVPN and connect — on Wi-Fi it comes up on its own."
+                                    : "No Wi-Fi detected. Open LocalDevVPN and connect; if it won't come up, turn on Airplane Mode first, then connect."),
                             ok: checker.reachable,
                             checking: checker.isChecking
                         )

@@ -59,6 +59,7 @@ struct SettingsView: View {
     @State private var showLocationDiagnostic = false
     @AppStorage("gsloc_mode_enabled") private var gslocModeEnabled = false
     @State private var showGslocSetup = false
+    @State private var loopbackTunnelTest = (UserDefaults.standard.string(forKey: UserDefaults.Keys.targetDeviceIP) == "127.0.0.1")
     @EnvironmentObject private var localization: LocalizationManager
 
     private var appVersion: String {
@@ -567,11 +568,27 @@ struct SettingsView: View {
                         }
                     }
                     .tint(.primary)
+
+                    Toggle(isOn: $loopbackTunnelTest) {
+                        Label(L("settings.experimental.loopback",
+                                fallback: "Loopback tunnel test (no LocalDevVPN)"),
+                              systemImage: "arrow.triangle.2.circlepath.circle")
+                    }
+                    .onChange(of: loopbackTunnelTest) { _, on in
+                        // Lead B experiment: point the dev tunnel at 127.0.0.1 instead of LocalDevVPN's
+                        // 10.7.0.1. If Wander (both ends of the tunnel in one process) can RemotePair to
+                        // its own loopback with LocalDevVPN OFF, we could drop the helper entirely.
+                        if on {
+                            UserDefaults.standard.set("127.0.0.1", forKey: UserDefaults.Keys.targetDeviceIP)
+                        } else {
+                            UserDefaults.standard.removeObject(forKey: UserDefaults.Keys.targetDeviceIP)
+                        }
+                    }
                 } header: {
                     Text(localized: "settings.experimental.header", fallback: "Experimental")
                 } footer: {
                     Text(localized: "settings.experimental.footer",
-                         fallback: "Opt-in beta features. Off by default — nothing installs or changes until you open one and choose to turn it on.\n\nPoGo mode (gs-loc): routes teleports to a Wi-Fi-location proxy (Shadowrocket) instead of the dev tunnel, so Pokémon GO sees a non-simulated fix. It replaces LocalDevVPN — iOS allows only ONE VPN at a time, so in this mode turn LocalDevVPN OFF and Shadowrocket ON. Turn this toggle off to go back to normal spoofing over LocalDevVPN. Requires the proxy + trusted MITM certificate; only holds indoors / with weak GPS.")
+                         fallback: "Opt-in beta features. Off by default — nothing installs or changes until you open one and choose to turn it on.\n\nPoGo mode (gs-loc): routes teleports to a Wi-Fi-location proxy (Shadowrocket) instead of the dev tunnel, so Pokémon GO sees a non-simulated fix. It replaces LocalDevVPN — iOS allows only ONE VPN at a time, so in this mode turn LocalDevVPN OFF and Shadowrocket ON. Turn this toggle off to go back to normal spoofing over LocalDevVPN. Requires the proxy + trusted MITM certificate; only holds indoors / with weak GPS.\n\nLoopback tunnel test: an experiment to see if Wander can run the tunnel WITHOUT LocalDevVPN. To test: turn OFF LocalDevVPN, enable this, reopen Wander, and try a teleport. If it works, the tunnel came up on its own (report back!). If teleport fails with a tunnel error, turn this off and reconnect LocalDevVPN — it just means iOS needs the external loopback.")
                 }
 
                 Section {

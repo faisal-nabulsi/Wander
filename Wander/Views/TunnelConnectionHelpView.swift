@@ -14,6 +14,7 @@ import SwiftUI
 
 struct TunnelConnectionHelpView: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var reachability = NetworkReachability.shared
 
     /// One step in the connection-fix checklist.
     private struct Step: Identifiable {
@@ -77,6 +78,8 @@ struct TunnelConnectionHelpView: View {
 
                     downloadCard
 
+                    wifiHintCard
+
                     // The connection-fix checklist, as material cards.
                     VStack(spacing: 0) {
                         ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
@@ -126,6 +129,27 @@ struct TunnelConnectionHelpView: View {
                 .multilineTextAlignment(.center)
         }
         .padding(.top, 8)
+    }
+
+    // MARK: - Adaptive Wi-Fi hint (Lead A: only push the airplane step when there's no Wi-Fi)
+
+    private var wifiHintCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: reachability.hasWiFi ? "wifi" : "wifi.slash")
+                .font(.title3)
+                .foregroundStyle(reachability.hasWiFi ? Color.green : Color.orange)
+                .accessibilityHidden(true)
+            Text(reachability.hasWiFi
+                 ? L("tunnel.wifi.on", fallback: "You're on Wi-Fi — just install LocalDevVPN and connect (steps 1–2). You can skip the Airplane Mode step.")
+                 : L("tunnel.wifi.off", fallback: "No Wi-Fi detected. On cellular the tunnel sometimes won't come up directly — step 3 (Airplane Mode first) is what gets it connected."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     // MARK: - Download prompt
