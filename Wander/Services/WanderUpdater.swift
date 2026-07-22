@@ -253,7 +253,23 @@ final class WanderUpdater: ObservableObject {
     /// distinguishes "a proxy is intercepting traffic" from the normal update tunnel.
     private static func proxyVPNActive() -> Bool {
         guard let s = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any] else { return false }
-        return s.keys.contains { $0.hasPrefix("HTTP") || $0.hasPrefix("SOCKS") || $0 == "__SCOPED__" }
+        // Detect an ACTUALLY-ENABLED HTTP/HTTPS/SOCKS/PAC proxy (Shadowrocket, for gs-loc mode). The old
+        // test — "any key starts with HTTP/SOCKS, or __SCOPED__ exists" — was a catch-22 BUG: iOS adds a
+        // __SCOPED__ entry (and HTTP*/SOCKS* keys) for ANY active VPN, so it flagged LocalDevVPN — the very
+        // tunnel the update installs over — and made every in-app update impossible. Check the *Enable
+        // flags being ON instead, top-level and inside each per-interface scope.
+        func proxyEnabled(_ d: [String: Any]) -> Bool {
+            for key in ["HTTPEnable", "HTTPSEnable", "SOCKSEnable", "ProxyAutoConfigEnable"] {
+                if let v = d[key] as? Int, v != 0 { return true }
+                if let v = d[key] as? Bool, v { return true }
+            }
+            return false
+        }
+        if proxyEnabled(s) { return true }
+        if let scoped = s["__SCOPED__"] as? [String: Any] {
+            for value in scoped.values where (value as? [String: Any]).map(proxyEnabled) == true { return true }
+        }
+        return false
     }
 
     /// Quick reachability probe to Apple. Returns false ONLY on a transport/DNS failure (URLError) —

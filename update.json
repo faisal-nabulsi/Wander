@@ -1,6 +1,6 @@
 {
-  "build": 112,
+  "build": 113,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "PoGo gs-loc fix: your teleport now reaches the spoofer (fixes the coordinate never arriving) + set/reset work from the app + iOS 26.4+ tunnel-IP support + cellular IPv6 + gs-loc keep-alive"
+  "notes": "Fix: in-app updates were blocked by a false 'proxy detected' (LocalDevVPN was mis-flagged) — updates now work with LocalDevVPN connected, no need to disconnect anything"
 }
