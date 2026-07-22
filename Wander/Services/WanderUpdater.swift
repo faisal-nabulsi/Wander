@@ -81,6 +81,23 @@ final class WanderUpdater: ObservableObject {
     func installUpdate(interactive: Bool = true) async throws {
         guard let m = available else { throw UpdateError.step("No update available.") }
         guard let url = URL(string: m.payloadURL) else { throw UpdateError.step("The update URL is invalid.") }
+
+        // A proxy VPN (Shadowrocket, for PoGo gs-loc mode) breaks the update two ways: it intercepts the
+        // connection to Apple's sign-in servers (→ "Couldn't reach Apple" deep in signing) AND it holds
+        // the single iOS VPN slot, so LocalDevVPN can't be up for the install. Refuse early with clear
+        // guidance instead of failing cryptically mid-update.
+        if GslocMode.enabled || Self.proxyVPNActive() {
+            throw UpdateError.step("Turn off Shadowrocket / PoGo (gs-loc) mode before updating. Updates need a clean connection to Apple and LocalDevVPN — a proxy VPN blocks both. Disconnect Shadowrocket, turn off gs-loc mode in Settings → Experimental, turn off its certificate in Certificate Trust Settings, connect LocalDevVPN, then update.")
+        }
+
+        // Fail fast with a SPECIFIC reason if Apple's servers are unreachable, instead of a cryptic
+        // "Couldn't reach Apple" deep in signing after a pointless download. Catches Wi-Fi off, a DNS/
+        // DoH configuration profile blocking apple.com (GitHub still resolves, so the download works but
+        // Apple auth doesn't), or a proxy in the path.
+        if !(await Self.canReachApple()) {
+            throw UpdateError.step("Can't reach Apple's servers. Check, in order: 1) Wi-Fi is on with working internet (try loading apple.com in Safari); 2) ONLY LocalDevVPN is connected — no Shadowrocket; 3) remove any DNS or configuration profile that reroutes DNS (Settings → General → VPN & Device Management → delete any DNS / \"Stabilizer\" / leftover proxy profile), then reboot. Then try the update again.")
+        }
+
         isBusy = true
         defer { isBusy = false }
 
@@ -229,6 +246,32 @@ final class WanderUpdater: ObservableObject {
     private func promptUserToInstall(_ reason: String) {
         needsUserAction = true
         status = reason
+    }
+
+    /// True when a proxy VPN (e.g. Shadowrocket) is active — it installs a scoped system proxy while
+    /// connected. LocalDevVPN is a loopback tunnel and does NOT register a proxy, so this cleanly
+    /// distinguishes "a proxy is intercepting traffic" from the normal update tunnel.
+    private static func proxyVPNActive() -> Bool {
+        guard let s = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any] else { return false }
+        return s.keys.contains { $0.hasPrefix("HTTP") || $0.hasPrefix("SOCKS") || $0 == "__SCOPED__" }
+    }
+
+    /// Quick reachability probe to Apple. Returns false ONLY on a transport/DNS failure (URLError) —
+    /// any HTTP response (even an error status) means Apple is reachable. Lenient on purpose so a weird
+    /// non-transport error never false-blocks a valid update.
+    private static func canReachApple() async -> Bool {
+        guard let url = URL(string: "https://appleid.apple.com") else { return true }
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
+        req.httpMethod = "HEAD"
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 8
+        cfg.waitsForConnectivity = false
+        do {
+            _ = try await URLSession(configuration: cfg).data(for: req)
+            return true
+        } catch {
+            return !(error is URLError)
+        }
     }
 
     enum UpdateError: LocalizedError {

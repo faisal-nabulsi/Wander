@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "108",
+      "buildVersion": "109",
       "versionDate": "2026-07-22",
-      "versionDescription": "Fix: Settings 'Update Wander' button now shows the Apple 2FA prompt (was routing it behind the Settings sheet, so signing hung with nothing happening)",
+      "versionDescription": "Update pre-flight: refuses early with a specific reason (proxy/gs-loc on, or Apple unreachable) instead of failing deep in signing with 'Couldn't reach Apple'",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17817432,
+      "size": 17812152,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "108",
+          "buildVersion": "109",
           "date": "2026-07-22",
-          "localizedDescription": "Fix: Settings 'Update Wander' button now shows the Apple 2FA prompt (was routing it behind the Settings sheet, so signing hung with nothing happening)",
+          "localizedDescription": "Update pre-flight: refuses early with a specific reason (proxy/gs-loc on, or Apple unreachable) instead of failing deep in signing with 'Couldn't reach Apple'",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17817432,
+          "size": 17812152,
           "minOSVersion": "17.0"
         }
       ],
