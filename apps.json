@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "100",
+      "buildVersion": "101",
       "versionDate": "2026-07-21",
-      "versionDescription": "Location Diagnostic (Settings > Experimental): a read-only screen that shows the exact GPS fields apps receive during a spoof — for pinning down the iOS 26 Error 12 cause. Nothing else changes.",
+      "versionDescription": "Location diagnostic: added provenance + cached-feed probes (Experimental)",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17701023,
+      "size": 17694595,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "100",
+          "buildVersion": "101",
           "date": "2026-07-21",
-          "localizedDescription": "Location Diagnostic (Settings > Experimental): a read-only screen that shows the exact GPS fields apps receive during a spoof — for pinning down the iOS 26 Error 12 cause. Nothing else changes.",
+          "localizedDescription": "Location diagnostic: added provenance + cached-feed probes (Experimental)",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17701023,
+          "size": 17694595,
           "minOSVersion": "17.0"
         }
       ],

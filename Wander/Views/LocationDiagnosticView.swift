@@ -27,6 +27,14 @@ final class LocationDiagnostic: NSObject, ObservableObject, CLLocationManagerDel
         let ageSeconds: Double
         let isSimulatedBySoftware: String
         let isProducedByAccessory: String
+        // gs-loc / private-signal probes (2026-07-21):
+        // privateType = undocumented CLLocation "type" ivar (reported 1=GPS vs 13=simulated); if PoGo
+        //   cross-checks this, a FALSE public flag still won't clear Error 12.
+        // cachedIsSimulated = the flag read from the CACHED manager.location for the same fix; thread
+        //   741248 shows the cached property can disagree with the live feed — this guards against a
+        //   false "false" that only appears on the stale property.
+        let privateType: String
+        let cachedIsSimulated: String
     }
 
     @Published var reading: Reading?
@@ -66,6 +74,15 @@ final class LocationDiagnostic: NSObject, ObservableObject, CLLocationManagerDel
             simulated = src.isSimulatedBySoftware ? "true" : "false"
             accessory = src.isProducedByAccessory ? "true" : "false"
         }
+
+        // Cached-property comparison (Test 3 / thread 741248): read the flag off the CACHED
+        // manager.location for the same moment. If this ever disagrees with the live feed above,
+        // the live feed is what apps like PoGo consume — trust it, not the cached property.
+        var cachedSim = "nil"
+        if let cachedSrc = manager.location?.sourceInformation {
+            cachedSim = cachedSrc.isSimulatedBySoftware ? "true" : "false"
+        }
+
         let r = Reading(
             lat: loc.coordinate.latitude,
             lng: loc.coordinate.longitude,
@@ -79,12 +96,24 @@ final class LocationDiagnostic: NSObject, ObservableObject, CLLocationManagerDel
             courseAccuracy: loc.courseAccuracy,
             ageSeconds: -loc.timestamp.timeIntervalSinceNow,
             isSimulatedBySoftware: simulated,
-            isProducedByAccessory: accessory
+            isProducedByAccessory: accessory,
+            privateType: Self.readPrivateType(loc),
+            cachedIsSimulated: cachedSim
         )
         Task { @MainActor in
             self.reading = r
             self.updates += 1
         }
+    }
+
+    /// Crash-safe read of the undocumented CLLocation `type` ivar (Test 2). We only touch it when the
+    /// object responds to the selector, so an absent key returns "n/a" instead of raising
+    /// NSUndefinedKeyException. Read-only; standard KVC, no private framework linkage.
+    nonisolated private static func readPrivateType(_ loc: CLLocation) -> String {
+        let sel = NSSelectorFromString("type")
+        guard loc.responds(to: sel) else { return "n/a" }
+        guard let value = loc.value(forKey: "type") as? NSNumber else { return "unreadable" }
+        return value.stringValue
     }
 }
 
@@ -115,7 +144,13 @@ struct LocationDiagnosticView: View {
                         row("Course acc", String(format: "%.1f", r.courseAccuracy), flagged: r.courseAccuracy < 0)
                         row("Fix age", String(format: "%.1f s", r.ageSeconds))
                         row("isSimulatedBySoftware", r.isSimulatedBySoftware, flagged: r.isSimulatedBySoftware == "true")
-                        row("isProducedByAccessory", r.isProducedByAccessory)
+                        row("isProducedByAccessory", r.isProducedByAccessory, flagged: r.isProducedByAccessory == "true")
+                    }
+
+                    Section("Private / cross-check probes") {
+                        row("Private type", r.privateType, flagged: r.privateType != "1" && r.privateType != "n/a")
+                        row("Cached .location sim", r.cachedIsSimulated,
+                            flagged: r.cachedIsSimulated != r.isSimulatedBySoftware)
                     }
 
                     Section {
@@ -126,7 +161,7 @@ struct LocationDiagnosticView: View {
                             Label(copied ? "Copied — paste it to Faisal" : "Copy all fields", systemImage: copied ? "checkmark.circle.fill" : "doc.on.doc")
                         }
                     } footer: {
-                        Text("Updates: \(diag.updates) · Auth: \(authString) · Accuracy: \(accuracyString)\nA ⚠️ marks a sentinel/degenerate value — a candidate spoof-detection tell. Read it once on a static teleport and once while moving with the joystick, and copy both.")
+                        Text("Updates: \(diag.updates) · Auth: \(authString) · Accuracy: \(accuracyString)\nA ⚠️ marks a sentinel/degenerate value — a candidate spoof-detection tell. \"Private type\" flags if it isn't 1 (real-GPS value); \"Cached .location sim\" flags if the cached property disagrees with the live feed. Read once on a static teleport, once while moving, and once under any gs-loc/Wi-Fi test — copy each.")
                     }
                 } else {
                     Section {
@@ -187,6 +222,7 @@ struct LocationDiagnosticView: View {
         course=\(r.course)  courseAccuracy=\(r.courseAccuracy)
         fixAge=\(r.ageSeconds)s
         isSimulatedBySoftware=\(r.isSimulatedBySoftware)  isProducedByAccessory=\(r.isProducedByAccessory)
+        privateType=\(r.privateType)  cachedIsSimulated=\(r.cachedIsSimulated)
         auth=\(authString) accuracy=\(accuracyString) updates=\(diag.updates)
         """
     }
