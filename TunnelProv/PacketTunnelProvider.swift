@@ -22,6 +22,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         if let deviceIp = options?["TunnelDeviceIP"] as? String { tunnelDeviceIp = deviceIp }
         if let fakeIp = options?["TunnelFakeIP"] as? String { tunnelFakeIp = fakeIp }
+        if let mask = options?["TunnelSubnetMask"] as? String { tunnelSubnetMask = mask }
 
         deviceIpValue = ipToUInt32(tunnelDeviceIp)
         fakeIpValue = ipToUInt32(tunnelFakeIp)
@@ -31,6 +32,20 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         ipv4.includedRoutes = [NEIPv4Route(destinationAddress: tunnelDeviceIp, subnetMask: tunnelSubnetMask)]
         ipv4.excludedRoutes = [.default()]
         settings.ipv4Settings = ipv4
+
+        // Declare an IPv6 presence on the tunnel interface too. WHY: on an IPv6-only cellular carrier
+        // (pdp_ip0 has no IPv4 — increasingly common), an IPv4-only NEPacketTunnelProvider can't bind
+        // to the underlying interface, so the loopback route fails to install and the user must toggle
+        // Airplane Mode to force iOS to rebuild the interface (Apple DTS, Developer Forums 670367).
+        // Declaring a ULA address + a single host route (default EXCLUDED, so we never capture real
+        // IPv6 internet traffic) is the intended fix to make the interface valid on IPv6-only carriers.
+        // NOTE: UNVERIFIED on-device as of 2026-07-22 — plausible per the Apple mechanism, not yet
+        // proven to remove the airplane toggle. Inert on Wi-Fi/dual-stack. Only runs on paid accounts
+        // (this NE is stripped on free-sideload re-sign). See memory wander-tunnel-cellular-ipv6.
+        let ipv6 = NEIPv6Settings(addresses: ["fd00:7761:6e64:7272::1"], networkPrefixLengths: [64])
+        ipv6.includedRoutes = [NEIPv6Route(destinationAddress: "fd00:7761:6e64:7272::1", networkPrefixLength: 128)]
+        ipv6.excludedRoutes = [.default()]
+        settings.ipv6Settings = ipv6
 
         setTunnelNetworkSettings(settings) { error in
             guard error == nil else { return completionHandler(error) }

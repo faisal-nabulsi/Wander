@@ -110,7 +110,7 @@ struct LocationErrorHelpView: View {
                 title: L("error12.step.refresh.title",
                          fallback: "After you teleport, refresh the fix"),
                 detail: L("error12.step.refresh.detail",
-                          fallback: "Toggle Location Services off for ~3 seconds, then back on (Settings → Privacy & Security → Location Services). This forces iOS to grab a fresh fix at your new spot.")
+                          fallback: "Toggle Location Services off a few seconds, then back on (Settings → Privacy & Security → Location Services) — a quick nudge to pull a fresh fix. On iOS 26 this often isn't enough on its own: if the location snaps back or won't move, reboot once. iOS 26 keeps a cached copy of your real location that airplane mode and Location-Services toggles no longer clear — only a reboot does.")
             ),
             Step(
                 number: 3,

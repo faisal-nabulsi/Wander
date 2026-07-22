@@ -40,13 +40,24 @@
 			</array>
 		</dict>
 	</array>
-	<key>NSHealthUpdateUsageDescription</key>
-	<string>Wander writes step and walking-distance samples that mirror your simulated movement, so fitness-reading games (like Pokémon GO's Adventure Sync) can credit the distance. This is opt-in and off by default.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>wander.gsloc</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_stikdebug._tcp</string>
 		<string>_stikdebug._udp</string>
 	</array>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Wander writes step and walking-distance samples that mirror your simulated movement, so fitness-reading games (like Pokémon GO's Adventure Sync) can credit the distance. This is opt-in and off by default.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

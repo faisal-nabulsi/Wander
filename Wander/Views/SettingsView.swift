@@ -59,6 +59,7 @@ struct SettingsView: View {
     @State private var showLocationDiagnostic = false
     @AppStorage("gsloc_mode_enabled") private var gslocModeEnabled = false
     @State private var showGslocSetup = false
+    @State private var showTunnelIP = false
     @State private var loopbackTunnelTest = (UserDefaults.standard.string(forKey: UserDefaults.Keys.targetDeviceIP) == "127.0.0.1")
     @EnvironmentObject private var localization: LocalizationManager
 
@@ -584,11 +585,25 @@ struct SettingsView: View {
                             UserDefaults.standard.removeObject(forKey: UserDefaults.Keys.targetDeviceIP)
                         }
                     }
+
+                    Button {
+                        showTunnelIP = true
+                    } label: {
+                        HStack {
+                            Label(L("settings.experimental.tunnelip",
+                                    fallback: "Tunnel IP (fix for iOS 26.4+)"),
+                                  systemImage: "network")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tint(.primary)
                 } header: {
                     Text(localized: "settings.experimental.header", fallback: "Experimental")
                 } footer: {
                     Text(localized: "settings.experimental.footer",
-                         fallback: "Opt-in beta features. Off by default — nothing installs or changes until you open one and choose to turn it on.\n\nPoGo mode (gs-loc): routes teleports to a Wi-Fi-location proxy (Shadowrocket) instead of the dev tunnel, so Pokémon GO sees a non-simulated fix. It replaces LocalDevVPN — iOS allows only ONE VPN at a time, so in this mode turn LocalDevVPN OFF and Shadowrocket ON. Turn this toggle off to go back to normal spoofing over LocalDevVPN. Requires the proxy + trusted MITM certificate; only holds indoors / with weak GPS.\n\nLoopback tunnel test: an experiment to see if Wander can run the tunnel WITHOUT LocalDevVPN. To test: turn OFF LocalDevVPN, enable this, reopen Wander, and try a teleport. If it works, the tunnel came up on its own (report back!). If teleport fails with a tunnel error, turn this off and reconnect LocalDevVPN — it just means iOS needs the external loopback.")
+                         fallback: "Opt-in beta features. Off by default — nothing installs or changes until you open one and choose to turn it on.\n\nPoGo mode (gs-loc): routes teleports to a Wi-Fi-location proxy (Shadowrocket) instead of the dev tunnel, so Pokémon GO sees a non-simulated fix. It replaces LocalDevVPN — iOS allows only ONE VPN at a time, so in this mode turn LocalDevVPN OFF and Shadowrocket ON. Turn this toggle off to go back to normal spoofing over LocalDevVPN. Requires the proxy + trusted MITM certificate; only holds indoors / with weak GPS.\n\nLoopback tunnel test: an experiment to see if Wander can run the tunnel WITHOUT LocalDevVPN. To test: turn OFF LocalDevVPN, enable this, reopen Wander, and try a teleport. If it works, the tunnel came up on its own (report back!). If teleport fails with a tunnel error, turn this off and reconnect LocalDevVPN — it just means iOS needs the external loopback.\n\nTunnel IP: only needed on iOS 26.4 or later, where Apple started dropping the tunnel's default address (10.7.0.1). If your tunnel stopped connecting after updating, open this, tap Detect, and set the same two IPs here and in LocalDevVPN. Leave it alone on iOS 26.3 and earlier.")
                 }
 
                 Section {
@@ -655,6 +670,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showGslocSetup) {
             ShadowrocketSetupView()
+        }
+        .sheet(isPresented: $showTunnelIP) {
+            TunnelIPSettingsView()
         }
         .sheet(isPresented: $showLocationDiagnostic) {
             LocationDiagnosticView()

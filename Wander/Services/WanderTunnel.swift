@@ -83,10 +83,19 @@ final class WanderTunnel: ObservableObject {
                 if let err { self.fail("save: \(err.localizedDescription)"); return }
                 mgr.loadFromPreferences { _ in
                     do {
+                        // Configurable so the tunnel can move onto the phone's Wi-Fi subnet on iOS 26.4+
+                        // (Apple drops the default 10.7.0.x loopback address there). Defaults preserve the
+                        // pre-26.4 behavior. Note: TunnelProv's "TunnelDeviceIP" option = the interface IP
+                        // (our tunnelInterfaceIP key), "TunnelFakeIP" = the peer Wander connects to (our
+                        // targetDeviceIP key). See Wander/Views/TunnelIPSettingsView.swift.
+                        let d = UserDefaults.standard
+                        let interfaceIP = d.string(forKey: UserDefaults.Keys.tunnelInterfaceIP) ?? "10.7.0.0"
+                        let fakeIP = DeviceConnectionContext.targetIPAddress
+                        let mask = d.string(forKey: UserDefaults.Keys.tunnelSubnetMask) ?? "255.255.255.0"
                         try mgr.connection.startVPNTunnel(options: [
-                            "TunnelDeviceIP": "10.7.0.0" as NSObject,
-                            "TunnelFakeIP": "10.7.0.1" as NSObject,
-                            "TunnelSubnetMask": "255.255.255.0" as NSObject,
+                            "TunnelDeviceIP": interfaceIP as NSObject,
+                            "TunnelFakeIP": fakeIP as NSObject,
+                            "TunnelSubnetMask": mask as NSObject,
                         ])
                     } catch {
                         self.fail("start: \(error.localizedDescription)")
