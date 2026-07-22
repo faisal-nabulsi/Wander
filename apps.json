@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "106",
+      "buildVersion": "107",
       "versionDate": "2026-07-21",
-      "versionDescription": "gs-loc audit fixes: teleport/Stop now work without a pairing file (were silently blocked); honest health chip (green only when proxy up); no reset-clobber on reconnect; misc hardening",
+      "versionDescription": "Update installer now detects an Apple ID / signing-team mismatch and explains exactly how to fix it, instead of silently bouncing back to Update ready",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17806158,
+      "size": 17812648,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "106",
+          "buildVersion": "107",
           "date": "2026-07-21",
-          "localizedDescription": "gs-loc audit fixes: teleport/Stop now work without a pairing file (were silently blocked); honest health chip (green only when proxy up); no reset-clobber on reconnect; misc hardening",
+          "localizedDescription": "Update installer now detects an Apple ID / signing-team mismatch and explains exactly how to fix it, instead of silently bouncing back to Update ready",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17806158,
+          "size": 17812648,
           "minOSVersion": "17.0"
         }
       ],

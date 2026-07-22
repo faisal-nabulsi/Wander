@@ -1,6 +1,6 @@
 {
-  "build": 106,
+  "build": 107,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "gs-loc audit fixes: teleport/Stop now work without a pairing file (were silently blocked); honest health chip (green only when proxy up); no reset-clobber on reconnect; misc hardening"
+  "notes": "Update installer now detects an Apple ID / signing-team mismatch and explains exactly how to fix it, instead of silently bouncing back to Update ready"
 }

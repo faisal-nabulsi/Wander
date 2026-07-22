@@ -124,6 +124,15 @@ final class WanderUpdater: ObservableObject {
             progress: { [weak self] s in self?.status = s }
         )
 
+        // The signing team is baked into the bundle ID (com.stik.stikdebug.<teamID>). If the re-signed
+        // bundle ID doesn't match the RUNNING app's, the Apple ID signed into Wander isn't the one that
+        // installed it — so this "upgrade" would install a SEPARATE app and the running build would stay
+        // put (the classic "keeps bouncing back to Update ready"). Stop here with a clear, actionable
+        // error instead of installing a phantom second copy.
+        if let installed = Bundle.main.bundleIdentifier, installed != bundleID {
+            throw UpdateError.appleIDMismatch
+        }
+
         status = "Installing update over the tunnel…"
         // The install talks to the device's developer services OVER the tunnel — which need the DDI
         // mounted. That only happens after a successful location simulation, so a user who just opened
@@ -203,6 +212,11 @@ final class WanderUpdater: ObservableObject {
             promptUserToInstall("Update ready — tap to install (Apple needs a 2FA code).")
         } catch WanderAccount.SignError.sessionExpired, WanderAccount.SignError.notSignedIn {
             promptUserToInstall("Update ready — sign in to your Apple ID again, then tap to install.")
+        } catch UpdateError.appleIDMismatch {
+            // Don't let this fail silently back to a bare "Update ready" — this one can't be fixed by
+            // retrying. Point the user at the full explanation in Settings → Install update.
+            promptUserToInstall("Update can't install — wrong Apple ID. Open Settings → Install update to fix it.")
+            status = UpdateError.appleIDMismatch.errorDescription ?? ""
         } catch {
             // Any other failure (transient network/tunnel/Apple hiccup, unavailable resource):
             // surface the prompt so the update is one tap away rather than silently lost.
@@ -219,6 +233,19 @@ final class WanderUpdater: ObservableObject {
 
     enum UpdateError: LocalizedError {
         case step(String)
-        var errorDescription: String? { if case .step(let s) = self { return s }; return nil }
+        case appleIDMismatch
+        var errorDescription: String? {
+            switch self {
+            case .step(let s): return s
+            case .appleIDMismatch:
+                return "This update can't install because the Apple ID signed into Wander isn't the one "
+                    + "used to install the app. The signing team is part of the app's identity, so the "
+                    + "update would install as a SEPARATE app instead of replacing this one — which is why "
+                    + "it keeps bouncing back to \"Update ready.\"\n\nFix it one of two ways:\n"
+                    + "1) Delete Wander and reinstall it from the installer signed into THIS Apple ID, or\n"
+                    + "2) Sign in here with the Apple ID you originally installed Wander with.\n\n"
+                    + "After that, updates will install normally."
+            }
+        }
     }
 }
