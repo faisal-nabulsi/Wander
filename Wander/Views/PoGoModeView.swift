@@ -225,7 +225,9 @@ struct PoGoModeView: View {
 
     private var pairingFileURL: URL { PairingFileStore.prepareURL() }
     private var pairingExists: Bool {
-        FileManager.default.fileExists(atPath: pairingFileURL.path)
+        // gs-loc mode injects through the proxy, not the dev tunnel — no pairing file needed, so don't
+        // block teleport (the FFI short-circuits to the proxy before the pairing path is used).
+        FileManager.default.fileExists(atPath: pairingFileURL.path) || GslocMode.enabled
     }
 
     /// Hotspots grouped by category, in a stable order.

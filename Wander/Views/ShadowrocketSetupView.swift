@@ -60,6 +60,9 @@ struct ShadowrocketSetupView: View {
     @State private var confirmed: Set<Int> = []
     /// The CA step reveals its action only after the user acknowledges what they're trusting.
     @State private var caAcknowledged = false
+    /// Seed the passthrough exactly once, on the first detected proxy connect — re-firing on every
+    /// reconnect would clobber an active teleport back to the real location.
+    @State private var seededPassthrough = false
 
     private let moduleURL = "https://wander-payments.wanderlocation.workers.dev/gsloc/wander.sgmodule"
     private let appStoreURL = "itms-apps://apps.apple.com/app/id932747118"
@@ -85,6 +88,16 @@ struct ShadowrocketSetupView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L("action.done", fallback: "Done")) { dismiss() }
+                }
+            }
+            // When the proxy comes up, seed the store to passthrough so you land on your REAL location
+            // instead of the module's Apple Park default (which the rewriter falls back to on an empty
+            // store). This is the reliable trigger — firing only on the Settings toggle misses the
+            // common case where the proxy isn't connected yet at toggle time.
+            .onChange(of: vpn.active) { _, active in
+                if active && !seededPassthrough {
+                    seededPassthrough = true
+                    GslocMode.reset()
                 }
             }
         }

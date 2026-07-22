@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "105",
+      "buildVersion": "106",
       "versionDate": "2026-07-21",
-      "versionDescription": "Fix gs-loc bridge (coords now actually reach Shadowrocket); Stop resets to your real location; gs-loc mode starts at your real location instead of Apple Park",
+      "versionDescription": "gs-loc audit fixes: teleport/Stop now work without a pairing file (were silently blocked); honest health chip (green only when proxy up); no reset-clobber on reconnect; misc hardening",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17808327,
+      "size": 17806158,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "105",
+          "buildVersion": "106",
           "date": "2026-07-21",
-          "localizedDescription": "Fix gs-loc bridge (coords now actually reach Shadowrocket); Stop resets to your real location; gs-loc mode starts at your real location instead of Apple Park",
+          "localizedDescription": "gs-loc audit fixes: teleport/Stop now work without a pairing file (were silently blocked); honest health chip (green only when proxy up); no reset-clobber on reconnect; misc hardening",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17808327,
+          "size": 17806158,
           "minOSVersion": "17.0"
         }
       ],

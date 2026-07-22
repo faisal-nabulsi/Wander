@@ -293,7 +293,8 @@ enum WanderLocationIntent {
     static func teleport(to coord: CLLocationCoordinate2D, name: String) async -> Bool {
         await ensureTunnel()
         let path = PairingFileStore.prepareURL().path
-        guard FileManager.default.fileExists(atPath: path) else { return false }
+        // gs-loc mode injects through the proxy, not the dev tunnel — no pairing file needed.
+        guard FileManager.default.fileExists(atPath: path) || GslocMode.enabled else { return false }
         let code: Int32 = await withCheckedContinuation { cont in
             LocationSimulationCommandQueue.shared.async {
                 let c = simulate_location(DeviceConnectionContext.targetIPAddress, coord.latitude, coord.longitude, path)

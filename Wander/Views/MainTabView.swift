@@ -705,7 +705,7 @@ struct MainTabView: View {
         }
 
         let pairingFile = PairingFileStore.prepareURL()
-        guard FileManager.default.fileExists(atPath: pairingFile.path) else {
+        guard FileManager.default.fileExists(atPath: pairingFile.path) || GslocMode.enabled else {
             showAlert(
                 title: "Pairing File Required",
                 message: "Import a pairing file before simulating location from a URL.",

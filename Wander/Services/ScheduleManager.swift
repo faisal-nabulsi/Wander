@@ -334,6 +334,7 @@ final class ScheduleManager: ObservableObject {
 
     private func pairingFilePath() -> String? {
         let url = PairingFileStore.prepareURL()
-        return FileManager.default.fileExists(atPath: url.path) ? url.path : nil
+        // gs-loc mode injects through the proxy, not the dev tunnel — no pairing file needed.
+        return (FileManager.default.fileExists(atPath: url.path) || GslocMode.enabled) ? url.path : nil
     }
 }

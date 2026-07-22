@@ -49,9 +49,11 @@ enum GslocMode {
     /// thread; returns immediately. No-op error handling — if the proxy isn't running the request just
     /// fails silently (the spoof simply won't move, which the user sees in Apple Maps / the diagnostic).
     static func push(latitude: Double, longitude: Double) {
+        // %.6f (~0.1 m) avoids Double's scientific-notation form near lat/lng 0, which a downstream
+        // string/regex parser could choke on.
         fire(queryItems: [
-            URLQueryItem(name: "latitude", value: String(latitude)),
-            URLQueryItem(name: "longitude", value: String(longitude)),
+            URLQueryItem(name: "latitude", value: String(format: "%.6f", latitude)),
+            URLQueryItem(name: "longitude", value: String(format: "%.6f", longitude)),
         ])
     }
 

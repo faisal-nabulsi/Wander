@@ -57,7 +57,7 @@ struct SettingsView: View {
     @State private var showTunnelHelp = false
     @State private var showStabilizerBeta = false
     @State private var showLocationDiagnostic = false
-    @State private var gslocModeEnabled = GslocMode.enabled
+    @AppStorage("gsloc_mode_enabled") private var gslocModeEnabled = false
     @State private var showGslocSetup = false
     @EnvironmentObject private var localization: LocalizationManager
 

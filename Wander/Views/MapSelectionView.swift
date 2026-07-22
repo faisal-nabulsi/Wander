@@ -937,7 +937,10 @@ struct LocationSimulationView: View {
     }
 
     private var pairingExists: Bool {
-        FileManager.default.fileExists(atPath: pairingFilePath)
+        // gs-loc mode injects through the proxy, not the dev tunnel, so no pairing file is needed —
+        // don't let the pairing guards block teleport or Stop. The FFI short-circuits to the proxy
+        // before the pairing path is ever used.
+        FileManager.default.fileExists(atPath: pairingFilePath) || GslocMode.enabled
     }
 
     private var deviceIP: String {

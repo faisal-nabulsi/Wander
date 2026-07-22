@@ -1194,6 +1194,13 @@ func clear_simulated_location() -> Int32 {
     // real location through." Fire the reset and report success (the dev tunnel isn't in play).
     if GslocMode.enabled {
         GslocMode.reset()
+        // Drop any dev-tunnel handle left over from switching modes mid-spoof, so it can't linger in
+        // our state. cleanup() only frees the local handle (no un-timeout-able device call), so it's
+        // safe with LocalDevVPN off. (The device's own DVT fix can only be cleared with the tunnel up
+        // — so the guidance is to Stop before switching modes.)
+        if LocationSimulationState.locationSimulation != nil {
+            LocationSimulationState.cleanup()
+        }
         return LocationSimulationStatus.ok
     }
     guard let locationSimulation = LocationSimulationState.locationSimulation else {

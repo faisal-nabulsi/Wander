@@ -136,11 +136,12 @@ final class TunnelHealthMonitor: ObservableObject {
     private func evaluate() {
         guard isActive else { return }
         // In PoGo (gs-loc) mode Wander drives the Shadowrocket proxy, NOT Apple's dev tunnel —
-        // LocalDevVPN is intentionally OFF (iOS allows only one VPN at a time). Probing/reconnecting the
-        // dev endpoint here would false-red the chip and spam pointless reconnects. Report healthy and
-        // skip the probe; the gs-loc path has no dev tunnel to monitor.
+        // LocalDevVPN is intentionally OFF (iOS allows only one VPN at a time). Don't probe the dev
+        // endpoint (it would false-red and spam reconnects). Instead drive the chip HONESTLY from the
+        // proxy's presence: green when a proxy VPN is active, red when it's off — never a fake green
+        // that hides a misconfigured proxy whose location never moves.
         if GslocMode.enabled {
-            setState(.connected)
+            setState(Self.isProxyActive() ? .connected : .disconnected)
             return
         }
         let snap = TunnelInjectStatus.snapshot
@@ -169,6 +170,15 @@ final class TunnelHealthMonitor: ObservableObject {
         }
 
         setState(newState)
+    }
+
+    /// Best-effort "is a proxy VPN (e.g. Shadowrocket) active?" — the gs-loc path's health signal.
+    /// Synchronous and cheap (no network). Shadowrocket installs a scoped system proxy while connected.
+    private static func isProxyActive() -> Bool {
+        guard let settings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any] else {
+            return false
+        }
+        return settings.keys.contains { $0.hasPrefix("HTTP") || $0.hasPrefix("SOCKS") || $0 == "__SCOPED__" }
     }
 
     private func setState(_ newState: State) {
@@ -202,6 +212,10 @@ final class TunnelHealthMonitor: ObservableObject {
 
     private func scheduleReconnectIfNeeded(force: Bool = false) {
         guard isActive else { return }
+        // gs-loc mode has no dev tunnel to reconnect — the proxy is the user's to manage. Re-asserting
+        // the teleport here would just re-push to the proxy pointlessly (and a red chip in gs-loc mode
+        // means "proxy down", which we can't fix from here).
+        guard !GslocMode.enabled else { return }
         // Only auto-reconnect the Map teleport HOLD. When a movement mode (Walk/Route/Itinerary) is the
         // active writer it holds suppressResends=true and self-heals via its own inject loop when the
         // tunnel returns — re-asserting the Map resend here would add a SECOND writer to the serial queue
