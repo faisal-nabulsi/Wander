@@ -57,6 +57,8 @@ struct SettingsView: View {
     @State private var showTunnelHelp = false
     @State private var showStabilizerBeta = false
     @State private var showLocationDiagnostic = false
+    @State private var gslocModeEnabled = GslocMode.enabled
+    @State private var showGslocSetup = false
     @EnvironmentObject private var localization: LocalizationManager
 
     private var appVersion: String {
@@ -539,11 +541,34 @@ struct SettingsView: View {
                         }
                     }
                     .tint(.primary)
+
+                    Toggle(isOn: $gslocModeEnabled) {
+                        Label(L("settings.experimental.gsloc",
+                                fallback: "PoGo mode (gs-loc)"),
+                              systemImage: "antenna.radiowaves.left.and.right")
+                    }
+                    .onChange(of: gslocModeEnabled) { _, newValue in
+                        GslocMode.enabled = newValue
+                    }
+
+                    Button {
+                        showGslocSetup = true
+                    } label: {
+                        HStack {
+                            Label(L("settings.experimental.gsloc.setup",
+                                    fallback: "Set up gs-loc mode (Shadowrocket)"),
+                                  systemImage: "wand.and.stars")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tint(.primary)
                 } header: {
                     Text(localized: "settings.experimental.header", fallback: "Experimental")
                 } footer: {
                     Text(localized: "settings.experimental.footer",
-                         fallback: "Opt-in beta features. Off by default — nothing installs or changes until you open one and choose to turn it on.")
+                         fallback: "Opt-in beta features. Off by default — nothing installs or changes until you open one and choose to turn it on.\n\nPoGo mode (gs-loc): routes teleports to a Wi-Fi-location proxy (Shadowrocket + the Wander gs-loc module) instead of the dev tunnel, so Pokémon GO sees a non-simulated fix. Requires the proxy + trusted MITM certificate. Only holds indoors / with weak GPS.")
                 }
 
                 Section {
@@ -607,6 +632,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showStabilizerBeta) {
             StabilizerBetaView()
+        }
+        .sheet(isPresented: $showGslocSetup) {
+            ShadowrocketSetupView()
         }
         .sheet(isPresented: $showLocationDiagnostic) {
             LocationDiagnosticView()

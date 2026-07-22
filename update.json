@@ -1,6 +1,6 @@
 {
-  "build": 101,
+  "build": 102,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Location diagnostic: added provenance + cached-feed probes (Experimental)"
+  "notes": "LocalDevVPN download link in tunnel help; experimental PoGo gs-loc mode + guided Shadowrocket setup (Settings → Experimental, indoor-only)"
 }

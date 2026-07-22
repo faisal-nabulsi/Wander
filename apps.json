@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "101",
+      "buildVersion": "102",
       "versionDate": "2026-07-21",
-      "versionDescription": "Location diagnostic: added provenance + cached-feed probes (Experimental)",
+      "versionDescription": "LocalDevVPN download link in tunnel help; experimental PoGo gs-loc mode + guided Shadowrocket setup (Settings → Experimental, indoor-only)",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17694595,
+      "size": 17794105,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "101",
+          "buildVersion": "102",
           "date": "2026-07-21",
-          "localizedDescription": "Location diagnostic: added provenance + cached-feed probes (Experimental)",
+          "localizedDescription": "LocalDevVPN download link in tunnel help; experimental PoGo gs-loc mode + guided Shadowrocket setup (Settings → Experimental, indoor-only)",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17694595,
+          "size": 17794105,
           "minOSVersion": "17.0"
         }
       ],

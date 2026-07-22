@@ -75,6 +75,8 @@ struct TunnelConnectionHelpView: View {
                 VStack(spacing: 16) {
                     header
 
+                    downloadCard
+
                     // The connection-fix checklist, as material cards.
                     VStack(spacing: 0) {
                         ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
@@ -124,6 +126,39 @@ struct TunnelConnectionHelpView: View {
                 .multilineTextAlignment(.center)
         }
         .padding(.top, 8)
+    }
+
+    // MARK: - Download prompt
+
+    /// Explicit "install it first" prompt — the steps below assume LocalDevVPN is already installed, so
+    /// a new user who lands here needs the App Store link before anything else.
+    private var downloadCard: some View {
+        Link(destination: URL(string: "https://apps.apple.com/us/app/localdevvpn/id6755608044")!) {
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.down.app.fill")
+                    .font(.title2)
+                    .foregroundStyle(Wander.brand)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L("tunnel.download.title", fallback: "Don't have LocalDevVPN yet?"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(L("tunnel.download.detail",
+                           fallback: "It's a free app on the App Store — install it first, then follow the steps below to connect the tunnel."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Step row

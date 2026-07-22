@@ -1075,6 +1075,15 @@ enum TunnelInjectStatus {
 
 
 func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Double, _ pairingFile: String) -> Int32 {
+    // EXPERIMENTAL PoGo (gs-loc) mode: bypass the dev tunnel entirely and hand the coordinate to the
+    // user's proxy-side gs-loc rewriter, which produces a fix that reads isSimulatedBySoftware=false
+    // (no Error 12). Every teleport/walk/route path funnels through here, so this one gate re-routes
+    // them all. See GslocMode. (Off by default; only useful with the proxy + module set up.)
+    if GslocMode.enabled {
+        GslocMode.push(latitude: latitude, longitude: longitude)
+        TunnelInjectStatus.record(success: true)
+        return LocationSimulationStatus.ok
+    }
     let code = _simulate_location(deviceIP, latitude, longitude, pairingFile)
     // Record every inject outcome (0 = ok) for the tunnel health chip. Cheap, thread-safe, and the
     // ONLY place that sees every real inject regardless of which mode/queue triggered it — so the
