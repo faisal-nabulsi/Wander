@@ -1,6 +1,6 @@
 {
-  "build": 104,
+  "build": 105,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Setup checklist is now gs-loc-aware: in PoGo (gs-loc) mode it no longer probes/nags for LocalDevVPN or wakes the dev tunnel — shows a gs-loc notice instead"
+  "notes": "Fix gs-loc bridge (coords now actually reach Shadowrocket); Stop resets to your real location; gs-loc mode starts at your real location instead of Apple Park"
 }

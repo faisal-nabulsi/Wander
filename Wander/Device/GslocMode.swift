@@ -49,11 +49,22 @@ enum GslocMode {
     /// thread; returns immediately. No-op error handling — if the proxy isn't running the request just
     /// fails silently (the spoof simply won't move, which the user sees in Apple Maps / the diagnostic).
     static func push(latitude: Double, longitude: Double) {
-        guard var comps = URLComponents(string: setEndpoint) else { return }
-        comps.queryItems = [
+        fire(queryItems: [
             URLQueryItem(name: "latitude", value: String(latitude)),
             URLQueryItem(name: "longitude", value: String(longitude)),
-        ]
+        ])
+    }
+
+    /// Stop spoofing and fall back to the REAL location: tells the proxy rewriter to pass Apple's
+    /// location response through untouched. Used by Stop, and fired when the mode turns on so the first
+    /// thing you see is your true location — not the module's default (Apple Park).
+    static func reset() {
+        fire(queryItems: [URLQueryItem(name: "reset", value: "1")])
+    }
+
+    private static func fire(queryItems: [URLQueryItem]) {
+        guard var comps = URLComponents(string: setEndpoint) else { return }
+        comps.queryItems = queryItems
         guard let url = comps.url else { return }
         session.dataTask(with: url).resume()
     }

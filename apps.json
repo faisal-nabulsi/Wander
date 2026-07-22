@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "104",
+      "buildVersion": "105",
       "versionDate": "2026-07-21",
-      "versionDescription": "Setup checklist is now gs-loc-aware: in PoGo (gs-loc) mode it no longer probes/nags for LocalDevVPN or wakes the dev tunnel — shows a gs-loc notice instead",
+      "versionDescription": "Fix gs-loc bridge (coords now actually reach Shadowrocket); Stop resets to your real location; gs-loc mode starts at your real location instead of Apple Park",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17807349,
+      "size": 17808327,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "104",
+          "buildVersion": "105",
           "date": "2026-07-21",
-          "localizedDescription": "Setup checklist is now gs-loc-aware: in PoGo (gs-loc) mode it no longer probes/nags for LocalDevVPN or wakes the dev tunnel — shows a gs-loc notice instead",
+          "localizedDescription": "Fix gs-loc bridge (coords now actually reach Shadowrocket); Stop resets to your real location; gs-loc mode starts at your real location instead of Apple Park",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17807349,
+          "size": 17808327,
           "minOSVersion": "17.0"
         }
       ],

@@ -1190,6 +1190,12 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
 }
 
 func clear_simulated_location() -> Int32 {
+    // In gs-loc mode there's no dev-tunnel simulation to clear — Stop means "tell the proxy to pass the
+    // real location through." Fire the reset and report success (the dev tunnel isn't in play).
+    if GslocMode.enabled {
+        GslocMode.reset()
+        return LocationSimulationStatus.ok
+    }
     guard let locationSimulation = LocationSimulationState.locationSimulation else {
         return LocationSimulationStatus.locationClear
     }

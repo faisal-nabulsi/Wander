@@ -549,6 +549,9 @@ struct SettingsView: View {
                     }
                     .onChange(of: gslocModeEnabled) { _, newValue in
                         GslocMode.enabled = newValue
+                        // Turning it on: tell the proxy to pass the real location through, so you start
+                        // at your true spot instead of the module's default (Apple Park) until you teleport.
+                        if newValue { GslocMode.reset() }
                     }
 
                     Button {
