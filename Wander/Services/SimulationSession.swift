@@ -24,6 +24,11 @@ extension Notification.Name {
 final class SimulationSession: ObservableObject {
     static let shared = SimulationSession()
 
+    private init() {
+        // Resume a cooldown that was still running when the app was last closed.
+        restoreCooldown()
+    }
+
     private let reminderID = "wander.reminder.2h"
     private let reminderInterval: TimeInterval = 2 * 60 * 60   // 2 hours
 
@@ -121,6 +126,10 @@ final class SimulationSession: ObservableObject {
         static let lat = "resume.lat"
         static let lng = "resume.lng"
         static let timestamp = "resume.timestamp"
+        /// Wall-clock end of the active cooldown + its jump distance, so the countdown chip survives
+        /// closing/reopening Wander (it used to vanish because cooldownEndsAt was in-memory only).
+        static let cooldownEndsAt = "resume.cooldownEndsAt"
+        static let cooldownKm = "resume.cooldownKm"
     }
 
     /// A saved spoof session that a fresh launch can offer to resume.
@@ -221,6 +230,9 @@ final class SimulationSession: ObservableObject {
         cooldownEndsAt = endsAt
         cooldownRemaining = seconds
         cooldownActive = true
+        // Persist the wall-clock end + distance so the countdown survives closing/reopening Wander.
+        UserDefaults.standard.set(endsAt.timeIntervalSince1970, forKey: ResumeKeys.cooldownEndsAt)
+        UserDefaults.standard.set(km, forKey: ResumeKeys.cooldownKm)
         startCooldownTimer()
         // Schedule a local notification for when the cooldown clears, so the user doesn't have to
         // watch the in-app countdown. Rescheduled here on every new teleport that (re)starts a
@@ -238,6 +250,27 @@ final class SimulationSession: ObservableObject {
         cooldownTimer?.invalidate()
         cooldownTimer = nil
         cancelCooldownClearedNotification()
+        UserDefaults.standard.removeObject(forKey: ResumeKeys.cooldownEndsAt)
+        UserDefaults.standard.removeObject(forKey: ResumeKeys.cooldownKm)
+    }
+
+    /// Restore a still-running cooldown across an app relaunch. `cooldownEndsAt` is wall-clock, so a
+    /// saved end time still in the future resumes the countdown from it; an elapsed/absent one stays
+    /// clear. Called from init — the whole reason the chip used to disappear on reopen.
+    private func restoreCooldown() {
+        let d = UserDefaults.standard
+        guard d.object(forKey: ResumeKeys.cooldownEndsAt) != nil else { return }
+        let endsAt = Date(timeIntervalSince1970: d.double(forKey: ResumeKeys.cooldownEndsAt))
+        guard endsAt.timeIntervalSinceNow > 0 else {
+            d.removeObject(forKey: ResumeKeys.cooldownEndsAt)
+            d.removeObject(forKey: ResumeKeys.cooldownKm)
+            return
+        }
+        cooldownEndsAt = endsAt
+        cooldownRemaining = endsAt.timeIntervalSinceNow
+        cooldownActive = true
+        lastJumpKm = d.double(forKey: ResumeKeys.cooldownKm)
+        startCooldownTimer()
     }
 
     /// Schedule the "cooldown cleared" local notification to fire AT `endsAt`. Mirrors the 2h

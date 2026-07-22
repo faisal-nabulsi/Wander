@@ -66,7 +66,10 @@ enum GslocMode {
 
     private static let session: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
-        cfg.timeoutIntervalForRequest = 5
+        // The push is supposed to be intercepted locally by the proxy, so it resolves near-instantly.
+        // A long timeout only matters when the proxy is OFF — and then a 5 s hang per push backs up the
+        // ~1 Hz throttle. Fail fast instead so a misconfigured session degrades cleanly.
+        cfg.timeoutIntervalForRequest = 1.5
         cfg.waitsForConnectivity = false
         cfg.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         return URLSession(configuration: cfg)

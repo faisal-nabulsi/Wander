@@ -553,7 +553,14 @@ struct SettingsView: View {
                         GslocMode.enabled = newValue
                         // Turning it on: tell the proxy to pass the real location through, so you start
                         // at your true spot instead of the module's default (Apple Park) until you teleport.
-                        if newValue { GslocMode.reset() }
+                        if newValue {
+                            GslocMode.reset()
+                        } else if updater.status.localizedCaseInsensitiveContains("PoGo")
+                                    || updater.status.localizedCaseInsensitiveContains("Shadowrocket") {
+                            // Clear the now-stale "turn off PoGo/Shadowrocket to update" message the moment
+                            // the user does exactly that, so the update prompt stops looking broken.
+                            updater.status = ""
+                        }
                     }
 
                     Button {

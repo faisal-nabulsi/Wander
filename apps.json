@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "113",
+      "buildVersion": "114",
       "versionDate": "2026-07-22",
-      "versionDescription": "Fix: in-app updates were blocked by a false 'proxy detected' (LocalDevVPN was mis-flagged) — updates now work with LocalDevVPN connected, no need to disconnect anything",
+      "versionDescription": "PoGo cooldown timer now survives closing and reopening the app. Added in-app step-by-step guides for gs-loc mode: first spoof, re-teleport, and reset to your real location. Faster, cleaner status handling.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17868942,
+      "size": 17899170,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "113",
+          "buildVersion": "114",
           "date": "2026-07-22",
-          "localizedDescription": "Fix: in-app updates were blocked by a false 'proxy detected' (LocalDevVPN was mis-flagged) — updates now work with LocalDevVPN connected, no need to disconnect anything",
+          "localizedDescription": "PoGo cooldown timer now survives closing and reopening the app. Added in-app step-by-step guides for gs-loc mode: first spoof, re-teleport, and reset to your real location. Faster, cleaner status handling.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17868942,
+          "size": 17899170,
           "minOSVersion": "17.0"
         }
       ],

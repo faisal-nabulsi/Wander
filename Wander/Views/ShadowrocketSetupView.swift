@@ -77,6 +77,7 @@ struct ShadowrocketSetupView: View {
                     step3
                     step4          // the informed CA-trust step
                     step5
+                    usageSection   // how to spoof / re-teleport / reset, once set up
                     teardownCard
                 }
                 .padding()
@@ -248,6 +249,84 @@ struct ShadowrocketSetupView: View {
                 .fixedSize(horizontal: false, vertical: true)
             linkButton("Open Certificate Trust Settings",
                        url: "prefs:root=General&path=About/CERT_TRUST_SETTINGS")
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    // MARK: How to spoof (usage flow, after setup)
+
+    private var usageSection: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "location.fill.viewfinder").foregroundStyle(Wander.brand)
+                Text(L("gsloc.usage.header", fallback: "How to spoof, once you're set up"))
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 6)
+
+            howToCard(
+                icon: "1.circle.fill",
+                title: L("gsloc.usage.phase1.title", fallback: "First spoof (once each session)"),
+                steps: [
+                    L("gsloc.usage.phase1.s1", fallback: "Keep Wi-Fi on. Turn Location Services OFF."),
+                    L("gsloc.usage.phase1.s2", fallback: "Reboot your iPhone."),
+                    L("gsloc.usage.phase1.s3", fallback: "Open Shadowrocket and connect it (VPN icon shows)."),
+                    L("gsloc.usage.phase1.s4", fallback: "Open Wander and teleport to your spot."),
+                    L("gsloc.usage.phase1.s5", fallback: "Turn Location Services back ON."),
+                    L("gsloc.usage.phase1.s6", fallback: "Check Apple Maps — you're at the spot. Then open Pokémon GO."),
+                ],
+                note: L("gsloc.usage.phase1.note", fallback: "The reboot clears iOS's cached real location, so the first fresh look lands on your spot.")
+            )
+
+            howToCard(
+                icon: "2.circle.fill",
+                title: L("gsloc.usage.phase2.title", fallback: "Teleport again (no reboot)"),
+                steps: [
+                    L("gsloc.usage.phase2.s1", fallback: "Teleport in Wander to the new spot."),
+                    L("gsloc.usage.phase2.s2", fallback: "Toggle Location Services OFF, then ON."),
+                    L("gsloc.usage.phase2.s3", fallback: "It jumps to the new spot. Repeat for each hop."),
+                ],
+                note: L("gsloc.usage.phase2.note", fallback: "No reboot per teleport — the Location Services toggle is the quick flush. If a spot sticks, redo the First-spoof reboot once.")
+            )
+
+            howToCard(
+                icon: "arrow.uturn.backward.circle.fill",
+                title: L("gsloc.usage.reset.title", fallback: "Reset to your REAL location"),
+                steps: [
+                    L("gsloc.usage.reset.s1", fallback: "Turn OFF PoGo (gs-loc) mode in Settings → Experimental — this tells the spoof to stop."),
+                    L("gsloc.usage.reset.s2", fallback: "Toggle Location Services OFF, then ON."),
+                    L("gsloc.usage.reset.s3", fallback: "You're back on your real location. If it lingers, disconnect Shadowrocket too, then toggle Location Services again."),
+                ],
+                note: L("gsloc.usage.reset.note", fallback: "Same idea in reverse: stop the spoof first, then force a fresh look so iOS grabs your real spot.")
+            )
+        }
+    }
+
+    private func howToCard(icon: String, title: String, steps: [String], note: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: icon).font(.title3).foregroundStyle(Wander.brand).frame(width: 28)
+                Text(title).font(.body.weight(.semibold))
+                Spacer(minLength: 0)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(steps.enumerated()), id: \.offset) { i, s in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text("\(i + 1).").font(.caption.weight(.bold)).foregroundStyle(Wander.brand)
+                        Text(s).font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            if let note {
+                Text(note).font(.caption2).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            linkButton(L("gsloc.usage.open_ls", fallback: "Open Location Services"),
+                       url: "prefs:root=Privacy&path=LOCATION")
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
