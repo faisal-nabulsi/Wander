@@ -1,6 +1,6 @@
 {
-  "build": 102,
+  "build": 103,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "LocalDevVPN download link in tunnel help; experimental PoGo gs-loc mode + guided Shadowrocket setup (Settings → Experimental, indoor-only)"
+  "notes": "Fix: gs-loc mode no longer false-alarms the tunnel-health chip (it uses Shadowrocket, not LocalDevVPN); spell out the one-VPN-at-a-time swap in setup + settings"
 }

@@ -103,6 +103,13 @@ struct ShadowrocketSetupView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Label(L("gsloc.setup.intro.vpnswap",
+                    fallback: "This mode replaces LocalDevVPN. iOS runs only one VPN at a time, so while you're using it, keep LocalDevVPN OFF and Shadowrocket ON. Turn PoGo mode off in Settings to switch back to normal spoofing over LocalDevVPN."),
+                  systemImage: "arrow.triangle.2.circlepath")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

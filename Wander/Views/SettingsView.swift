@@ -568,7 +568,7 @@ struct SettingsView: View {
                     Text(localized: "settings.experimental.header", fallback: "Experimental")
                 } footer: {
                     Text(localized: "settings.experimental.footer",
-                         fallback: "Opt-in beta features. Off by default — nothing installs or changes until you open one and choose to turn it on.\n\nPoGo mode (gs-loc): routes teleports to a Wi-Fi-location proxy (Shadowrocket + the Wander gs-loc module) instead of the dev tunnel, so Pokémon GO sees a non-simulated fix. Requires the proxy + trusted MITM certificate. Only holds indoors / with weak GPS.")
+                         fallback: "Opt-in beta features. Off by default — nothing installs or changes until you open one and choose to turn it on.\n\nPoGo mode (gs-loc): routes teleports to a Wi-Fi-location proxy (Shadowrocket) instead of the dev tunnel, so Pokémon GO sees a non-simulated fix. It replaces LocalDevVPN — iOS allows only ONE VPN at a time, so in this mode turn LocalDevVPN OFF and Shadowrocket ON. Turn this toggle off to go back to normal spoofing over LocalDevVPN. Requires the proxy + trusted MITM certificate; only holds indoors / with weak GPS.")
                 }
 
                 Section {

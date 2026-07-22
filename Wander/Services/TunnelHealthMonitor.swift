@@ -135,6 +135,14 @@ final class TunnelHealthMonitor: ObservableObject {
     /// thread for the (bounded) socket probe, then publishes back on main. Never blocks the UI.
     private func evaluate() {
         guard isActive else { return }
+        // In PoGo (gs-loc) mode Wander drives the Shadowrocket proxy, NOT Apple's dev tunnel —
+        // LocalDevVPN is intentionally OFF (iOS allows only one VPN at a time). Probing/reconnecting the
+        // dev endpoint here would false-red the chip and spam pointless reconnects. Report healthy and
+        // skip the probe; the gs-loc path has no dev tunnel to monitor.
+        if GslocMode.enabled {
+            setState(.connected)
+            return
+        }
         let snap = TunnelInjectStatus.snapshot
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self else { return }
