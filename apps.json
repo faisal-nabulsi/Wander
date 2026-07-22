@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "109",
+      "buildVersion": "110",
       "versionDate": "2026-07-22",
-      "versionDescription": "Update pre-flight: refuses early with a specific reason (proxy/gs-loc on, or Apple unreachable) instead of failing deep in signing with 'Couldn't reach Apple'",
+      "versionDescription": "Critical: Apple-ID sign-in now fails over across multiple anisette servers instead of dying when one (ani.sidestore.io) goes down — fixes the widespread 'Couldn't reach Apple' at sign-in",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17812152,
+      "size": 17824417,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "109",
+          "buildVersion": "110",
           "date": "2026-07-22",
-          "localizedDescription": "Update pre-flight: refuses early with a specific reason (proxy/gs-loc on, or Apple unreachable) instead of failing deep in signing with 'Couldn't reach Apple'",
+          "localizedDescription": "Critical: Apple-ID sign-in now fails over across multiple anisette servers instead of dying when one (ani.sidestore.io) goes down — fixes the widespread 'Couldn't reach Apple' at sign-in",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17812152,
+          "size": 17824417,
           "minOSVersion": "17.0"
         }
       ],
