@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "119",
+      "buildVersion": "120",
       "versionDate": "2026-07-22",
-      "versionDescription": "gs-loc: honest Flush labeling + a Silent Flush setup section - bind the flush shortcut to Back Tap / a widget / the Action Button to run it with zero Shortcuts flash (verified: any gesture-run of a headless Wi-Fi shortcut is fully silent; only app-triggered runs bounce).",
+      "versionDescription": "gs-loc Quick Controls, all-native one-tap: Warm start (connect Shadowrocket, then auto-checks your spoof on return), Re-teleport to last spot, and Flush (jumps to Location Services). Honest after on-device testing: the flush is the manual LS toggle - Wi-Fi/Airplane don't move it - and a Back-Tap-bound Teleport shortcut gives a hands-free push.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 18012323,
+      "size": 18004119,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "119",
+          "buildVersion": "120",
           "date": "2026-07-22",
-          "localizedDescription": "gs-loc: honest Flush labeling + a Silent Flush setup section - bind the flush shortcut to Back Tap / a widget / the Action Button to run it with zero Shortcuts flash (verified: any gesture-run of a headless Wi-Fi shortcut is fully silent; only app-triggered runs bounce).",
+          "localizedDescription": "gs-loc Quick Controls, all-native one-tap: Warm start (connect Shadowrocket, then auto-checks your spoof on return), Re-teleport to last spot, and Flush (jumps to Location Services). Honest after on-device testing: the flush is the manual LS toggle - Wi-Fi/Airplane don't move it - and a Back-Tap-bound Teleport shortcut gives a hands-free push.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 18012323,
+          "size": 18004119,
           "minOSVersion": "17.0"
         }
       ],

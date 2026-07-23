@@ -19,37 +19,43 @@ private func openURLString(_ s: String) {
 /// Compact one-tap control card. Drop into the PoGo List when GslocMode.enabled.
 struct GslocQuickControlsCard: View {
     @ObservedObject private var tunnel = WanderTunnel.shared
-    @AppStorage("shortcutsReady") private var shortcutsReady = false
+    @AppStorage("gslocAutoVerify") private var autoVerifyArmed = false
     @State private var showAutomations = false
-    @State private var showOnboarding = false
 
     var body: some View {
         Section {
-            // Shortcut-powered one-tap action: the app fires a Shortcut to cycle Wi-Fi — the one gs-loc
-            // step Wander's sandbox can't do itself. Briefly shows Shortcuts, then returns. Gated on install.
-            // (Warm-start / VPN-swap shortcuts are documented recipes in the Automations sheet until the
-            // on-device VPN-swap test clears — see AutomationsView.)
-            shortcutRow(icon: "wifi", title: "Flush snap",
-                        subtitle: "Cycles Wi-Fi to clear a stuck fix (replaces the manual LS toggle on re-teleports). Briefly opens Shortcuts — for a silent version, set up Back Tap in Shortcuts & automations.",
-                        name: ShortcutRunner.flushName, success: "flushed")
-
-            controlRow(icon: "antenna.radiowaves.left.and.right",
+            // All native — no external shortcut, no Shortcuts-app flash. The Wi-Fi-flush shortcut was
+            // dropped: device-tested, cycling Wi-Fi does NOT move the fix (nor does Airplane mode) — only
+            // the Location Services toggle does, and iOS lets no app flip that. So the flush is the one
+            // manual step; everything else here is a real one-tap in-app action.
+            controlRow(icon: "bolt.fill",
                        tint: .green,
-                       title: "Spoof mode — connect Shadowrocket",
-                       subtitle: "Switches the active VPN to the gs-loc proxy.") {
+                       title: "Warm start — connect Shadowrocket",
+                       subtitle: "Connects the gs-loc proxy, then checks your spoof when you come back.") {
+                autoVerifyArmed = true
                 openURLString("shadowrocket://connect")
+            }
+            controlRow(icon: "scope",
+                       tint: Wander.brand,
+                       title: "Re-teleport to last spot",
+                       subtitle: GslocMode.currentTargetSnapshot == nil
+                            ? "Teleport once first, then re-assert it here."
+                            : "Re-push your current spot — then flush with Location Services.") {
+                if let t = GslocMode.currentTargetSnapshot {
+                    GslocMode.push(latitude: t.lat, longitude: t.lng)
+                }
+            }
+            controlRow(icon: "location.fill.viewfinder",
+                       tint: .orange,
+                       title: "Flush — toggle Location Services",
+                       subtitle: "The one step that makes a teleport take. Off ~3s, then back on.") {
+                openURLString("prefs:root=Privacy&path=LOCATION")
             }
             controlRow(icon: "arrow.triangle.2.circlepath",
                        tint: Wander.brand,
                        title: "Update mode — Wander tunnel",
                        subtitle: "For installing app updates. \(tunnel.status.title).") {
                 WanderTunnel.shared.start()
-            }
-            controlRow(icon: "location.fill.viewfinder",
-                       tint: .orange,
-                       title: "Open Location Services",
-                       subtitle: "Toggle off ~3s on after a teleport.") {
-                openURLString("prefs:root=Privacy&path=LOCATION")
             }
             controlRow(icon: "arrow.uturn.backward",
                        tint: .secondary,
@@ -63,39 +69,9 @@ struct GslocQuickControlsCard: View {
         } header: {
             Text("Quick controls")
         } footer: {
-            Text("One tap each. The Location Services toggle stays manual — iOS reserves it — so this jumps you straight to it.")
+            Text("All one tap. The Location Services flip is the only manual step — iOS reserves that switch — so “Flush” jumps you straight to it. For a hands-free teleport, bind the Teleport shortcut to Back Tap (see Shortcuts & automations).")
         }
         .sheet(isPresented: $showAutomations) { AutomationsView() }
-        .sheet(isPresented: $showOnboarding) { ShortcutsOnboardingView() }
-    }
-
-    /// A one-tap button backed by an imported Shortcut. Shows an "install" affordance until set up, and
-    /// self-heals: ShortcutRunner flips `shortcutsReady` back to false if the run reports x-error.
-    @ViewBuilder
-    private func shortcutRow(icon: String, title: String, subtitle: String, name: String, success: String) -> some View {
-        Button {
-            if shortcutsReady {
-                ShortcutRunner.run(name: name, successHost: success)
-            } else {
-                showOnboarding = true
-            }
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: shortcutsReady ? icon : "square.and.arrow.down")
-                    .foregroundStyle(shortcutsReady ? .blue : .orange)
-                    .font(.title3)
-                    .frame(width: 28)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(shortcutsReady ? title : "\(title) — set up")
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
-                    Text(shortcutsReady ? subtitle : "Tap to install the one-tap Wander shortcut (once).")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-            }
-        }
     }
 
     @ViewBuilder
@@ -129,7 +105,7 @@ struct AutomationsView: View {
     private let shortcuts: [Shortcut] = [
         .init(name: "Teleport", file: "wander-reteleport.shortcut", blurb: "Type a lat/lng, teleport there."),
         .init(name: "Teleport to preset", file: "wander-teleport-presets.shortcut", blurb: "Pick a saved spot from a menu."),
-        .init(name: "Flush snap", file: "wander-flush.shortcut", blurb: "Clear a stuck fix (Wi-Fi off/on)."),
+        .init(name: "Wi-Fi cycle", file: "wander-flush.shortcut", blurb: "Cycles Wi-Fi. Note: a fresh teleport needs the LS toggle, not this."),
         .init(name: "Reset to real", file: "wander-reset.shortcut", blurb: "Stop spoofing."),
         .init(name: "Open Location Services", file: "wander-open-location-services.shortcut", blurb: "Jump to the LS toggle pane."),
         .init(name: "Connect proxy", file: "wander-connect.shortcut", blurb: "Connect Shadowrocket + routing."),
@@ -167,13 +143,13 @@ struct AutomationsView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Section {
-                    Text("The in-app Flush button briefly opens Shortcuts — that's an iOS limit for any run an APP triggers. Bind the SAME shortcut to a gesture and it runs fully SILENTLY (inline spinner, no bounce, no banner), because you press it yourself.")
+                    Text("The PUSH works from a shortcut (device-tested — it fires straight through the tunnel). So bind the Teleport shortcut to a gesture and you push your spot hands-free, with NO Shortcuts flash, because you press it yourself. You still flip Location Services after — that's the one step iOS won't let any app or shortcut do.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Button { openURLString(base + "wander-flush.shortcut") } label: {
+                    Button { openURLString(base + "wander-teleport-presets.shortcut") } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("1. Install “\(ShortcutRunner.flushName)”").font(.subheadline.weight(.semibold))
-                                Text("Import + rename it exactly — every method below runs this one shortcut.")
+                                Text("1. Install the Teleport shortcut").font(.subheadline.weight(.semibold))
+                                Text("Pushes a saved spot through the tunnel — no typing.")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -181,15 +157,15 @@ struct AutomationsView: View {
                         }
                     }
                     recipe(title: "⭐ 2a. Back Tap (best — every iPhone)",
-                           steps: ["Settings › Accessibility › Touch › Back Tap › Double Tap", "Pick “\(ShortcutRunner.flushName)”", "Double-tap the back of your phone = silent flush"])
+                           steps: ["Settings › Accessibility › Touch › Back Tap › Double Tap", "Pick the Teleport shortcut", "Double-tap the back = silent push, then flip Location Services"])
                     recipe(title: "2b. Home Screen widget (most button-like)",
-                           steps: ["Long-press Home Screen › add the Shortcuts widget", "Point it at “\(ShortcutRunner.flushName)”", "One tap = inline spinner, no bounce"])
+                           steps: ["Long-press Home Screen › add the Shortcuts widget", "Point it at the Teleport shortcut"])
                     recipe(title: "2c. Action Button (iPhone 15 Pro / 16)",
-                           steps: ["Settings › Action Button › swipe to Shortcut", "Pick “\(ShortcutRunner.flushName)”"])
+                           steps: ["Settings › Action Button › swipe to Shortcut", "Pick the Teleport shortcut"])
                 } header: {
-                    Text("⚡ Silent flush (no flash)")
+                    Text("⚡ Hands-free teleport (Back Tap)")
                 } footer: {
-                    Text("Do NOT use a Wi-Fi-TRIGGERED automation for this — iOS forces a banner on those and can re-prompt every run. The gesture methods above are banner-free and instant.")
+                    Text("Device-tested truth: cycling Wi-Fi (or Airplane mode) does NOT move the fix — only the Location Services toggle does, and no shortcut can flip it. So a gesture makes the PUSH hands-free; the flush stays a manual LS toggle.")
                 }
                 Section("Other automations") {
                     recipe(title: "Back Tap → Teleport",

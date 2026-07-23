@@ -1,6 +1,6 @@
 {
-  "build": 119,
+  "build": 120,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "gs-loc: honest Flush labeling + a Silent Flush setup section - bind the flush shortcut to Back Tap / a widget / the Action Button to run it with zero Shortcuts flash (verified: any gesture-run of a headless Wi-Fi shortcut is fully silent; only app-triggered runs bounce)."
+  "notes": "gs-loc Quick Controls, all-native one-tap: Warm start (connect Shadowrocket, then auto-checks your spoof on return), Re-teleport to last spot, and Flush (jumps to Location Services). Honest after on-device testing: the flush is the manual LS toggle - Wi-Fi/Airplane don't move it - and a Back-Tap-bound Teleport shortcut gives a hands-free push."
 }

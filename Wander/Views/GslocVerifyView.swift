@@ -111,6 +111,10 @@ final class GslocVerifier: NSObject, ObservableObject, CLLocationManagerDelegate
 /// its own verifier. Only meaningful while `GslocMode.enabled`, so gate it at the call site.
 struct GslocVerifyCard: View {
     @StateObject private var verifier = GslocVerifier()
+    @Environment(\.scenePhase) private var scenePhase
+    // Set by the "Warm start" button before it opens Shadowrocket; when we return to the foreground we
+    // auto-run the spoof check once, so warm start is genuinely one tap ("connect → back → verified").
+    @AppStorage("gslocAutoVerify") private var autoVerifyArmed = false
 
     var body: some View {
         Section {
@@ -133,6 +137,12 @@ struct GslocVerifyCard: View {
             }
         } header: {
             Text("Spoof check")
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active && autoVerifyArmed {
+                autoVerifyArmed = false
+                verifier.check()
+            }
         }
     }
 
