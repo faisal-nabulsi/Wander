@@ -166,13 +166,19 @@ struct AutomationsView: View {
                     Text("Set VPN points at YOUR named config, so these can't ship as files — build them once. iOS runs one VPN at a time, so turning one on drops the other.")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
-                Section("Auto-run on a trigger (Shortcuts › Automation)") {
-                    recipe(title: "When Pokémon GO opens → Connect proxy",
-                           steps: ["New Automation → App → Pokémon GO → Is Opened", "Run: Wander: Connect proxy", "Run Immediately, uncheck Notify When Run"])
+                Section {
+                    recipe(title: "⭐ Back Tap → Flush (the SILENT flush)",
+                           steps: ["Settings › Accessibility › Touch › Back Tap › Double Tap", "Choose your “Wander Flush” shortcut"])
                     recipe(title: "Back Tap → Teleport",
                            steps: ["Settings › Accessibility › Touch › Back Tap", "Double Tap → run Wander: Teleport to preset"])
+                    recipe(title: "When Pokémon GO opens → Connect proxy",
+                           steps: ["New Automation → App → Pokémon GO → Is Opened", "Run: Wander: Connect proxy", "Run Immediately, uncheck Notify When Run"])
                     recipe(title: "NFC tag → Connect proxy",
                            steps: ["New Automation → NFC → scan a tag", "Run: Wander: Connect proxy"])
+                } header: {
+                    Text("Gestures & automations")
+                } footer: {
+                    Text("Tip: the in-app Flush button briefly shows Shortcuts (an iOS limit for app-triggered runs). A Back Tap or Action Button bound to the same shortcut runs it SILENTLY — the only way to flush with no flash, because you press it yourself.")
                 }
             }
             .navigationTitle("Shortcuts & Automations")

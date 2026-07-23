@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "117",
+      "buildVersion": "118",
       "versionDate": "2026-07-22",
-      "versionDescription": "New one-tap Flush snap in PoGo Quick Controls: cycles Wi-Fi to clear a stuck fix - replaces the manual Location Services toggle on re-teleports. Includes a one-time setup wizard. Foundation for in-app buttons that trigger shortcuts to do OS-level actions.",
+      "versionDescription": "gs-loc Automations: added the Silent Flush tip - bind Flush snap to Back Tap or the Action Button to run it with zero Shortcuts flash (the in-app button briefly shows Shortcuts, which iOS can't avoid for app-triggered runs).",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 18012292,
+      "size": 17999906,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "117",
+          "buildVersion": "118",
           "date": "2026-07-22",
-          "localizedDescription": "New one-tap Flush snap in PoGo Quick Controls: cycles Wi-Fi to clear a stuck fix - replaces the manual Location Services toggle on re-teleports. Includes a one-time setup wizard. Foundation for in-app buttons that trigger shortcuts to do OS-level actions.",
+          "localizedDescription": "gs-loc Automations: added the Silent Flush tip - bind Flush snap to Back Tap or the Action Button to run it with zero Shortcuts flash (the in-app button briefly shows Shortcuts, which iOS can't avoid for app-triggered runs).",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 18012292,
+          "size": 17999906,
           "minOSVersion": "17.0"
         }
       ],
