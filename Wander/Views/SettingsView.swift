@@ -547,7 +547,7 @@ struct SettingsView: View {
 
                     Toggle(isOn: $gslocModeEnabled) {
                         Label(L("settings.experimental.gsloc",
-                                fallback: "PoGo mode (gs-loc)"),
+                                fallback: "PoGo / anti-cheat games mode (gs-loc)"),
                               systemImage: "antenna.radiowaves.left.and.right")
                     }
                     .onChange(of: gslocModeEnabled) { _, newValue in

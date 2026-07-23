@@ -259,6 +259,15 @@ struct PoGoModeView: View {
                 }
 
                 Section {
+                    Label {
+                        Text("This tab spoofs anti-cheat games (Pokémon GO, Monster Hunter Now…) through gs-loc / Shadowrocket. For Find My, Life360, or anything else, use the Location tab — the regular tunnel is smoother, moves in real time, and works everywhere.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    } icon: {
+                        Image(systemName: "gamecontroller").foregroundStyle(Wander.brand)
+                    }
+                }
+
+                Section {
                     Picker("Game", selection: $gamePresetRaw) {
                         ForEach(GamePreset.allCases) { preset in
                             Text(preset.title).tag(preset.rawValue)

@@ -837,6 +837,10 @@ struct LocationSimulationView: View {
     /// "Smooth long jumps": when on, a teleport farther than the threshold from
     /// the current spoofed position eases over a few seconds instead of hopping.
     @AppStorage("smoothLongJumps") private var smoothLongJumps = false
+    // Backing keys for the on-map "Find My / Life360 mode" toggle (same keys Settings uses), so the
+    // anti-detection preset for location-sharing apps lives where you actually spoof, not just Settings.
+    @AppStorage("jitterEnabled") private var jitterEnabled = true
+    @AppStorage("jitterRadius") private var jitterRadius = 1.5
     @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var visibleCenter: CLLocationCoordinate2D?
     // Debounced background task that warms the offline CARTO tile cache for wherever the user is
@@ -1186,6 +1190,8 @@ struct LocationSimulationView: View {
                             )
 
                             nlTeleportBar
+
+                            sharingModeToggle
                         }
 
                         if isImportingCoordinates {
@@ -1563,6 +1569,33 @@ struct LocationSimulationView: View {
     /// get the paywall. On success it drops the pin at the resolved place and simulates, reusing
     /// the exact teleport path the map already uses. Every failure is a friendly alert.
     @ViewBuilder
+    /// On-map "Find My / Life360 mode" toggle. This is the REGULAR (dev-tunnel) spoof most apps use —
+    /// Find My, Life360, iMessage, dating apps — and this preset bundles the anti-detection settings
+    /// (natural drift + smooth long jumps) so a shared location looks real. (Anti-cheat games like
+    /// Pokémon GO use gs-loc/Shadowrocket instead — that lives in the PoGo tab.)
+    private var sharingModeToggle: some View {
+        Toggle(isOn: Binding(
+            get: { jitterEnabled && smoothLongJumps },
+            set: { on in
+                jitterEnabled = on
+                smoothLongJumps = on
+                if on && jitterRadius < 1.5 { jitterRadius = 1.5 }
+            }
+        )) {
+            HStack(spacing: 8) {
+                Image(systemName: "person.2.wave.2").foregroundStyle(Wander.brand)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(L("map.sharingmode.title", fallback: "Find My / Life360 mode"))
+                        .font(.subheadline.weight(.semibold))
+                    Text(L("map.sharingmode.sub", fallback: "Natural drift + smooth jumps so shared location looks real."))
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .tint(Wander.brand)
+    }
+
     private var nlTeleportBar: some View {
         HStack(spacing: 8) {
             Image(systemName: "sparkles").foregroundStyle(Wander.brand)
