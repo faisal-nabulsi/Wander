@@ -21,9 +21,12 @@ enum ShortcutRunner {
     /// Exact names the user's imported shortcuts must have (invocation is by name).
     static let flushName = "Wander Flush"
     static let warmStartName = "Wander Warm Start"
-    /// "Set VPN → LocalDevVPN → Connect → Open App Wander" — connects the external update tunnel from an
-    /// in-app tap (brief Shortcuts flash, then auto-returns). The one VPN Wander can't connect natively.
+    /// "Set VPN → LocalDevVPN → Connect → Open App Wander" — connects the DEFAULT tunnel (used for
+    /// everything except games, and to install updates) from an in-app tap, then auto-returns.
     static let vpnConnectName = "Wander Connect VPN"
+    /// "Set VPN → Shadowrocket → Connect → Open App Wander" — connects the PoGo/games proxy and bounces
+    /// back to Wander (unlike shadowrocket://connect, which strands you in Shadowrocket).
+    static let shadowrocketConnectName = "Wander Connect Shadowrocket"
 
     /// Persisted "the Wander shortcuts are installed" flag. Set optimistically after onboarding; flipped
     /// back to false whenever a run reports x-error (shortcut missing/renamed) so the UI self-heals.

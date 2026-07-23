@@ -1,6 +1,6 @@
 {
-  "build": 122,
+  "build": 123,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "New in gs-loc Quick Controls: a Connect LocalDevVPN button - one tap runs a shortcut that flips your VPN to LocalDevVPN and bounces straight back to Wander, so the update-swap no longer means leaving the app. Set up the one-time Wander Connect VPN shortcut in Shortcuts & automations."
+  "notes": "gs-loc Quick Controls: Connect Shadowrocket now auto-returns to Wander too (via a shortcut, like LocalDevVPN) instead of stranding you in Shadowrocket. Fixed the labels: Shadowrocket is ONLY for Pokemon GO + anti-cheat games (Monster Hunter Now); LocalDevVPN is the default tunnel for Find My, Life360, everything else, and updates."
 }

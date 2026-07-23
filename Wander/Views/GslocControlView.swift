@@ -30,10 +30,10 @@ struct GslocQuickControlsCard: View {
             // manual step; everything else here is a real one-tap in-app action.
             controlRow(icon: "bolt.fill",
                        tint: .green,
-                       title: "Warm start — connect Shadowrocket",
-                       subtitle: "Connects the gs-loc proxy, then checks your spoof when you come back.") {
+                       title: "Connect Shadowrocket (PoGo / games)",
+                       subtitle: "The proxy for Pokémon GO + other anti-cheat games (Monster Hunter Now, etc.) — nothing else. Runs a shortcut, connects, and bounces back here to check your spoof.") {
                 autoVerifyArmed = true
-                openURLString("shadowrocket://connect")
+                ShortcutRunner.run(name: ShortcutRunner.shadowrocketConnectName, successHost: "vpnconnected")
             }
             controlRow(icon: "scope",
                        tint: Wander.brand,
@@ -58,9 +58,9 @@ struct GslocQuickControlsCard: View {
                 WanderTunnel.shared.start()
             }
             controlRow(icon: "arrow.left.arrow.right",
-                       tint: .green,
-                       title: "Connect LocalDevVPN",
-                       subtitle: "Free-sideload update swap: runs a shortcut that flips your VPN to LocalDevVPN, then bounces back here. Set it up once in Shortcuts & automations.") {
+                       tint: Wander.brand,
+                       title: "Connect LocalDevVPN (default tunnel)",
+                       subtitle: "Your everyday tunnel — for Find My, Life360, and everything that ISN'T a game (and to install app updates). Runs a shortcut, connects, returns here. Set both shortcuts up once in Shortcuts & automations.") {
                 ShortcutRunner.run(name: ShortcutRunner.vpnConnectName, successHost: "vpnconnected")
             }
             controlRow(icon: "arrow.uturn.backward",
@@ -140,15 +140,16 @@ struct AutomationsView: View {
                         }
                     }
                 }
-                Section("Switch VPN (build once in Shortcuts)") {
-                    recipe(title: "⭐ “Wander Connect VPN” — the in-app button runs this",
+                Section("Switch VPN (build these two once)") {
+                    recipe(title: "⭐ “Wander Connect Shadowrocket” (PoGo / games only)",
+                           steps: ["New shortcut, name it EXACTLY: Wander Connect Shadowrocket",
+                                   "Set VPN → On → pick Shadowrocket",
+                                   "Open App → Wander"])
+                    recipe(title: "⭐ “Wander Connect VPN” (default tunnel — everything else)",
                            steps: ["New shortcut, name it EXACTLY: Wander Connect VPN",
                                    "Set VPN → On → pick LocalDevVPN",
-                                   "Open App → Wander",
-                                   "Now the “Connect LocalDevVPN” button in Quick Controls runs it for you"])
-                    recipe(title: "Wander: Spoof mode",
-                           steps: ["Set VPN → On → pick Shadowrocket", "Open App → Wander"])
-                    Text("The in-app “Connect LocalDevVPN” button invokes the first shortcut BY NAME (so the name must match exactly). Set VPN points at YOUR named config, so it can't ship as a file — build it once. iOS runs one VPN at a time, so turning one on drops the other.")
+                                   "Open App → Wander"])
+                    Text("The two “Connect …” buttons in Quick Controls invoke these BY NAME, so the names must match exactly. Shadowrocket is ONLY for Pokémon GO + other anti-cheat games (Monster Hunter Now) — nothing else; LocalDevVPN is your default tunnel for Find My, Life360, everything else, and app updates. iOS runs one VPN at a time, so turning one on drops the other.")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Section {

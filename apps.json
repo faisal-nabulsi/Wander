@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "122",
+      "buildVersion": "123",
       "versionDate": "2026-07-22",
-      "versionDescription": "New in gs-loc Quick Controls: a Connect LocalDevVPN button - one tap runs a shortcut that flips your VPN to LocalDevVPN and bounces straight back to Wander, so the update-swap no longer means leaving the app. Set up the one-time Wander Connect VPN shortcut in Shortcuts & automations.",
+      "versionDescription": "gs-loc Quick Controls: Connect Shadowrocket now auto-returns to Wander too (via a shortcut, like LocalDevVPN) instead of stranding you in Shadowrocket. Fixed the labels: Shadowrocket is ONLY for Pokemon GO + anti-cheat games (Monster Hunter Now); LocalDevVPN is the default tunnel for Find My, Life360, everything else, and updates.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 18024296,
+      "size": 18018354,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "122",
+          "buildVersion": "123",
           "date": "2026-07-22",
-          "localizedDescription": "New in gs-loc Quick Controls: a Connect LocalDevVPN button - one tap runs a shortcut that flips your VPN to LocalDevVPN and bounces straight back to Wander, so the update-swap no longer means leaving the app. Set up the one-time Wander Connect VPN shortcut in Shortcuts & automations.",
+          "localizedDescription": "gs-loc Quick Controls: Connect Shadowrocket now auto-returns to Wander too (via a shortcut, like LocalDevVPN) instead of stranding you in Shadowrocket. Fixed the labels: Shadowrocket is ONLY for Pokemon GO + anti-cheat games (Monster Hunter Now); LocalDevVPN is the default tunnel for Find My, Life360, everything else, and updates.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 18024296,
+          "size": 18018354,
           "minOSVersion": "17.0"
         }
       ],
