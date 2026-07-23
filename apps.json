@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "116",
+      "buildVersion": "117",
       "versionDate": "2026-07-22",
-      "versionDescription": "New in PoGo mode: Quick Controls - one-tap buttons to connect the proxy, switch VPN (spoof/update mode), jump to Location Services, and reset. New Shortcuts & Automations screen to import the Wander shortcut pack. Shortcuts can now drive Wander via wander:// links.",
+      "versionDescription": "New one-tap Flush snap in PoGo Quick Controls: cycles Wi-Fi to clear a stuck fix - replaces the manual Location Services toggle on re-teleports. Includes a one-time setup wizard. Foundation for in-app buttons that trigger shortcuts to do OS-level actions.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17978752,
+      "size": 18012292,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "116",
+          "buildVersion": "117",
           "date": "2026-07-22",
-          "localizedDescription": "New in PoGo mode: Quick Controls - one-tap buttons to connect the proxy, switch VPN (spoof/update mode), jump to Location Services, and reset. New Shortcuts & Automations screen to import the Wander shortcut pack. Shortcuts can now drive Wander via wander:// links.",
+          "localizedDescription": "New one-tap Flush snap in PoGo Quick Controls: cycles Wi-Fi to clear a stuck fix - replaces the manual Location Services toggle on re-teleports. Includes a one-time setup wizard. Foundation for in-app buttons that trigger shortcuts to do OS-level actions.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17978752,
+          "size": 18012292,
           "minOSVersion": "17.0"
         }
       ],

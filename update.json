@@ -1,6 +1,6 @@
 {
-  "build": 116,
+  "build": 117,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "New in PoGo mode: Quick Controls - one-tap buttons to connect the proxy, switch VPN (spoof/update mode), jump to Location Services, and reset. New Shortcuts & Automations screen to import the Wander shortcut pack. Shortcuts can now drive Wander via wander:// links."
+  "notes": "New one-tap Flush snap in PoGo Quick Controls: cycles Wi-Fi to clear a stuck fix - replaces the manual Location Services toggle on re-teleports. Includes a one-time setup wizard. Foundation for in-app buttons that trigger shortcuts to do OS-level actions."
 }
