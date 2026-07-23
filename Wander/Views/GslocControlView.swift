@@ -30,7 +30,7 @@ struct GslocQuickControlsCard: View {
             // (Warm-start / VPN-swap shortcuts are documented recipes in the Automations sheet until the
             // on-device VPN-swap test clears — see AutomationsView.)
             shortcutRow(icon: "wifi", title: "Flush snap",
-                        subtitle: "Cycles Wi-Fi to clear a stuck fix — replaces the manual Location Services toggle on re-teleports.",
+                        subtitle: "Cycles Wi-Fi to clear a stuck fix (replaces the manual LS toggle on re-teleports). Briefly opens Shortcuts — for a silent version, set up Back Tap in Shortcuts & automations.",
                         name: ShortcutRunner.flushName, success: "flushed")
 
             controlRow(icon: "antenna.radiowaves.left.and.right",
@@ -167,18 +167,37 @@ struct AutomationsView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Section {
-                    recipe(title: "⭐ Back Tap → Flush (the SILENT flush)",
-                           steps: ["Settings › Accessibility › Touch › Back Tap › Double Tap", "Choose your “Wander Flush” shortcut"])
+                    Text("The in-app Flush button briefly opens Shortcuts — that's an iOS limit for any run an APP triggers. Bind the SAME shortcut to a gesture and it runs fully SILENTLY (inline spinner, no bounce, no banner), because you press it yourself.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button { openURLString(base + "wander-flush.shortcut") } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("1. Install “\(ShortcutRunner.flushName)”").font(.subheadline.weight(.semibold))
+                                Text("Import + rename it exactly — every method below runs this one shortcut.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "square.and.arrow.down").foregroundStyle(Wander.brand)
+                        }
+                    }
+                    recipe(title: "⭐ 2a. Back Tap (best — every iPhone)",
+                           steps: ["Settings › Accessibility › Touch › Back Tap › Double Tap", "Pick “\(ShortcutRunner.flushName)”", "Double-tap the back of your phone = silent flush"])
+                    recipe(title: "2b. Home Screen widget (most button-like)",
+                           steps: ["Long-press Home Screen › add the Shortcuts widget", "Point it at “\(ShortcutRunner.flushName)”", "One tap = inline spinner, no bounce"])
+                    recipe(title: "2c. Action Button (iPhone 15 Pro / 16)",
+                           steps: ["Settings › Action Button › swipe to Shortcut", "Pick “\(ShortcutRunner.flushName)”"])
+                } header: {
+                    Text("⚡ Silent flush (no flash)")
+                } footer: {
+                    Text("Do NOT use a Wi-Fi-TRIGGERED automation for this — iOS forces a banner on those and can re-prompt every run. The gesture methods above are banner-free and instant.")
+                }
+                Section("Other automations") {
                     recipe(title: "Back Tap → Teleport",
                            steps: ["Settings › Accessibility › Touch › Back Tap", "Double Tap → run Wander: Teleport to preset"])
                     recipe(title: "When Pokémon GO opens → Connect proxy",
                            steps: ["New Automation → App → Pokémon GO → Is Opened", "Run: Wander: Connect proxy", "Run Immediately, uncheck Notify When Run"])
                     recipe(title: "NFC tag → Connect proxy",
                            steps: ["New Automation → NFC → scan a tag", "Run: Wander: Connect proxy"])
-                } header: {
-                    Text("Gestures & automations")
-                } footer: {
-                    Text("Tip: the in-app Flush button briefly shows Shortcuts (an iOS limit for app-triggered runs). A Back Tap or Action Button bound to the same shortcut runs it SILENTLY — the only way to flush with no flash, because you press it yourself.")
                 }
             }
             .navigationTitle("Shortcuts & Automations")
@@ -237,7 +256,7 @@ struct ShortcutsOnboardingView: View {
                             .font(.subheadline.weight(.semibold))
                     }
                 } footer: {
-                    Text("If a one-tap button later says “set up” again, the shortcut was renamed or deleted — just re-add it. The brief Shortcuts flash when it runs is an iOS limitation and can't be removed for a button-triggered run.")
+                    Text("If a one-tap button later says “set up” again, the shortcut was renamed or deleted — just re-add it. Want it SILENT? Bind this same shortcut to a Back Tap (Settings › Accessibility › Touch › Back Tap) — a gesture-run has no Shortcuts flash. See “⚡ Silent flush” in Shortcuts & automations.")
                 }
             }
             .navigationTitle("One-tap setup")

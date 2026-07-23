@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "118",
+      "buildVersion": "119",
       "versionDate": "2026-07-22",
-      "versionDescription": "gs-loc Automations: added the Silent Flush tip - bind Flush snap to Back Tap or the Action Button to run it with zero Shortcuts flash (the in-app button briefly shows Shortcuts, which iOS can't avoid for app-triggered runs).",
+      "versionDescription": "gs-loc: honest Flush labeling + a Silent Flush setup section - bind the flush shortcut to Back Tap / a widget / the Action Button to run it with zero Shortcuts flash (verified: any gesture-run of a headless Wi-Fi shortcut is fully silent; only app-triggered runs bounce).",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17999906,
+      "size": 18012323,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "118",
+          "buildVersion": "119",
           "date": "2026-07-22",
-          "localizedDescription": "gs-loc Automations: added the Silent Flush tip - bind Flush snap to Back Tap or the Action Button to run it with zero Shortcuts flash (the in-app button briefly shows Shortcuts, which iOS can't avoid for app-triggered runs).",
+          "localizedDescription": "gs-loc: honest Flush labeling + a Silent Flush setup section - bind the flush shortcut to Back Tap / a widget / the Action Button to run it with zero Shortcuts flash (verified: any gesture-run of a headless Wi-Fi shortcut is fully silent; only app-triggered runs bounce).",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17999906,
+          "size": 18012323,
           "minOSVersion": "17.0"
         }
       ],
