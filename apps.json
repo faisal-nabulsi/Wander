@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "121",
+      "buildVersion": "122",
       "versionDate": "2026-07-22",
-      "versionDescription": "Modes clarified: gs-loc / Shadowrocket is for anti-cheat games only (PoGo tab). Find My / Life360 mode is now a one-tap toggle right on the main Location tab (natural drift + smooth jumps so shared location looks real) instead of buried in Settings - the regular tunnel is smoother, moves in real time, and works everywhere.",
+      "versionDescription": "New in gs-loc Quick Controls: a Connect LocalDevVPN button - one tap runs a shortcut that flips your VPN to LocalDevVPN and bounces straight back to Wander, so the update-swap no longer means leaving the app. Set up the one-time Wander Connect VPN shortcut in Shortcuts & automations.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 18017008,
+      "size": 18024296,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "121",
+          "buildVersion": "122",
           "date": "2026-07-22",
-          "localizedDescription": "Modes clarified: gs-loc / Shadowrocket is for anti-cheat games only (PoGo tab). Find My / Life360 mode is now a one-tap toggle right on the main Location tab (natural drift + smooth jumps so shared location looks real) instead of buried in Settings - the regular tunnel is smoother, moves in real time, and works everywhere.",
+          "localizedDescription": "New in gs-loc Quick Controls: a Connect LocalDevVPN button - one tap runs a shortcut that flips your VPN to LocalDevVPN and bounces straight back to Wander, so the update-swap no longer means leaving the app. Set up the one-time Wander Connect VPN shortcut in Shortcuts & automations.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 18017008,
+          "size": 18024296,
           "minOSVersion": "17.0"
         }
       ],

@@ -54,8 +54,14 @@ struct GslocQuickControlsCard: View {
             controlRow(icon: "arrow.triangle.2.circlepath",
                        tint: Wander.brand,
                        title: "Update mode — Wander tunnel",
-                       subtitle: "For installing app updates. \(tunnel.status.title).") {
+                       subtitle: "Own tunnel (needs a signing cert that keeps the VPN entitlement). \(tunnel.status.title).") {
                 WanderTunnel.shared.start()
+            }
+            controlRow(icon: "arrow.left.arrow.right",
+                       tint: .green,
+                       title: "Connect LocalDevVPN",
+                       subtitle: "Free-sideload update swap: runs a shortcut that flips your VPN to LocalDevVPN, then bounces back here. Set it up once in Shortcuts & automations.") {
+                ShortcutRunner.run(name: ShortcutRunner.vpnConnectName, successHost: "vpnconnected")
             }
             controlRow(icon: "arrow.uturn.backward",
                        tint: .secondary,
@@ -135,11 +141,14 @@ struct AutomationsView: View {
                     }
                 }
                 Section("Switch VPN (build once in Shortcuts)") {
+                    recipe(title: "⭐ “Wander Connect VPN” — the in-app button runs this",
+                           steps: ["New shortcut, name it EXACTLY: Wander Connect VPN",
+                                   "Set VPN → On → pick LocalDevVPN",
+                                   "Open App → Wander",
+                                   "Now the “Connect LocalDevVPN” button in Quick Controls runs it for you"])
                     recipe(title: "Wander: Spoof mode",
                            steps: ["Set VPN → On → pick Shadowrocket", "Open App → Wander"])
-                    recipe(title: "Wander: Update mode",
-                           steps: ["Set VPN → On → pick your Wander/LocalDev tunnel"])
-                    Text("Set VPN points at YOUR named config, so these can't ship as files — build them once. iOS runs one VPN at a time, so turning one on drops the other.")
+                    Text("The in-app “Connect LocalDevVPN” button invokes the first shortcut BY NAME (so the name must match exactly). Set VPN points at YOUR named config, so it can't ship as a file — build it once. iOS runs one VPN at a time, so turning one on drops the other.")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Section {

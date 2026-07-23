@@ -21,6 +21,9 @@ enum ShortcutRunner {
     /// Exact names the user's imported shortcuts must have (invocation is by name).
     static let flushName = "Wander Flush"
     static let warmStartName = "Wander Warm Start"
+    /// "Set VPN → LocalDevVPN → Connect → Open App Wander" — connects the external update tunnel from an
+    /// in-app tap (brief Shortcuts flash, then auto-returns). The one VPN Wander can't connect natively.
+    static let vpnConnectName = "Wander Connect VPN"
 
     /// Persisted "the Wander shortcuts are installed" flag. Set optimistically after onboarding; flipped
     /// back to false whenever a run reports x-error (shortcut missing/renamed) so the UI self-heals.

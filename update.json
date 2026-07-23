@@ -1,6 +1,6 @@
 {
-  "build": 121,
+  "build": 122,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Modes clarified: gs-loc / Shadowrocket is for anti-cheat games only (PoGo tab). Find My / Life360 mode is now a one-tap toggle right on the main Location tab (natural drift + smooth jumps so shared location looks real) instead of buried in Settings - the regular tunnel is smoother, moves in real time, and works everywhere."
+  "notes": "New in gs-loc Quick Controls: a Connect LocalDevVPN button - one tap runs a shortcut that flips your VPN to LocalDevVPN and bounces straight back to Wander, so the update-swap no longer means leaving the app. Set up the one-time Wander Connect VPN shortcut in Shortcuts & automations."
 }

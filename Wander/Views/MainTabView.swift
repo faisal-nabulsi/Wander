@@ -651,7 +651,7 @@ struct MainTabView: View {
             break   // opening the app is the whole effect
         // Callbacks a Wander shortcut returns to (x-success/x-error/x-cancel). These just confirm the
         // shortcut ran + keep the "installed" flag honest; the OS action already happened in the shortcut.
-        case "ping-ok", "flushed", "warmstarted", "primed", "verified", "swapped":
+        case "ping-ok", "flushed", "warmstarted", "primed", "verified", "swapped", "vpnconnected":
             ShortcutRunner.ready = true
         case "shortcut-missing":
             ShortcutRunner.ready = false
