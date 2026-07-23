@@ -59,6 +59,7 @@ struct SettingsView: View {
     @State private var showLocationDiagnostic = false
     @AppStorage("gsloc_mode_enabled") private var gslocModeEnabled = false
     @State private var showGslocSetup = false
+    @State private var showGslocAutomations = false
     @State private var showTunnelIP = false
     @State private var loopbackTunnelTest = (UserDefaults.standard.string(forKey: UserDefaults.Keys.targetDeviceIP) == "127.0.0.1")
     @EnvironmentObject private var localization: LocalizationManager
@@ -577,6 +578,20 @@ struct SettingsView: View {
                     }
                     .tint(.primary)
 
+                    Button {
+                        showGslocAutomations = true
+                    } label: {
+                        HStack {
+                            Label(L("settings.experimental.gsloc.automations",
+                                    fallback: "Shortcuts & automations"),
+                                  systemImage: "square.stack.3d.up.fill")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tint(.primary)
+
                     Toggle(isOn: $loopbackTunnelTest) {
                         Label(L("settings.experimental.loopback",
                                 fallback: "Loopback tunnel test (no LocalDevVPN)"),
@@ -674,6 +689,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showStabilizerBeta) {
             StabilizerBetaView()
+        }
+        .sheet(isPresented: $showGslocAutomations) {
+            AutomationsView()
         }
         .sheet(isPresented: $showGslocSetup) {
             ShadowrocketSetupView()

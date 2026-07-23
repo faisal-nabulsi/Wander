@@ -83,6 +83,7 @@ struct MainTabView: View {
     @State private var didSetInitialHome = false
     @State private var pendingLocationAction: ExternalLocationAction?
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openExternalURL
 
     @ObservedObject private var setupChecker = SetupChecker.shared
     @State private var showSetup = false
@@ -637,6 +638,17 @@ struct MainTabView: View {
             }
         case "clear-location", "stop-location":
             pendingLocationAction = .clear
+        // wander:// deep links for Shortcuts/automations. teleport/reset run DIRECTLY (no confirm) —
+        // the user built the shortcut on purpose, and one-tap is the whole point. In gs-loc mode
+        // simulate/clear route through GslocMode (proxy push), so these are PoGo-safe.
+        case "teleport":
+            simulateLocation(from: url)
+        case "reset":
+            clearSimulatedLocation()
+        case "connect":
+            if let u = URL(string: "shadowrocket://connect") { openExternalURL(u) }
+        case "open":
+            break   // opening the app is the whole effect
         default:
             break
         }

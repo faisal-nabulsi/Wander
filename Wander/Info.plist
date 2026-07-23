@@ -39,6 +39,16 @@
 				<string>com.googleusercontent.apps.537670730528-0u5m7ult24ka4rfjr60eh99mu7j0raiv</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.wander.deeplink</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>wander</string>
+			</array>
+		</dict>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>

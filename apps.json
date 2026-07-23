@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "115",
+      "buildVersion": "116",
       "versionDate": "2026-07-22",
-      "versionDescription": "New in PoGo mode: a Check My Spoof card that confirms iOS is actually reporting your spoofed location (green) or tells you exactly what to fix (amber) - no more guessing from Apple Maps. Also added a beta one-import option in gs-loc setup.",
+      "versionDescription": "New in PoGo mode: Quick Controls - one-tap buttons to connect the proxy, switch VPN (spoof/update mode), jump to Location Services, and reset. New Shortcuts & Automations screen to import the Wander shortcut pack. Shortcuts can now drive Wander via wander:// links.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 17934487,
+      "size": 17978752,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "115",
+          "buildVersion": "116",
           "date": "2026-07-22",
-          "localizedDescription": "New in PoGo mode: a Check My Spoof card that confirms iOS is actually reporting your spoofed location (green) or tells you exactly what to fix (amber) - no more guessing from Apple Maps. Also added a beta one-import option in gs-loc setup.",
+          "localizedDescription": "New in PoGo mode: Quick Controls - one-tap buttons to connect the proxy, switch VPN (spoof/update mode), jump to Location Services, and reset. New Shortcuts & Automations screen to import the Wander shortcut pack. Shortcuts can now drive Wander via wander:// links.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 17934487,
+          "size": 17978752,
           "minOSVersion": "17.0"
         }
       ],

@@ -280,6 +280,7 @@ struct PoGoModeView: View {
                 // eyeballing Apple Maps. Meaningless on the dev-tunnel path, so gate on GslocMode.enabled.
                 if GslocMode.enabled {
                     GslocVerifyCard()
+                    GslocQuickControlsCard()
                 }
 
                 cooldownSection
