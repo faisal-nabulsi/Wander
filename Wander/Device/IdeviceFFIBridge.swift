@@ -971,6 +971,17 @@ private enum LocationSimulationState {
             self.adapter = nil
         }
     }
+
+    /// Drop our references WITHOUT freeing them. Used only when a bounded inject on the cached handle
+    /// TIMED OUT — a detached FFI thread may still be touching these pointers, so calling free() here
+    /// would risk a use-after-free. Leaking one genuinely-dead session is the safe trade; a fresh
+    /// session is rebuilt on the next reachable inject.
+    static func orphan() {
+        locationSimulation = nil
+        remoteServer = nil
+        handshake = nil
+        adapter = nil
+    }
 }
 
 enum LocationSimulationCommandQueue {
@@ -1092,10 +1103,46 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
     return code
 }
 
+private enum BoundedSetResult { case ok, failed, timedOut }
+
+/// Run `location_simulation_set` on the CACHED handle with a hard timeout. The FFI itself has no
+/// timeout and can block forever on a genuinely dead tunnel, so we run it on a detached thread and
+/// bound the wait — the serial command queue is never wedged. A live loopback write returns in
+/// milliseconds, so a timeout means the session is really gone (not merely new-connects-refused).
+private func _boundedSet(_ sim: OpaquePointer, _ latitude: Double, _ longitude: Double,
+                         timeoutSeconds: Double = 2) -> BoundedSetResult {
+    let sem = DispatchSemaphore(value: 0)
+    var setError: UnsafeMutablePointer<IdeviceFfiError>?
+    Thread.detachNewThread {
+        setError = location_simulation_set(sim, latitude, longitude)
+        sem.signal()
+    }
+    if sem.wait(timeout: .now() + timeoutSeconds) == .timedOut { return .timedOut }
+    if let err = setError { idevice_error_free(err); return .failed }
+    return .ok
+}
+
 private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Double, _ pairingFile: String) -> Int32 {
-    // Fail fast on a dead tunnel so the un-timeout-able FFI below can't hang and wedge the queue.
+    // A LIVE DVT channel is what keeps the fix on the device — the simulation is connection-scoped, so
+    // freeing the handle makes iOS revert to the REAL GPS immediately. A failed reachability probe only
+    // means we can't open a NEW connection (iOS lockdown refuses new connects the instant cellular
+    // re-attaches — e.g. the moment Airplane Mode goes off); the ESTABLISHED loopback channel is
+    // usually still fine. So before giving up, try a BOUNDED write on the cached handle: if it lands,
+    // the session is alive and the fix holds — we must NOT tear it down (that was the airplane-mode
+    // snap-back regression: build 84's probe-then-cleanup killed a working session on a transient blip).
+    // Only if the bounded write genuinely fails or hangs is the session really gone.
     if !_isSimEndpointReachable(deviceIP) {
-        LocationSimulationState.cleanup()
+        if let sim = LocationSimulationState.locationSimulation {
+            switch _boundedSet(sim, latitude, longitude) {
+            case .ok:
+                DeviceReadiness.markSimulationSucceeded()
+                return LocationSimulationStatus.ok
+            case .failed:
+                LocationSimulationState.cleanup()   // session genuinely dead — free it, report below
+            case .timedOut:
+                LocationSimulationState.orphan()     // dead-but-half-open — drop refs without freeing
+            }
+        }
         return LocationSimulationStatus.remoteServer
     }
     if let locationSimulation = LocationSimulationState.locationSimulation {
