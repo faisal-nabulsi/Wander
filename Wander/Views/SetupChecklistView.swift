@@ -2,9 +2,14 @@
 //  SetupChecklistView.swift
 //  Wander
 //
-//  A quick "are you ready to spoof?" checklist shown at the start of a session:
-//  pairing file present, tunnel/VPN reachable, Developer Disk Image mounted, and
-//  Developer Mode on. Green check / amber cross per item, with a re-check button.
+//  A quick "are you ready to spoof?" checklist shown at the start of a session, in the order the
+//  pieces actually depend on each other: Developer Mode → pairing file → tunnel → Developer Disk
+//  Image. Green check / amber cross / grey "waiting" per item, with a re-check button.
+//
+//  The three states matter. Every row below the first blocker used to show its own red X, because
+//  they ALL fail when the tunnel is down — so a user with one real problem saw four, and went off
+//  changing settings that were already correct. A row whose prerequisite isn't met (or that we
+//  can't probe yet) now reads as waiting, so there's exactly one thing to fix at a time.
 //
 
 import SwiftUI
@@ -88,6 +93,29 @@ final class SetupChecker: ObservableObject {
     }
 }
 
+/// How a checklist row reads. `.waiting` is the one that earns its keep: it means "we can't know yet /
+/// your turn hasn't come", which is NOT the same as "this is wrong" — showing it as a red X is what
+/// sent people toggling Developer Mode when the only real problem was a disconnected tunnel.
+private enum SetupRowStatus {
+    case ok, blocked, waiting
+
+    var icon: String {
+        switch self {
+        case .ok: return "checkmark.circle.fill"
+        case .blocked: return "xmark.circle.fill"
+        case .waiting: return "clock"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .ok: return .green
+        case .blocked: return .orange
+        case .waiting: return .secondary
+        }
+    }
+}
+
 struct SetupChecklistView: View {
     @ObservedObject var checker = SetupChecker.shared
     @Environment(\.dismiss) private var dismiss
@@ -95,6 +123,9 @@ struct SetupChecklistView: View {
     @State private var showPairingImporter = false
     @State private var importResult: (text: String, isError: Bool)?
     @ObservedObject private var reachability = NetworkReachability.shared
+    // Same key ShortcutRunner persists to — read here (rather than through ShortcutRunner.ready) so the
+    // row re-renders the moment a run's x-success/x-error flips it.
+    @AppStorage("shortcutsReady") private var shortcutsReady = false
 
     /// While the sheet is open and not everything is green, re-probe on a gentle cadence so the
     /// checklist resolves itself — the tunnel handshake and DDI mount both complete a beat AFTER
@@ -110,43 +141,56 @@ struct SetupChecklistView: View {
                     if GslocMode.enabled {
                         gslocNotice
                     } else {
+                    // Dependency order: each row is only actionable once the one above it is green,
+                    // so the FIRST non-green row is always the thing to go fix.
                     VStack(spacing: 0) {
+                        row(
+                            title: "Developer Mode",
+                            detail: developerModeDetail,
+                            status: developerModeStatus,
+                            // Don't spin on a row we already know we can't answer — the spinner
+                            // implies a probe that will resolve, and this one won't until the
+                            // tunnel is up. But the FIRST probe hasn't answered anything yet, so
+                            // keep spinning through it rather than asserting "can't check yet"
+                            // above a Tunnel row that's still visibly probing.
+                            checking: checker.isChecking && (developerModeStatus != .waiting || !checker.hasRunOnce),
+                            // Only while waiting: the note's advice is "connect the tunnel and the row
+                            // appears", which is nonsense in the .blocked state — that state is only
+                            // reachable when the device ANSWERED the query, i.e. the tunnel is already
+                            // up and the row is already in Settings.
+                            note: developerModeStatus == .waiting ? developerModeInvisibleNote : nil
+                        )
+                        rowDivider
                         row(
                             title: "Pairing file",
                             detail: checker.hasPairing
                                 ? "Ready."
                                 : "Import it in Settings → Import pairing file.",
-                            ok: checker.hasPairing,
+                            status: checker.hasPairing ? .ok : .blocked,
                             checking: false
                         )
                         rowDivider
                         row(
                             title: "Tunnel connected",
-                            detail: checker.reachable
-                                ? "Your device is reachable."
-                                : (reachability.hasWiFi
-                                    ? "Open LocalDevVPN and connect — on Wi-Fi it comes up on its own."
-                                    : "No Wi-Fi detected. Open LocalDevVPN and connect; if it won't come up, turn on Airplane Mode first, then connect."),
-                            ok: checker.reachable,
-                            checking: checker.isChecking
+                            detail: tunnelDetail,
+                            status: tunnelStatus,
+                            checking: checker.isChecking,
+                            note: tunnelStatus == .blocked && !shortcutsReady ? connectShortcutRecipe : nil,
+                            // The one-tap connect that used to live only in gs-loc Quick Controls: runs the
+                            // user's "Wander Connect VPN" shortcut (Set VPN → LocalDevVPN → Open Wander) so
+                            // nobody has to leave the app and hunt for LocalDevVPN by hand.
+                            action: tunnelStatus == .blocked
+                                ? ("Connect LocalDevVPN", "bolt.fill", {
+                                    ShortcutRunner.run(name: ShortcutRunner.vpnConnectName, successHost: "vpnconnected")
+                                })
+                                : nil
                         )
                         rowDivider
                         row(
                             title: "Developer Disk Image",
-                            detail: checker.mounted
-                                ? "Mounted."
-                                : (checker.reachable ? "Mounts automatically once connected — give it a moment." : "Mounts after the tunnel is up."),
-                            ok: checker.mounted,
-                            checking: checker.isChecking
-                        )
-                        rowDivider
-                        row(
-                            title: "Developer Mode",
-                            detail: checker.developerModeOK
-                                ? "On."
-                                : "Turn it on: Settings → Privacy & Security → Developer Mode → on, then restart.",
-                            ok: checker.developerModeOK,
-                            checking: checker.isChecking
+                            detail: ddiDetail,
+                            status: ddiStatus,
+                            checking: checker.isChecking && checker.reachable
                         )
                     }
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -278,6 +322,94 @@ struct SetupChecklistView: View {
         Divider().padding(.leading, 52)
     }
 
+    /// Developer Mode is queried over the SAME connection everything else needs, so "unknown" almost
+    /// always means "we couldn't ask", not "it's off". Reporting that as a failure told users to flip a
+    /// switch that was already on (and cost an expert an afternoon on a real device this week), so an
+    /// unanswerable check reads as waiting. A genuine .off is still an honest red X.
+    private var developerModeStatus: SetupRowStatus {
+        switch checker.developerMode {
+        case .on: return .ok
+        case .off: return .blocked
+        // A mounted DDI is proof Developer Mode is on — it can't mount otherwise — so trust that
+        // before falling back to "can't tell yet". (Same inference as SetupChecker.developerModeOK.)
+        case .unknown: return checker.mounted ? .ok : .waiting
+        }
+    }
+
+    private var developerModeDetail: String {
+        switch developerModeStatus {
+        case .ok: return "On."
+        case .blocked: return "Turn it on: Settings → Privacy & Security → Developer Mode → on, then restart."
+        case .waiting: return "Can't check yet — connect the tunnel first."
+        }
+    }
+
+    /// The most-reported dead end: people open Settings → Privacy & Security and there IS no Developer
+    /// Mode row, so they assume they're on the wrong iOS or the wrong screen. iOS only reveals it once a
+    /// developer-signed app has asked for it — say so instead of letting them hunt.
+    ///
+    /// Only shown on the `.waiting` row (see the call site): once the check reports a genuine `.off`,
+    /// the device has answered us over the tunnel, which means the row already exists in Settings — and
+    /// telling that user to "connect the tunnel" would send them to fix something that's working.
+    private var developerModeInvisibleNote: String {
+        "No “Developer Mode” row in Settings → Privacy & Security? iOS only shows it after a developer-signed app has asked for it. Connect the tunnel once and it appears — then toggle it on and restart."
+    }
+
+    private var tunnelStatus: SetupRowStatus {
+        if checker.reachable { return .ok }
+        // Without the pairing file there's nothing to connect TO yet, so this is the next step, not a
+        // second failure.
+        return checker.hasPairing ? .blocked : .waiting
+    }
+
+    private var tunnelDetail: String {
+        switch tunnelStatus {
+        case .ok: return "Your device is reachable."
+        case .waiting: return "Import your pairing file first — the tunnel needs it."
+        case .blocked:
+            return reachability.hasWiFi
+                ? "Open LocalDevVPN and connect — on Wi-Fi it comes up on its own."
+                : "No Wi-Fi detected. Open LocalDevVPN and connect; if it won't come up, turn on Airplane Mode first, then connect."
+        }
+    }
+
+    /// The DDI mounts itself a beat AFTER the tunnel comes up, so while the device is unreachable this
+    /// row is waiting on somebody else's problem, not reporting its own. But "waits forever" was a dead
+    /// end of its own: with the tunnel and Developer Mode both green and the mount still failing (the
+    /// image files never finished downloading, most often), the row sat on a clock, `allReady` stayed
+    /// false, and the setup sheet re-presented every launch with nothing to act on. `.notMounted` — as
+    /// opposed to `.unreachable` — means the device ANSWERED, so once we've actually probed it that's a
+    /// real, reportable failure.
+    private var ddiStatus: SetupRowStatus {
+        if checker.mounted { return .ok }
+        guard checker.hasRunOnce, checker.reachable, checker.mountState == .notMounted else { return .waiting }
+        return .blocked
+    }
+
+    private var ddiDetail: String {
+        switch ddiStatus {
+        case .ok: return "Mounted."
+        case .blocked:
+            return "Your device answered, but the image isn't mounted. Wander re-downloads the image files at launch — check your internet, then force-quit Wander and reopen it to retry."
+        case .waiting:
+            return checker.reachable
+                ? "Mounts automatically once connected — give it a moment."
+                : "Mounts after the tunnel is up."
+        }
+    }
+
+    /// Shown under the one-tap button until a run reports success: the button invokes the shortcut BY
+    /// NAME, so a missing/renamed one is the only way it can fail, and the fix is a 3-step recipe.
+    ///
+    /// Caveat worth knowing: `shortcutsReady` is a single global "some Wander shortcut is installed"
+    /// flag (gs-loc onboarding sets it after importing the FLUSH shortcut), not a per-shortcut one, so a
+    /// gs-loc user who never made “Wander Connect VPN” sees the button without this recipe
+    /// on the first tap. It self-heals — the run's x-error flips the flag back to false and the recipe
+    /// appears — and a per-shortcut flag would mean changing ShortcutRunner's persisted contract.
+    private var connectShortcutRecipe: String {
+        "First time? The button runs a shortcut named exactly “\(ShortcutRunner.vpnConnectName)”. Make it once in Shortcuts: Set VPN → LocalDevVPN → On, then Open App → Wander."
+    }
+
     /// Shown instead of the dev-tunnel checklist when PoGo (gs-loc) mode is on — those steps (pairing,
     /// LocalDevVPN, DDI, Developer Mode) don't apply, since gs-loc spoofs through Shadowrocket.
     private var gslocNotice: some View {
@@ -296,14 +428,26 @@ struct SetupChecklistView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-    private func row(title: String, detail: String, ok: Bool, checking: Bool) -> some View {
-        HStack(spacing: 14) {
+    /// One checklist line. `note` is the extra "why you can't find that setting" paragraph, `action` the
+    /// optional one-tap fix that belongs to this row (so the fix sits ON the problem, not in a separate
+    /// pile of buttons the user has to match up).
+    private func row(
+        title: String,
+        detail: String,
+        status: SetupRowStatus,
+        checking: Bool,
+        note: String? = nil,
+        action: (title: String, icon: String, run: () -> Void)? = nil
+    ) -> some View {
+        // Top-aligned: notes and the inline button make these rows tall, and a vertically centered
+        // status icon drifts away from the title it describes.
+        HStack(alignment: .top, spacing: 14) {
             Group {
                 if checking {
                     ProgressView().controlSize(.small)
                 } else {
-                    Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundStyle(ok ? .green : .orange)
+                    Image(systemName: status.icon)
+                        .foregroundStyle(status.tint)
                         .font(.title3)
                 }
             }
@@ -311,6 +455,22 @@ struct SetupChecklistView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.body.weight(.medium))
                 Text(detail).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let note {
+                    Text(note).font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 3)
+                }
+                if let action {
+                    Button(action: action.run) {
+                        Label(action.title, systemImage: action.icon)
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(Wander.brand)
+                    .padding(.top, 6)
+                }
             }
             Spacer()
         }

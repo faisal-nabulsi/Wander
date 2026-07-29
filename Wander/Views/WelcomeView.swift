@@ -6,6 +6,9 @@
 //  of the modes, gated behind a "Get Started" button so the app doesn't drop straight into
 //  the map.
 //
+//  Shown ONCE. `onGetStarted` is what persists that (WanderApp's `hasSeenWelcome`), so this view
+//  stays dumb — it renders and reports the tap, it doesn't decide whether it should appear.
+//
 
 import SwiftUI
 

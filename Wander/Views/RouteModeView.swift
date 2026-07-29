@@ -207,6 +207,14 @@ struct RouteModeView: View {
     @State private var showSaveRouteSheet = false
     @State private var newRouteName = ""
     @State private var showSavedRoutes = false
+    /// Share links for the saved routes, built ONCE per route and keyed by its id.
+    ///
+    /// This cache is not an optimization, it's a correctness fix for how SwiftUI works: the share
+    /// control lives in `.swipeActions`/`.contextMenu`, whose @ViewBuilder closures are NON-escaping
+    /// and therefore run on EVERY body pass of the sheet — building the link inline meant a full
+    /// JSON + DEFLATE + base64 encode, twice per visible row, every time any RouteModeView state
+    /// changed while the sheet was up (~3 ms per big route, per pass, on the main thread).
+    @State private var routeShareLinks: [UUID: WanderShareLink.ShareableRouteLink] = [:]
 
     // Record-a-real-route (Pro): capture the device's REAL GPS while physically moving,
     // then replay later. Recording the real provider only makes sense when NOT spoofing.
@@ -1770,6 +1778,16 @@ struct RouteModeView: View {
                                          ? "Recorded • \(route.pointCount) points"
                                          : "\(route.pointCount) points")
                                         .font(.caption).foregroundStyle(.secondary)
+                                    // Say it on the row that will do it, not in a footnote about a
+                                    // cap nobody hits: this is the route that comes out thinner on
+                                    // the other end, and this is how thin.
+                                    if let link = routeShareLinks[route.id], link.wasThinned {
+                                        Text(String(format: L("route.share_thinned",
+                                                              fallback: "Shares as %d points — a longer link is too big to paste into chat."),
+                                                    link.pointCount))
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                                 Spacer()
                                 Label(route.isRecorded ? "Replay" : "Run", systemImage: Wander.Icon.play)
@@ -1780,8 +1798,23 @@ struct RouteModeView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            shareLink(for: route).tint(.green)
+                        }
+                        // Long-press too: a swipe action is invisible until you try it, and trading
+                        // routes is the whole point of having them shareable.
+                        .contextMenu { shareLink(for: route) }
                     }
                     .onDelete { savedRoutes.delete($0) }
+
+                    // Sharing is only half a feature if the recipient can't open what arrives. The
+                    // link opens Wander directly for anyone who has it, but the reliable path — and
+                    // the only one that works before wanderspoofer.com/go is live — is pasting it.
+                    Label(L("route.share_recipient_hint",
+                            fallback: "To open a link someone sent you: Places → Paste share link."),
+                          systemImage: "square.and.arrow.up")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Saved Routes")
@@ -1790,6 +1823,58 @@ struct RouteModeView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { showSavedRoutes = false }
                 }
+            }
+            // Rebuild whenever the set of routes changes (add/delete/sync), and never in a body pass.
+            .task(id: routeShareCacheKey) { await rebuildRouteShareLinks() }
+        }
+    }
+
+    /// Identity of the current route set for the share-link cache. Includes the point counts so a
+    /// route REPLACED by a sync merge (same id, different path) rebuilds its link instead of keeping
+    /// a link to the path it used to have.
+    private var routeShareCacheKey: [String] {
+        savedRoutes.routes.map { "\($0.id.uuidString):\($0.points.count)" }
+    }
+
+    /// Build every saved route's share link off the main actor, then publish them in one assignment.
+    ///
+    /// Encoding is a few milliseconds per large route and a sheet can hold a dozen, so doing this on
+    /// the main thread — even once — would show up as a stutter when the sheet opens. Explicitly
+    /// `@MainActor` so the read of the store and the write of the @State are both pinned there, with
+    /// only the encode itself off on the pool.
+    @MainActor private func rebuildRouteShareLinks() async {
+        // Snapshot as plain numbers: this crosses to a background task, and CLLocationCoordinate2D
+        // is a C struct we'd rather not send across an actor boundary.
+        let snapshot = savedRoutes.routes.map {
+            (id: $0.id, name: $0.name, points: $0.coordinates.map { c in (c.latitude, c.longitude) })
+        }
+        let built = await Task.detached(priority: .userInitiated) { () -> [UUID: WanderShareLink.ShareableRouteLink] in
+            var out: [UUID: WanderShareLink.ShareableRouteLink] = [:]
+            for route in snapshot {
+                let coords = route.points.map { CLLocationCoordinate2D(latitude: $0.0, longitude: $0.1) }
+                // A route that can't be shared at all (fewer than two points) simply gets no entry,
+                // and its row renders no Share action — see `shareLink(for:)`.
+                if let link = try? WanderShareLink.shareableWebURL(forRoute: coords, name: route.name) {
+                    out[route.id] = link
+                }
+            }
+            return out
+        }.value
+        routeShareLinks = built
+    }
+
+    /// The share control for a saved route. Hands over the WEB form — that's the one that survives
+    /// being pasted into Discord and still opens the app for anyone who has it installed. The link
+    /// carries the PATH only: a recorded route's per-point timing isn't in the wire contract, so
+    /// what the other person imports is the shape, not the pace.
+    ///
+    /// Reads the prebuilt link and never builds one (see `routeShareLinks`). Renders nothing until
+    /// it exists, or if it can't be built at all (a one-point route, or the compressor refusing) —
+    /// a Share button that only ever errors is worse than no Share button on that row.
+    @ViewBuilder private func shareLink(for route: SavedRoute) -> some View {
+        if let link = routeShareLinks[route.id] {
+            ShareLink(item: link.url) {
+                Label(L("share.share_route", fallback: "Share route"), systemImage: "square.and.arrow.up")
             }
         }
     }

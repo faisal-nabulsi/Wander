@@ -309,6 +309,10 @@ struct PoGoModeView: View {
                         .tint(Wander.brand)
                     } header: {
                         Text("Cooldown safety")
+                    } footer: {
+                        // Explains the new per-row annotation, which is otherwise easy to miss —
+                        // and states plainly that it only informs, so nobody expects it to stop them.
+                        Text("Spots below show what a jump there would cost (\"≈2h cooldown\") measured from where you are now. While a cooldown runs, spots you'd be jumping too soon are dimmed. It's a heads-up only — you can still tap any of them.")
                     }
                 }
 
@@ -518,6 +522,27 @@ struct PoGoModeView: View {
         }
     }
 
+    // MARK: Destination annotations (informational)
+
+    /// Dim, don't disable. Same standing rule as the "Speed guardrail (optional)" nudge below:
+    /// a destination that's still inside the running cooldown fades back, but stays fully tappable.
+    private static let blockedRowOpacity: Double = 0.55
+
+    /// The shared sub-line every teleport-target row gets: what this jump would cost on the soft-ban
+    /// curve, and what time it is at the destination. Both halves render nothing when they have
+    /// nothing to say (no prior teleport, a preset with no cooldown, an unresolved time zone), so a
+    /// first-run list looks exactly as it did before.
+    @ViewBuilder private func destinationAnnotations(_ coordinate: CLLocationCoordinate2D) -> some View {
+        HStack(spacing: 6) {
+            CooldownPreviewLabel(destination: coordinate)
+            DestinationLocalTimeLabel(coordinate: coordinate)
+        }
+    }
+
+    private func isCooldownBlocked(_ coordinate: CLLocationCoordinate2D) -> Bool {
+        CooldownPreview.status(for: coordinate)?.isBlocked == true
+    }
+
     // MARK: Rows
 
     private func hotspotRow(_ spot: PoGoHotspot) -> some View {
@@ -532,6 +557,7 @@ struct PoGoModeView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(spot.name).font(.body).foregroundStyle(.primary)
                     Text(spot.area).font(.caption).foregroundStyle(.secondary)
+                    destinationAnnotations(spot.coordinate)
                 }
                 Spacer()
                 Label("Preview", systemImage: "map")
@@ -540,6 +566,7 @@ struct PoGoModeView: View {
                     .foregroundStyle(pairingExists ? Wander.brand : .secondary)
             }
             .contentShape(Rectangle())
+            .opacity(isCooldownBlocked(spot.coordinate) ? Self.blockedRowOpacity : 1)
         }
         .buttonStyle(.plain)
         .disabled(!pairingExists)
@@ -563,6 +590,11 @@ struct PoGoModeView: View {
                     Text("\(route.area) • \(route.points.count) pts • \(formattedSpeed(route.speed_mps)) m/s")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    // A route is entered by teleporting to its start, so it carries the same jump
+                    // cost (and the same local time) as a hotspot at that point.
+                    if let start = route.start {
+                        destinationAnnotations(start)
+                    }
                 }
                 Spacer()
                 Label("Preview", systemImage: "map")
@@ -571,6 +603,7 @@ struct PoGoModeView: View {
                     .foregroundStyle(pairingExists ? Wander.brand : .secondary)
             }
             .contentShape(Rectangle())
+            .opacity(route.start.map { isCooldownBlocked($0) } == true ? Self.blockedRowOpacity : 1)
         }
         .buttonStyle(.plain)
         .disabled(!pairingExists)

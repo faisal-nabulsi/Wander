@@ -50,6 +50,46 @@ struct WalkModeView: View {
     @State private var idleTicks = 0
     private var idleResendEveryTicks: Int { max(1, Int(4.0 / tickInterval)) }
 
+    // MARK: Distance goal ("farm mode")
+    //
+    // Egg hatching and buddy candy pay out on DISTANCE, so "walk until N km, then stop" is what a
+    // farming session is actually judged by. The counter is fed from the clean per-tick advance the
+    // humanized engine really produced — not from the slider's nominal speed — so pace wobble and
+    // micro-pauses are reflected honestly and our number matches what the game will credit.
+    @State private var sessionMeters: Double = 0
+    /// Goal progress is measured from wherever the session counter stood when the goal was picked,
+    /// so choosing a goal mid-walk can't be instantly satisfied and slam movement to a stop.
+    @State private var goalBaseMeters: Double = 0
+    @State private var goalCompleted = false
+    /// The goal is a preference, not session state: someone farming 10 km eggs wants the same goal
+    /// still set tomorrow. Stored in metres so switching km/mi doesn't silently move the target.
+    /// 0 ⇒ no goal.
+    @AppStorage("walkGoalMeters") private var goalMeters: Double = 0
+    // Daily bucket: one running total plus the local-date key it belongs to. Re-checking that key
+    // is what makes the reset land at LOCAL midnight without a timer — a timer wouldn't survive the
+    // app being killed, and a plain date comparison is also right after a timezone change.
+    @AppStorage("walkDailyMeters") private var dailyMeters: Double = 0
+    @AppStorage("walkDailyMetersDate") private var dailyMetersDate = ""
+    /// Free-entry goal ("walk until N"), typed in whatever unit the user reads in.
+    @State private var showCustomGoal = false
+    @State private var customGoalText = ""
+
+    // MARK: Heading lock (hands-free straight-line walking)
+    //
+    // Pins the direction so the user can put the phone down. Locked ⇒ the motion model runs in the
+    // `.autonomous` context, i.e. MORE realism than steering (micro-pauses included): a locked
+    // heading means "keep going this way", not "become a perfectly straight robot". A ruler-straight
+    // trace at a dead-constant speed is the loudest spoof tell there is, so the lock must not buy
+    // convenience by turning the realism layer off.
+    @State private var lockedHeading: Double?
+    /// Throttle (stick fraction) captured at lock time. Speed is recomputed as `speedMps × fraction`
+    /// every tick rather than frozen, so the speed slider stays live while locked.
+    @State private var lockedFraction: Double = 1
+    /// Last direction/throttle the stick was pushed in. Kept because the knob springs back to centre
+    /// on release, so without this "Lock heading" would have nothing to pin a moment later.
+    @State private var lastStickBearing: Double?
+    @State private var lastStickFraction: Double = 1
+
     @State private var showAlert = false
     @State private var alertTitle = ""
     @State private var alertMessage = ""
@@ -72,6 +112,16 @@ struct WalkModeView: View {
             } message: {
                 Text(alertMessage)
             }
+            .alert(L("joystick.goal.custom.title", fallback: "Stop at distance"), isPresented: $showCustomGoal) {
+                TextField(useMph ? L("unit.miles", fallback: "Miles") : L("unit.km", fallback: "Kilometres"),
+                          text: $customGoalText)
+                    .keyboardType(.decimalPad)
+                Button(L("joystick.goal.custom.set", fallback: "Set")) { commitCustomGoal() }
+                Button(L("action.cancel", fallback: "Cancel"), role: .cancel) { }
+            } message: {
+                Text(L("joystick.goal.custom.body",
+                       fallback: "Movement stops by itself once you've walked this far — the counter lands exactly on the number."))
+            }
             .onDisappear {
                 stopTimer()
                 // Leaving the tab mid-walk stops our tick — which is also the only thing keeping the
@@ -90,6 +140,9 @@ struct WalkModeView: View {
             }
             .onAppear {
                 currentLocation.request()
+                // Roll the daily bucket here too, not just while moving: opening the tab the morning
+                // after a farm run must read "Today 0", not yesterday's total.
+                rollDailyBucketIfNeeded()
                 // Returning to an in-progress walk: restart our tick so we re-take ownership
                 // (step() re-asserts suppressResends) and resume keeping the fix warm — otherwise the
                 // stopped timer would leave the joystick dead until the user hit Stop and restarted.
@@ -166,6 +219,8 @@ struct WalkModeView: View {
                             .foregroundStyle(.orange)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    headingLockRow
+                    farmSection
                     // Hands-free auto-walk: pick a place and Wander walks there itself at the set
                     // speed, using realistic motion. Grab the joystick anytime to take over.
                     if autoWalkTarget != nil {
@@ -222,11 +277,133 @@ struct WalkModeView: View {
         return String(format: "%02d:%02d", total / 60, total % 60)
     }
 
+    // MARK: - Heading lock UI
+
+    /// Lock / unlock control plus the locked-state readout. Deliberately a separate row from the
+    /// joystick: while locked the knob sits centred (nobody's touching it), which on its own would
+    /// read as "stopped" — the state has to be spelled out in words somewhere.
+    private var headingLockRow: some View {
+        HStack(spacing: 8) {
+            if let locked = lockedHeading {
+                Label(String(format: L("joystick.lock.active", fallback: "Heading locked — walking %@"),
+                             compassLabel(locked)),
+                      systemImage: "location.north.line.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Wander.brand)
+                Spacer(minLength: 0)
+                Button(L("joystick.lock.unlock", fallback: "Unlock")) { toggleHeadingLock() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Wander.brand)
+                    .font(.caption)
+            } else {
+                Button {
+                    toggleHeadingLock()
+                } label: {
+                    Label(L("joystick.lock.lock", fallback: "Lock heading"), systemImage: "location.north.line")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                Text(L("joystick.lock.hint", fallback: "Push the stick, then lock to keep walking hands-free."))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Distance / goal UI
+
+    /// Live distance readout plus the "stop at N" goal picker. Session and today sit side by side
+    /// because they answer different questions: how far this run has gone (is my egg close?) and
+    /// how much the account has "walked" today (does this look like a plausible human day?).
+    private var farmSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Label(String(format: L("joystick.distance.session", fallback: "Session %@"),
+                             distanceText(sessionMeters)),
+                      systemImage: "figure.walk")
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                Spacer(minLength: 0)
+                Text(String(format: L("joystick.distance.today", fallback: "Today %@"),
+                            distanceText(dailyMeters)))
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 6) {
+                Text(L("joystick.goal.label", fallback: "Stop at"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                // The chips scroll: four egg tiers plus Custom and Off don't fit a phone's width in
+                // miles ("6.21 mi" is a wide chip), and shrinking the labels to make them fit would
+                // throw away the precision that's the whole reason we show the converted number.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(goalPresetsKm, id: \.self) { km in
+                            let meters = km * 1000
+                            Button(goalPresetTitle(km)) { setGoal(meters: meters) }
+                                .buttonStyle(.bordered)
+                                .tint(isGoalSelected(meters) ? Wander.brand : nil)
+                                .font(.caption)
+                        }
+                        // Free entry, because "walk until N km" is the actual request — the presets
+                        // are shortcuts for the common N, not the whole vocabulary (buddy candy and
+                        // a half-finished egg both want numbers that aren't on the list).
+                        Button(L("joystick.goal.custom", fallback: "Custom…")) { promptCustomGoal() }
+                            .buttonStyle(.bordered)
+                            .tint(goalMeters > 0 && !isPresetGoal ? Wander.brand : nil)
+                            .font(.caption)
+                        if goalMeters > 0 {
+                            Button(L("joystick.goal.off", fallback: "Off")) { setGoal(meters: 0) }
+                                .buttonStyle(.bordered)
+                                .font(.caption)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            if goalCompleted {
+                Label(String(format: L("joystick.goal.reached",
+                                       fallback: "Goal reached — %@ walked. Movement stopped; you're parked here."),
+                             distanceText(goalMeters)),
+                      systemImage: "checkmark.seal.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.green)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if goalMeters > 0 {
+                ProgressView(value: min(goalProgressMeters / goalMeters, 1))
+                    .tint(Wander.brand)
+                Text(goalProgressText)
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var joystick: some View {
         ZStack {
             Circle()
                 .fill(Color.secondary.opacity(0.12))
                 .frame(width: (joystickRadius + 30) * 2, height: (joystickRadius + 30) * 2)
+                .overlay(
+                    Circle().strokeBorder(Wander.brand.opacity(lockedHeading == nil ? 0 : 0.9), lineWidth: 3)
+                )
+            if let locked = lockedHeading {
+                // A marker on the rim pointing the way we're walking. Rotating a full-size, top-
+                // aligned frame (rather than offsetting the glyph) keeps the pivot at the pad's
+                // centre, so the arrow tracks the bearing instead of orbiting its own middle.
+                Image(systemName: "arrowtriangle.up.fill")
+                    .font(.caption)
+                    .foregroundStyle(Wander.brand)
+                    .frame(width: (joystickRadius + 30) * 2, height: (joystickRadius + 30) * 2, alignment: .top)
+                    .rotationEffect(.radians(locked))
+            }
             Circle()
                 .fill(isWalking ? Color.accentColor : Color.gray)
                 .frame(width: 60, height: 60)
@@ -241,11 +418,26 @@ struct WalkModeView: View {
                                 v = CGSize(width: v.width * scale, height: v.height * scale)
                             }
                             knobOffset = v
+                            // Remember the push HERE, not in step(): the tick only samples at 1 Hz,
+                            // so any flick shorter than a second — exactly what "push the stick,
+                            // then lock" invites — would never be seen, and Lock heading would
+                            // either refuse outright or silently pin a bearing from some earlier
+                            // steer. Same 0.02 dead zone step() uses, so the two agree on what
+                            // counts as a push. Screen up (-y) is north; +x is east.
+                            let mag = min(hypot(v.width, v.height) / joystickRadius, 1)
+                            if mag > 0.02 {
+                                lastStickBearing = atan2(Double(v.width), Double(-v.height))
+                                lastStickFraction = Double(mag)
+                            }
                             // Taking the stick cancels a hands-free walk and returns to steering.
                             if autoWalkTarget != nil {
                                 autoWalkTarget = nil
                                 motion = HumanizedMotion(context: .steered)
                             }
+                            // Same idiom for the heading lock: a hand back on the stick means the
+                            // user is steering again, so the pin gets out of the way rather than
+                            // fighting the input.
+                            releaseHeadingLock(resetGait: true)
                             if !isWalking { start() }
                         }
                         .onEnded { _ in
@@ -293,6 +485,7 @@ struct WalkModeView: View {
         SimulationSession.shared.movementModeDidBecomeActiveWriter()
         motion = HumanizedMotion(context: .steered)   // fresh gait for this run
         SimulationSession.shared.started()
+        beginDistanceSession()
         // Adventure Sync: start a fresh walk window so the first tick isn't measured
         // against a stale coordinate from an earlier run (no-op unless opted in).
         AdventureSyncManager.shared.beginWalk()
@@ -311,8 +504,15 @@ struct WalkModeView: View {
         AdventureSyncManager.shared.endWalk()
         isWalking = false
         autoWalkTarget = nil
+        lockedHeading = nil
+        lastStickBearing = nil
         knobOffset = .zero
         coordinate = nil          // back to "set a new start" state
+        // Session counters belong to the run that just ended; the daily total deliberately survives
+        // (that's the whole point of it) and is already persisted tick by tick.
+        sessionMeters = 0
+        goalBaseMeters = 0
+        goalCompleted = false
     }
 
     // MARK: - Movement
@@ -347,7 +547,21 @@ struct WalkModeView: View {
             targetSpeed = speedMps                                    // set-speed, hands-free
         } else {
             let magnitude = min(hypot(knobOffset.width, knobOffset.height) / joystickRadius, 1)
-            guard magnitude > 0.02 else {
+            if magnitude > 0.02 {
+                idleTicks = 0
+                // Screen up (-y) is north; +x is east.
+                baseBearing = atan2(Double(knobOffset.width), Double(-knobOffset.height))
+                targetSpeed = speedMps * Double(magnitude)
+                // (The drag gesture — not this tick — records the push for "Lock heading"; at 1 Hz
+                // we'd miss every short flick.)
+            } else if let locked = lockedHeading {
+                // Hands-free: keep walking the pinned heading. Speed is re-derived from the LIVE
+                // slider each tick instead of being frozen at lock time, so the user can still ease
+                // the pace up or down without having to unlock and re-aim.
+                idleTicks = 0
+                baseBearing = locked
+                targetSpeed = speedMps * lockedFraction
+            } else {
                 // Stick centered but still in walk mode. The resend is suppressed above, so keep the
                 // CURRENT fix warm ourselves on a slow (~4 s) cadence — a rock-steady stationary
                 // re-assert PoGo accepts, so a pause can't let iOS drop the spoof. No gpsNoise here:
@@ -359,10 +573,6 @@ struct WalkModeView: View {
                 }
                 return
             }
-            idleTicks = 0
-            // Screen up (-y) is north; +x is east.
-            baseBearing = atan2(Double(knobOffset.width), Double(-knobOffset.height))
-            targetSpeed = speedMps * Double(magnitude)
         }
 
         // Charge free-trial joystick time only while actually moving. Cut off at the cap.
@@ -392,7 +602,16 @@ struct WalkModeView: View {
         // safety net that can't be turned off.
         let clampPreset: GamePreset? = gameSpeedWarn ? gamePreset : nil
         let cappedSpd = SpeedGovernor.clampSpeedMps(spd, preset: clampPreset)
-        let distance = autoWalkTarget != nil ? min(cappedSpd * tickInterval, remaining) : cappedSpd * tickInterval
+        var distance = autoWalkTarget != nil ? min(cappedSpd * tickInterval, remaining) : cappedSpd * tickInterval
+        // Distance goal: shorten the LAST step so we land on the number instead of sailing past it.
+        // "Stop at 5 km" has to actually read 5.00 km, because the first thing a farmer does is
+        // compare our counter against the game's. This trims a step, never a speed — the speed
+        // guardrail above stays the only thing allowed to touch pace.
+        let goalRemaining = goalMeters > 0
+            ? max(goalMeters - goalProgressMeters, 0)
+            : Double.greatestFiniteMagnitude
+        let goalHit = distance >= goalRemaining
+        if goalHit { distance = goalRemaining }
 
         let metersPerDegLat = 111_320.0
         let dLat = (distance * cos(heading)) / metersPerDegLat
@@ -407,12 +626,17 @@ struct WalkModeView: View {
         // don't trace a perfect line. Keeps `coord` clean for the map + Health. Gated on the step
         // being LARGER than the noise radius: at a tiny nudge the ±2.5 m random scatter would
         // dominate a sub-metre step and read as jumpy, near-teleport motion (a second Error-12
-        // trigger), so send the clean point for small steps.
-        let reported = (MotionRealism.isEnabled && distance > 2.5) ? HumanizedMotion.gpsNoise(coord) : coord
+        // trigger), so send the clean point for small steps. A goal-completing step is also sent
+        // clean: we park on it, and the hold we hand back re-asserts this exact coordinate — a
+        // scattered final fix would leave the parked point 2 m off the one we counted.
+        let reported = (MotionRealism.isEnabled && distance > 2.5 && !goalHit) ? HumanizedMotion.gpsNoise(coord) : coord
         send(reported)
         // Adventure Sync: mirror this simulated step into Health (no-op unless opted
         // in). Derived from the ACTUAL per-tick movement, at a human cadence.
         AdventureSyncManager.shared.recordSimulatedMovement(to: coord)
+        // Count what we actually moved, then land the goal if this was the step that finished it.
+        accumulateDistance(distance)
+        if goalHit { completeDistanceGoal() }
     }
 
     // MARK: - Auto-walk (hands-free)
@@ -441,6 +665,7 @@ struct WalkModeView: View {
         SimulationSession.shared.movementModeDidBecomeActiveWriter()
         motion = HumanizedMotion(context: .autonomous)   // hands-free ⇒ full realism incl. micro-pauses
         SimulationSession.shared.started()
+        beginDistanceSession()
         AdventureSyncManager.shared.beginWalk()
         send(coordinate)
         startTimer()
@@ -467,6 +692,218 @@ struct WalkModeView: View {
             name: .holdLocationRequested, object: nil,
             userInfo: ["lat": target.latitude, "lng": target.longitude]
         )
+    }
+
+    // MARK: - Distance goal (farm mode)
+
+    /// Distance still owed on the current goal, measured from where the counter stood when the goal
+    /// was picked (see `goalBaseMeters`).
+    private var goalProgressMeters: Double { max(sessionMeters - goalBaseMeters, 0) }
+
+    /// A fresh run starts a fresh session counter and clears any previous "goal reached" banner —
+    /// otherwise the leftover total would satisfy the goal again on the very first tick. The daily
+    /// bucket is deliberately untouched.
+    private func beginDistanceSession() {
+        sessionMeters = 0
+        goalBaseMeters = 0
+        goalCompleted = false
+        rollDailyBucketIfNeeded()
+    }
+
+    /// Fold this tick's real advance into the session and daily totals. Called with the distance we
+    /// actually applied to the coordinate, so a humanized micro-pause honestly contributes nothing.
+    private func accumulateDistance(_ meters: Double) {
+        guard meters > 0 else { return }
+        sessionMeters += meters
+        rollDailyBucketIfNeeded()
+        dailyMeters += meters
+    }
+
+    /// Zero the daily bucket when the local calendar date has changed. Checked on every accumulate
+    /// (and on appear) rather than scheduled, so it's correct whether the app was killed overnight
+    /// or left running straight through midnight.
+    private func rollDailyBucketIfNeeded() {
+        let key = todayKey
+        guard dailyMetersDate != key else { return }
+        dailyMetersDate = key
+        dailyMeters = 0
+    }
+
+    /// Local-date key, built from calendar components rather than a `DateFormatter` so it's cheap
+    /// enough to recompute every tick and can't drift with the device's locale or calendar display
+    /// settings.
+    private var todayKey: String {
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
+
+    /// Set (or clear, with 0) the goal. Rebasing on the live session counter is what lets someone
+    /// raise the goal mid-run — "another 5 km from here" — instead of the new target being counted
+    /// as already met.
+    private func setGoal(meters: Double) {
+        goalMeters = meters
+        goalBaseMeters = sessionMeters
+        goalCompleted = false
+        Haptics.selection()
+    }
+
+    /// The goal was reached on this tick: stop moving but STAY here. This is the auto-walk arrival
+    /// landing (settle, hand the warm-hold back to the Map tab's resend), not the red Stop button's
+    /// teardown — the whole point of farming to a spot is that you keep the spot.
+    private func completeDistanceGoal() {
+        AdventureSyncManager.shared.endWalk()
+        autoWalkTarget = nil
+        releaseHeadingLock(resetGait: false)
+        isWalking = false
+        knobOffset = .zero
+        idleTicks = 0
+        goalCompleted = true
+        stopTimer()
+        Haptics.medium()
+        if let c = coordinate {
+            NotificationCenter.default.post(
+                name: .holdLocationRequested, object: nil,
+                userInfo: ["lat": c.latitude, "lng": c.longitude]
+            )
+        }
+    }
+
+    /// The presets are the game's egg tiers, in KILOMETRES, whatever unit the user reads in. These
+    /// aren't "round numbers" we're free to re-round per locale — 2/5/7/10 km are thresholds the
+    /// game itself defines, and a mile-preference player farms exactly the same ones. Rounding them
+    /// into miles is how you end up offering "3 mi" (4.83 km), which leaves a 5 km egg unhatched at
+    /// the moment we stop. So only the LABEL converts; the goal is stored in metres either way.
+    private let goalPresetsKm: [Double] = [2, 5, 7, 10]
+    private func goalPresetTitle(_ km: Double) -> String {
+        useMph ? String(format: "%.2f mi", km * 1000 / 1609.34) : "\(Int(km)) km"
+    }
+    /// Tolerant compare: the stored goal is metres, so a typed mile value never round-trips exactly.
+    private func isGoalSelected(_ meters: Double) -> Bool { abs(goalMeters - meters) < 1 }
+    /// True when the live goal is one of the chips — used to highlight "Custom…" when it ISN'T, so a
+    /// hand-typed 3.4 km goal still shows up as selected somewhere instead of looking unset.
+    private var isPresetGoal: Bool { goalPresetsKm.contains { isGoalSelected($0 * 1000) } }
+
+    /// Metres in one unit of whatever the user reads in — the single place the mile constant lives
+    /// on the goal path, so entry, display and the chip labels can't drift apart.
+    private var metersPerDisplayUnit: Double { useMph ? 1609.34 : 1000 }
+
+    /// Progress reads "1.20 / 5.00 km": ONE unit for the pair, taken from the goal side. Formatting
+    /// each half with `distanceText` labels them independently, so a part-walked goal came out as
+    /// "340 m / 5.00 km" — two units inside one fraction, which takes a beat to read mid-walk.
+    private var goalProgressText: String {
+        String(format: "%.2f / %.2f %@",
+               goalProgressMeters / metersPerDisplayUnit,
+               goalMeters / metersPerDisplayUnit,
+               useMph ? "mi" : "km")
+    }
+
+    /// Open the free-entry prompt, seeded with the current goal so "5 km — actually, make it 6" is
+    /// an edit rather than a re-type.
+    private func promptCustomGoal() {
+        customGoalText = goalMeters > 0
+            ? String(format: "%.2f", goalMeters / metersPerDisplayUnit)
+            : ""
+        showCustomGoal = true
+    }
+
+    /// Apply the typed distance, read in the user's display unit and stored as metres. Comma is
+    /// accepted as the decimal separator because that's what sits under the thumb on a German or
+    /// French keyboard and `Double("2,5")` is nil. Anything unparseable re-opens the prompt with the
+    /// text intact instead of silently doing nothing — the alert has to be re-presented on a later
+    /// runloop turn, because SwiftUI is still tearing the first one down when this button fires.
+    private func commitCustomGoal() {
+        let raw = customGoalText
+            .replacingOccurrences(of: ",", with: ".")
+            .trimmingCharacters(in: .whitespaces)
+        guard let value = Double(raw), value > 0 else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { showCustomGoal = true }
+            return
+        }
+        // Ceiling at 100 km: a fat-fingered extra zero would arm a goal no session can finish, which
+        // is indistinguishable, from the user's side, from the goal being ignored entirely.
+        setGoal(meters: min(value * metersPerDisplayUnit, 100_000))
+    }
+
+    /// Distance in the user's unit, mirroring RouteModeView's phrasing so a walked kilometre reads
+    /// the same everywhere. Two decimals (rather than the route screen's one) because egg progress
+    /// is judged in tens of metres.
+    private func distanceText(_ meters: Double) -> String {
+        if useMph {
+            let miles = meters / 1609.34
+            return miles < 0.1 ? "\(Int(meters * 3.28084)) ft" : String(format: "%.2f mi", miles)
+        }
+        return meters >= 1000 ? String(format: "%.2f km", meters / 1000) : "\(Int(meters)) m"
+    }
+
+    // MARK: - Heading lock
+
+    /// Pin (or release) the current direction so the phone can go in a pocket. The heading comes
+    /// from the stick if it's being held, otherwise from the last direction it was pushed — tapping
+    /// Lock a beat after letting go is the natural gesture, and by then the knob has re-centred.
+    private func toggleHeadingLock() {
+        if lockedHeading != nil {
+            releaseHeadingLock(resetGait: true)
+            Haptics.light()
+            return
+        }
+        let live = min(hypot(knobOffset.width, knobOffset.height) / joystickRadius, 1)
+        let bearing: Double
+        let fraction: Double
+        if live > 0.02 {
+            bearing = atan2(Double(knobOffset.width), Double(-knobOffset.height))
+            fraction = Double(live)
+        } else if let target = autoWalkTarget, let here = coordinate {
+            // Locking mid auto-walk: the course being walked IS the direction the user means, and
+            // the knob is centred by design (startAutoWalk zeroes it). Falling through to the stick
+            // history here would be wrong twice over — it would either refuse ("pick a direction")
+            // while the avatar is visibly walking a well-defined line, or pin a stale bearing from
+            // an earlier steer and quietly veer off the trip the user was watching. Full throttle,
+            // because that's the pace auto-walk was already holding.
+            bearing = bearingRad(from: here, to: target)
+            fraction = 1
+        } else if let last = lastStickBearing {
+            bearing = last
+            fraction = lastStickFraction
+        } else {
+            alert(L("joystick.lock.need_heading.title", fallback: "Pick a direction first"),
+                  L("joystick.lock.need_heading.body",
+                    fallback: "Push the joystick the way you want to walk, then tap Lock heading to keep going hands-free."))
+            return
+        }
+        // start() owns the licence gate, the pairing-file check and taking over the location stream.
+        // If it bails we must not leave a lock armed with nothing driving it.
+        if !isWalking {
+            start()
+            guard isWalking else { return }
+        }
+        lockedHeading = bearing
+        lockedFraction = max(fraction, 0.05)   // a barely-nudged stick shouldn't lock in a crawl
+        // One hands-free mode at a time. When we got here from a live auto-walk this is a hand-off,
+        // not a cancellation: the lock carries on along the exact course the trip was walking, so
+        // the avatar keeps going in a straight line — it just no longer stops at the destination.
+        autoWalkTarget = nil
+        // Set the gait AFTER start(), which seeds a steered one. Hands-free ⇒ `.autonomous`: the
+        // full realism package, micro-pauses included. Locking the heading must not also lock out
+        // the wobble — a perfectly straight, perfectly paced line is exactly what gets flagged.
+        motion = HumanizedMotion(context: .autonomous)
+        Haptics.medium()
+    }
+
+    /// Drop the lock. `resetGait` re-seeds the motion model in the steered context — the user's hand
+    /// is back on the stick, so we want the responsive gait that never comes to a full stop.
+    private func releaseHeadingLock(resetGait: Bool) {
+        guard lockedHeading != nil else { return }
+        lockedHeading = nil
+        if resetGait { motion = HumanizedMotion(context: .steered) }
+    }
+
+    /// Compass point for the locked bearing (0 = north, clockwise), so the locked state says
+    /// "walking NE" instead of showing the user a number in radians.
+    private func compassLabel(_ radians: Double) -> String {
+        let names = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+        var degrees = (radians * 180 / .pi).truncatingRemainder(dividingBy: 360)
+        if degrees < 0 { degrees += 360 }
+        return names[Int((degrees / 45).rounded()) % 8]
     }
 
     private func distanceMeters(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {

@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "124",
-      "versionDate": "2026-07-23",
-      "versionDescription": "Fix: a spoof or route set while Airplane Mode is ON now holds when you turn Airplane Mode OFF. The tunnel no longer drops your fake location on that network switch (and routes no longer stop). Regression from build 84 fixed.",
+      "buildVersion": "125",
+      "versionDate": "2026-07-29",
+      "versionDescription": "Paste coordinates to teleport — paste a lat/lng, a Google or Apple Maps link, or a Plus Code straight into search. Share spots and routes as links your friends can import. See a destination's local time and what cooldown a jump will cost before you commit. New distance goal: walk until N km then stop, plus a heading lock for hands-free walking. Clearer first-time setup: the checklist now shows one thing to fix at a time and can connect the tunnel in a tap.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 18022311,
+      "size": 18295860,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "124",
-          "date": "2026-07-23",
-          "localizedDescription": "Fix: a spoof or route set while Airplane Mode is ON now holds when you turn Airplane Mode OFF. The tunnel no longer drops your fake location on that network switch (and routes no longer stop). Regression from build 84 fixed.",
+          "buildVersion": "125",
+          "date": "2026-07-29",
+          "localizedDescription": "Paste coordinates to teleport — paste a lat/lng, a Google or Apple Maps link, or a Plus Code straight into search. Share spots and routes as links your friends can import. See a destination's local time and what cooldown a jump will cost before you commit. New distance goal: walk until N km then stop, plus a heading lock for hands-free walking. Clearer first-time setup: the checklist now shows one thing to fix at a time and can connect the tunnel in a tap.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 18022311,
+          "size": 18295860,
           "minOSVersion": "17.0"
         }
       ],

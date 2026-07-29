@@ -9,8 +9,10 @@ import SwiftUI
 struct WanderApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var shouldAttemptTunnelReconnect = false
-    // Transient (not persisted) so the welcome screen shows on every fresh launch.
-    @State private var showWelcome = true
+    // Persisted: the welcome screen is FIRST-RUN onboarding, so it's shown once and never again.
+    // (It used to be @State, which meant every single launch re-ran the tour before the map — a tax
+    // on people who'd been using the app for months.)
+    @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
     // In-app language switcher. Injected at the root so a language change
     // republishes and re-renders the whole UI live (no relaunch).
     @StateObject private var localization = LocalizationManager.shared
@@ -25,13 +27,23 @@ struct WanderApp: App {
         AppBootstrapper.configure()
         // Install crash handlers ASAP so a crash anywhere after this is captured + auto-reported.
         CrashReporter.install()
+        // Existing installs have no `hasSeenWelcome` yet, but anyone who already has a pairing file (or
+        // has ever completed a simulation) is long past onboarding — greeting them with a first-run tour
+        // on the update would be a regression, so mark it seen for them before the first render.
+        // `url` (not `prepareURL()`) on purpose: this is a read-only existence test, and prepareURL
+        // creates the directory and runs the legacy-copy migration — filesystem work this has no
+        // business doing, least of all on the main thread in App.init, earlier than any other caller.
+        if !UserDefaults.standard.bool(forKey: "hasSeenWelcome"),
+           DeviceReadiness.ddiProven || FileManager.default.fileExists(atPath: PairingFileStore.url.path) {
+            UserDefaults.standard.set(true, forKey: "hasSeenWelcome")
+        }
     }
 
     var body: some Scene {
         WindowGroup {
             Group {
-                if showWelcome {
-                    WelcomeView { withAnimation { showWelcome = false } }
+                if !hasSeenWelcome {
+                    WelcomeView { withAnimation { hasSeenWelcome = true } }
                 } else {
                     MainTabView()
                 }

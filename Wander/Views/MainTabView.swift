@@ -82,6 +82,12 @@ struct MainTabView: View {
     @State private var detachedFeature: AppFeature?
     @State private var didSetInitialHome = false
     @State private var pendingLocationAction: ExternalLocationAction?
+    // A share link (wander://share… / https://wanderspoofer.com/go…) that has been decoded but NOT
+    // acted on. Import always stops here first: a link from a stranger silently moving someone's
+    // location is unacceptable, so nothing happens until the user taps one of the buttons.
+    @State private var pendingShareImport: WanderSharePayload?
+    // Read only to phrase an imported route's length in the unit the user already reads elsewhere.
+    @AppStorage("useMph") private var useMph = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openExternalURL
 
@@ -206,6 +212,44 @@ struct MainTabView: View {
                 }
             } message: { action in
                 Text(action.message)
+            }
+            // Share-link import preview. Deliberately the SAME control style as the external-location
+            // confirm above — this is the same class of event (something outside the app asking to do
+            // something with your location) and it gets the same explicit gate. Note that NO button
+            // here teleports: the spot's action previews it on the map, and the user presses Simulate
+            // there, exactly as a tapped saved Place behaves.
+            .confirmationDialog(
+                shareImportTitle,
+                isPresented: Binding(
+                    get: { pendingShareImport != nil },
+                    set: { isPresented in
+                        if !isPresented { pendingShareImport = nil }
+                    }
+                ),
+                titleVisibility: .visible,
+                presenting: pendingShareImport
+            ) { payload in
+                switch payload {
+                case .spot(let spot):
+                    Button(L("share.import.save_place", fallback: "Save to Places")) {
+                        saveImportedSpot(spot)
+                        pendingShareImport = nil
+                    }
+                    Button(L("share.import.show_map", fallback: "Show on map")) {
+                        previewImportedSpot(spot)
+                        pendingShareImport = nil
+                    }
+                case .route(let route):
+                    Button(L("share.import.save_route", fallback: "Save to Routes")) {
+                        saveImportedRoute(route)
+                        pendingShareImport = nil
+                    }
+                }
+                Button(L("action.cancel", fallback: "Cancel"), role: .cancel) {
+                    pendingShareImport = nil
+                }
+            } message: { payload in
+                Text(shareImportMessage(for: payload))
             }
             .sheet(item: $detachedFeature) { feature in
                 NavigationStack {
@@ -657,9 +701,116 @@ struct MainTabView: View {
             ShortcutRunner.ready = false
         case "cancel", "error":
             break
+        // A shared spot/route. UNLIKE teleport/reset above this is NOT run directly: those come from
+        // a shortcut the user built themselves, whereas a share link arrives from someone else.
+        case "share":
+            presentSharedLink(url)
         default:
-            break
+            // The web form of the same link (https://wanderspoofer.com/go?…) arrives with the DOMAIN
+            // as its host, so it can't be a `case` above. It's the form people actually paste into
+            // chat, so it has to land in exactly the same place.
+            if WanderShareLink.isShareURL(url) { presentSharedLink(url) }
         }
+    }
+
+    // MARK: - Share-link import
+
+    /// Decode a share link and PARK it in `pendingShareImport` for the preview dialog. Never acts.
+    /// A link that can't be read is reported with the decoder's own human message rather than a
+    /// generic failure, so the sharer can be told what to re-send.
+    private func presentSharedLink(_ url: URL) {
+        do {
+            // A PASTED link arrives pre-decoded through the hand-off slot (its payload is far too
+            // large to travel in a URL); a TAPPED one carries its own query. Both land here, so the
+            // preview and confirmation below are the same code either way.
+            if let handedOff = try WanderShareLink.handedOffPayload(from: url) {
+                pendingShareImport = handedOff
+                return
+            }
+            pendingShareImport = try WanderShareLink.payload(from: url)
+        } catch {
+            showAlert(
+                title: L("share.import.failed", fallback: "Can't read that link"),
+                message: error.localizedDescription,
+                showOk: true
+            )
+        }
+    }
+
+    private var shareImportTitle: String {
+        switch pendingShareImport {
+        case .route: return L("share.import.route_title", fallback: "Imported route")
+        default: return L("share.import.spot_title", fallback: "Imported spot")
+        }
+    }
+
+    /// The preview itself: everything the user needs to judge the link BEFORE committing to it —
+    /// its name, and for a route how many points it has and how far it runs.
+    private func shareImportMessage(for payload: WanderSharePayload) -> String {
+        switch payload {
+        case .spot(let spot):
+            let coords = String(format: "%.5f, %.5f", spot.coordinate.latitude, spot.coordinate.longitude)
+            guard let name = spot.name else { return coords }
+            return "\(name)\n\(coords)"
+        case .route(let route):
+            let meters = WanderShareLink.totalDistanceMeters(route.coordinates)
+            let summary = String(format: L("share.import.route_summary", fallback: "%d points • %@"),
+                                 route.coordinates.count, shareDistanceText(meters))
+            guard let name = route.name else { return summary }
+            return "\(name)\n\(summary)"
+        }
+    }
+
+    /// Mirrors RouteModeView's distance phrasing so an imported route reads in the same unit the
+    /// user already sees while building one.
+    private func shareDistanceText(_ meters: Double) -> String {
+        if useMph {
+            let miles = meters / 1609.34
+            return miles < 0.1 ? "\(Int(meters * 3.28084)) ft" : String(format: "%.1f mi", miles)
+        }
+        return meters >= 1000 ? String(format: "%.1f km", meters / 1000) : "\(Int(meters)) m"
+    }
+
+    /// Append an imported spot to the shared `locationBookmarks` store the Places tab and the
+    /// Teleport bookmarks both read, then post `.placesDidChange` so every live view reloads.
+    /// (Written here rather than through SavedPlacesStore, which is a read/delete/update store with
+    /// no public add — adding one is a change to a file this work doesn't own.)
+    private func saveImportedSpot(_ spot: WanderSharedSpot) {
+        let key = "locationBookmarks"
+        var bookmarks: [LocationBookmark] = []
+        if let data = UserDefaults.standard.data(forKey: key),
+           let decoded = try? JSONDecoder().decode([LocationBookmark].self, from: data) {
+            bookmarks = decoded
+        }
+        let fallbackName = String(format: "%.4f, %.4f", spot.coordinate.latitude, spot.coordinate.longitude)
+        bookmarks.append(LocationBookmark(
+            name: spot.name ?? fallbackName,
+            latitude: spot.coordinate.latitude,
+            longitude: spot.coordinate.longitude,
+            updatedAt: Date()   // stamp for the multi-device sync newest-wins merge
+        ))
+        guard let encoded = try? JSONEncoder().encode(bookmarks) else { return }
+        UserDefaults.standard.set(encoded, forKey: key)
+        NotificationCenter.default.post(name: .placesDidChange, object: nil)
+        LogManager.shared.addInfoLog("Imported a shared place from a link")
+    }
+
+    /// Center + pin the imported spot on the Teleport map WITHOUT moving — the user presses Simulate
+    /// there. Same notification a tapped saved Place uses, so imported and saved spots behave alike.
+    private func previewImportedSpot(_ spot: WanderSharedSpot) {
+        selection = AppFeature.location.id
+        NotificationCenter.default.post(
+            name: .previewLocationRequested,
+            object: nil,
+            userInfo: ["lat": spot.coordinate.latitude, "lng": spot.coordinate.longitude]
+        )
+    }
+
+    private func saveImportedRoute(_ route: WanderSharedRoute) {
+        // A fresh store instance reloads from UserDefaults in its init, so this can't persist a
+        // stale in-memory array over routes another screen saved while this dialog was up.
+        SavedRoutesStore().add(name: route.name ?? "", coordinates: route.coordinates)
+        LogManager.shared.addInfoLog("Imported a shared route (\(route.coordinates.count) points) from a link")
     }
 
     private func openFeature(id: String) {
