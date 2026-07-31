@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "125",
-      "versionDate": "2026-07-29",
-      "versionDescription": "Paste coordinates to teleport — paste a lat/lng, a Google or Apple Maps link, or a Plus Code straight into search. Share spots and routes as links your friends can import. See a destination's local time and what cooldown a jump will cost before you commit. New distance goal: walk until N km then stop, plus a heading lock for hands-free walking. Clearer first-time setup: the checklist now shows one thing to fix at a time and can connect the tunnel in a tap.",
+      "buildVersion": "126",
+      "versionDate": "2026-07-31",
+      "versionDescription": "PoGo/gs-loc now works with Loon, Quantumult X & Stash — not just Shadowrocket. New 'Check my setup' doctor pinpoints exactly why a spoof isn't working (proxy routing, certificate trust, or GPS override). Clearer setup with the HTTP/2 MITM step, and PoGo mode now shows it's teleport-only so the joystick can't silently fail.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 18295860,
+      "size": 18485674,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "125",
-          "date": "2026-07-29",
-          "localizedDescription": "Paste coordinates to teleport — paste a lat/lng, a Google or Apple Maps link, or a Plus Code straight into search. Share spots and routes as links your friends can import. See a destination's local time and what cooldown a jump will cost before you commit. New distance goal: walk until N km then stop, plus a heading lock for hands-free walking. Clearer first-time setup: the checklist now shows one thing to fix at a time and can connect the tunnel in a tap.",
+          "buildVersion": "126",
+          "date": "2026-07-31",
+          "localizedDescription": "PoGo/gs-loc now works with Loon, Quantumult X & Stash — not just Shadowrocket. New 'Check my setup' doctor pinpoints exactly why a spoof isn't working (proxy routing, certificate trust, or GPS override). Clearer setup with the HTTP/2 MITM step, and PoGo mode now shows it's teleport-only so the joystick can't silently fail.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 18295860,
+          "size": 18485674,
           "minOSVersion": "17.0"
         }
       ],
