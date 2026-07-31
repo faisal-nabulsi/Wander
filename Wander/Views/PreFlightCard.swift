@@ -41,7 +41,7 @@ struct PreFlightCard: View {
                     Text(L("preflight.header", fallback: "Pre-flight checks"))
                 } footer: {
                     Text(L("preflight.footer",
-                           fallback: "Advisory only — these never block a teleport. They flag the most common causes of Error 12 and one detection vector."))
+                           fallback: "Advisory only — these never block a teleport. They flag the most common causes of Error 12 (and the related transient Error 11, which flashes up then reverts on the same cross-check) and one detection vector."))
                 }
             }
         }

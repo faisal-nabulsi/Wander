@@ -833,6 +833,10 @@ final class LocationSearchCompleter: NSObject, ObservableObject, MKLocalSearchCo
 
 struct LocationSimulationView: View {
     @State private var coordinate: CLLocationCoordinate2D?
+    // When PoGo (gs-loc) mode is on, teleport is the ONLY thing that works — so surface the soft-ban
+    // cooldown a jump to this pin would cost right next to the Simulate button. Bound to GslocMode's own
+    // defaults key so it appears/disappears the instant the mode is toggled.
+    @AppStorage(GslocMode.defaultsKey) private var gslocMode = false
     @AppStorage("mapStyleMode") private var mapStyleModeRaw = MapStyleMode.standard.rawValue
     /// "Smooth long jumps": when on, a teleport farther than the threshold from
     /// the current spoofed position eases over a few seconds instead of hopping.
@@ -1736,6 +1740,8 @@ struct LocationSimulationView: View {
             .tint(Wander.brand)
             .controlSize(.large)
 
+            gslocCooldownHint(for: coord)
+
             HStack(spacing: 10) {
                 Button {
                     if !pairingExists || isBusy || !hasActiveSimulation { return }
@@ -1776,6 +1782,23 @@ struct LocationSimulationView: View {
         applySelection(center)
     }
 
+    /// Soft-ban cooldown a teleport to this pin would cost, shown only in PoGo (gs-loc) mode and only when
+    /// there's a prior teleport to measure the jump from. Reuses the shipped CooldownPreview helper (the
+    /// same distance→wait curve the PoGo tab's per-row estimates use), so the numbers can't disagree.
+    /// Renders nothing on a first teleport (no origin) or for a preset with no distance cooldown.
+    @ViewBuilder private func gslocCooldownHint(for coord: CLLocationCoordinate2D) -> some View {
+        if gslocMode, CooldownPreview.status(for: coord) != nil {
+            HStack(spacing: 6) {
+                Image(systemName: "hourglass")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                CooldownPreviewLabel(destination: coord)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private var routeControls: some View {
         VStack(spacing: 10) {
             Text(routeStatusText)
@@ -1793,6 +1816,14 @@ struct LocationSimulationView: View {
 
             routeAttributionLink
 
+            if gslocMode {
+                Text("PoGo mode is teleport-only — route playback works in every other app and mode.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack(spacing: 12) {
                 Button("Stop", action: clear)
                     .buttonStyle(.bordered)
@@ -1802,6 +1833,7 @@ struct LocationSimulationView: View {
                 Button("Play Route", action: simulateRoute)
                     .buttonStyle(.borderedProminent)
                     .disabled(
+                        gslocMode ||
                         !pairingExists ||
                         isBusy ||
                         isLoadingRoute ||

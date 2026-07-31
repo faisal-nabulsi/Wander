@@ -569,7 +569,7 @@ struct SettingsView: View {
                     } label: {
                         HStack {
                             Label(L("settings.experimental.gsloc.setup",
-                                    fallback: "Set up gs-loc mode (Shadowrocket)"),
+                                    fallback: "Set up gs-loc mode (proxy app)"),
                                   systemImage: "wand.and.stars")
                             Spacer()
                             Image(systemName: "chevron.right")
@@ -694,7 +694,7 @@ struct SettingsView: View {
             AutomationsView()
         }
         .sheet(isPresented: $showGslocSetup) {
-            ShadowrocketSetupView()
+            ProxySetupView()
         }
         .sheet(isPresented: $showTunnelIP) {
             TunnelIPSettingsView()

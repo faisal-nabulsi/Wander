@@ -176,6 +176,10 @@ struct RouteModeView: View {
     @State private var selectedRouteIndex = 0
     @AppStorage("useMph") private var useMph = false
     @AppStorage("jitterEnabled") private var jitterEnabled = true
+    // PoGo (gs-loc) mode only steers a STATIC network fix — a moving route silently fails there (real GPS
+    // overrides it and snaps back). So while it's on we disable route-building/Drive rather than let it
+    // fail quietly. Bound to GslocMode's own defaults key so toggling the mode updates this instantly.
+    @AppStorage(GslocMode.defaultsKey) private var gslocMode = false
     // Same per-game context the Joystick + Games tabs read. Used ONLY to scope the hard speed
     // clamp during playback (see startDrive's loop): when the user is framing movement around a
     // location game we cap the effective route speed at that game's ban-triggering ceiling. Left OFF
@@ -397,7 +401,11 @@ struct RouteModeView: View {
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            if gslocMode && !isDriving {
+                gslocTeleportOnlyNote
+            }
             if !isDriving {
+                Group {
                 AddressSearchBar(placeholder: "Search to add a point") { coord, _ in
                     waypoints.append(RouteWaypoint(coordinate: coord))
                     routeCoordinates = []; routeAlternatives = []
@@ -604,6 +612,11 @@ struct RouteModeView: View {
                     .controlSize(.large)
                     .disabled(isComputing)
                 }
+                }
+                // Teleport-only in gs-loc mode: dim + disable route building/Drive (a moving route can't
+                // hold through the gs-loc network path). An in-progress drive keeps its Stop control.
+                .disabled(gslocMode)
+                .opacity(gslocMode ? 0.5 : 1)
             } else {
                 HStack {
                     Text("\(Int(progress * 100))%").font(.caption.bold()).monospacedDigit()
@@ -640,6 +653,23 @@ struct RouteModeView: View {
         }
         .hugScrollCard(maxHeight: UIScreen.main.bounds.height * 0.44)
         }
+    }
+
+    /// Shown atop the Route controls while PoGo (gs-loc) mode is on: routes don't hold through the gs-loc
+    /// network path, so the builder below is disabled and the user is pointed back to teleport.
+    private var gslocTeleportOnlyNote: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "hand.raised.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+            Text(L("route.gsloc_teleport_only",
+                   fallback: "PoGo mode is teleport-only. Joystick, routes & auto-walk work in every other app and mode."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Waypoints

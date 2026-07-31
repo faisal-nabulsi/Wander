@@ -202,6 +202,9 @@ struct PoGoModeView: View {
     // the Pokémon GO tab, so surface the fix checklist one tap away.
     @State private var showLocationHelp = false
 
+    // Spoof Doctor diagnostic sheet (gs-loc mode only): the two-rung "check my setup" ladder.
+    @State private var showSpoofDoctor = false
+
     // Long-haul advisory: after a very big jump (>1500 km) many players stay logged OUT of the game
     // for ~8h to avoid a strike. Shown once per such jump — dismissing hides it until the NEXT
     // long-haul teleport (tracked by teleportTick so a fresh big jump re-surfaces it).
@@ -289,6 +292,20 @@ struct PoGoModeView: View {
                 // eyeballing Apple Maps. Meaningless on the dev-tunnel path, so gate on GslocMode.enabled.
                 if GslocMode.enabled {
                     GslocVerifyCard()
+
+                    // Full two-rung diagnostic (Spoof Doctor): first proves the proxy is intercepting at
+                    // all (plain-HTTP probe, no CA needed), then that the location is actually spoofed —
+                    // and reports the exact fix. Broader than the verify card above, which only does rung 2.
+                    Section {
+                        Button {
+                            showSpoofDoctor = true
+                        } label: {
+                            Label("Check my setup", systemImage: "stethoscope")
+                        }
+                    } footer: {
+                        Text("Not working? This runs both checks — proxy interception and the spoof itself — and tells you exactly what to fix.")
+                    }
+
                     GslocQuickControlsCard()
                 }
 
@@ -430,6 +447,9 @@ struct PoGoModeView: View {
             }
             .sheet(isPresented: $showLocationHelp) {
                 LocationErrorHelpView()
+            }
+            .sheet(isPresented: $showSpoofDoctor) {
+                SpoofDoctorView()
             }
         }
     }

@@ -27,6 +27,11 @@ struct WalkModeView: View {
 
     @State private var speedMps: Double = 6_000.0 / 3_600.0   // default 6 km/h
     @AppStorage("useMph") private var useMph = false
+    // PoGo (gs-loc) mode steers only NETWORK location and only holds a STATIC fix — the joystick, routes
+    // and auto-walk silently fail there (iOS's real GPS overrides the moving injection and the avatar
+    // snaps back home). So when this is on we disable live movement outright rather than let it fail
+    // quietly. Bound to GslocMode's own defaults key so flipping the mode updates this instantly.
+    @AppStorage(GslocMode.defaultsKey) private var gslocMode = false
     // Optional per-game speed nudge (OFF by default): warn — never clamp — if the joystick speed
     // exceeds the selected game's community-cited safe ceiling. Reads the same prefs as the Games tab.
     @AppStorage("gameSpeedWarn") private var gameSpeedWarn = false
@@ -180,9 +185,13 @@ struct WalkModeView: View {
     private var controls: some View {
         WanderCard {
             VStack(spacing: 14) {
+                if gslocMode {
+                    gslocTeleportOnlyNote
+                }
                 if cooldownNoteVisible {
                     cooldownNote
                 }
+                Group {
                 if coordinate == nil {
                     AddressSearchBar(placeholder: "Search a place to start") { coord, _ in
                         coordinate = coord
@@ -237,8 +246,32 @@ struct WalkModeView: View {
                         stop()
                     }
                 }
+                }
+                // Teleport-only in gs-loc mode: dim and disable every live-movement control so a
+                // silent "spawns at home" failure can't happen. Teleport itself lives on the Location
+                // tab and stays fully usable.
+                .disabled(gslocMode)
+                .opacity(gslocMode ? 0.5 : 1)
             }
         }
+    }
+
+    /// Shown at the top of the Joystick controls while PoGo (gs-loc) mode is on: live movement doesn't
+    /// work through the gs-loc network path, so the controls below are disabled and the user is pointed
+    /// back to teleport (which is all gs-loc supports).
+    private var gslocTeleportOnlyNote: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "hand.raised.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+            Text(L("joystick.gsloc_teleport_only",
+                   fallback: "PoGo mode is teleport-only. Joystick, routes & auto-walk work in every other app and mode."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Non-blocking advisory shown when movement starts during a live cooldown. Reads the live

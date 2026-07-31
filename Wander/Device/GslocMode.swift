@@ -36,7 +36,10 @@
 import Foundation
 
 enum GslocMode {
-    private static let defaultsKey = "gsloc_mode_enabled"
+    /// UserDefaults key backing `enabled`. Exposed (not private) so movement/teleport views can bind an
+    /// `@AppStorage(GslocMode.defaultsKey)` to it and react the instant PoGo mode is toggled — the same
+    /// store `enabled` reads/writes, so the two can't disagree.
+    static let defaultsKey = "gsloc_mode_enabled"
 
     /// Made-up host the Wander gs-loc module intercepts with an http-request script. The request is
     /// caught locally by the proxy and never hits the network.
