@@ -183,7 +183,20 @@ struct MainTabView: View {
                     SimulationSession.shared.rescheduleIfActive()
                     gate.refresh()
                     License.shared.refresh()   // re-check so an expired subscription re-locks
-                    if session.isActive { flashBanner() }
+                    if session.isActive {
+                        flashBanner()
+                        // Re-assert the held teleport on foreground. The DVT session can die while we're
+                        // backgrounded — most commonly when the Airplane-Mode trick is undone (toggling
+                        // Airplane Mode OFF happens in Settings/Control Center, which backgrounds Wander
+                        // and drops the loopback channel). Nothing else restores the held location on
+                        // return: rescheduleIfActive only re-arms a reminder, and the snap-back watcher
+                        // is silent without Precise Location and gets no fixes while backgrounded — so the
+                        // spoof reverted and only a MANUAL re-teleport brought it back. Drive the same
+                        // guarded reconnect the snap-back path uses: it no-ops for gs-loc / movement modes
+                        // (suppressResends), re-asserts only the Map teleport hold, and if the tunnel
+                        // isn't up yet the health poll schedules another attempt.
+                        tunnelHealth.attemptReconnectNow()
+                    }
                 }
             }
             .tint(Color(red: 0.094, green: 0.373, blue: 0.647))   // Wander brand blue

@@ -66,9 +66,14 @@ final class TunnelHealthMonitor: ObservableObject {
     private let memoryWarningDuration: TimeInterval = 12
 
     // MARK: - Auto-reconnect backoff
-    private let maxReconnectAttempts = 3
+    private let maxReconnectAttempts = 6
     /// Spacing between reconnect attempts (grows a little each try). Best-effort only.
-    private let reconnectBackoff: [TimeInterval] = [2, 5, 10]
+    // Extended past the airplane-off window: turning Airplane Mode OFF re-attaches cellular, and iOS
+    // lockdownd refuses NEW connections for a while during that transition (so a rebuild keeps failing
+    // until it settles). The old 3-attempt / ~17 s budget quit before the tunnel came back, leaving the
+    // spoof reset until a manual re-teleport. ~72 s of attempts outlasts a typical re-attach; on success
+    // setState(.connected) resets the counter, and attemptReconnectNow() refreshes it on foreground/snap-back.
+    private let reconnectBackoff: [TimeInterval] = [2, 5, 10, 15, 20, 20]
     private var reconnectAttempt = 0
     private var reconnectWork: DispatchWorkItem?
 
@@ -207,6 +212,10 @@ final class TunnelHealthMonitor: ObservableObject {
     /// Called externally too (e.g. on the opp-5 snap-back bounce signal) to try a reconnect now.
     func attemptReconnectNow() {
         guard isActive else { return }
+        // A fresh external kick (foreground return, or a snap-back the watcher detected) refreshes the
+        // retry budget, so a reconnect run that exhausted its attempts while we were backgrounded doesn't
+        // stay permanently given-up — the user coming back to the app restarts persistent recovery.
+        reconnectAttempt = 0
         scheduleReconnectIfNeeded(force: true)
     }
 
