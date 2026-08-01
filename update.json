@@ -1,6 +1,6 @@
 {
-  "build": 126,
+  "build": 127,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "PoGo/gs-loc now works with Loon, Quantumult X & Stash — not just Shadowrocket. New 'Check my setup' doctor pinpoints exactly why a spoof isn't working (proxy routing, certificate trust, or GPS override). Clearer setup with the HTTP/2 MITM step, and PoGo mode now shows it's teleport-only so the joystick can't silently fail."
+  "notes": "Fix: a location set with the Airplane-Mode trick now restores automatically when you turn Airplane Mode back off — no more manual re-teleport. The tunnel auto-reconnect is more persistent (retries longer, and refreshes when you reopen the app)."
 }
