@@ -11,6 +11,10 @@ final class TunnelManager: ObservableObject {
     @Published private(set) var isConnected = false
 
     private var isStarting = false
+    /// When the in-flight start began, so a hung one can be detected and superseded.
+    private var startedAt: Date?
+    /// A start that hasn't returned in this long is treated as wedged, not in-progress.
+    private static let startStallTimeout: TimeInterval = 25
 
     private init() {}
 
@@ -34,11 +38,23 @@ final class TunnelManager: ObservableObject {
             return
         }
 
+        // `isStarting` is cleared in finishStart(), which only runs once startTunnel() RETURNS. That call
+        // can hang indefinitely (un-timeout-able RSD handshake over a half-open socket during a network
+        // change — exactly what Airplane Mode toggling produces). When it hung, this latch stayed true and
+        // every later start() returned silently: the tunnel could never come back even once conditions
+        // were good again, so the UI sat on "reconnecting…" until the app was force-quit. Treat a latch
+        // older than the stall window as stale and let the new attempt through.
+        if isStarting, let since = startedAt, Date().timeIntervalSince(since) > Self.startStallTimeout {
+            LogManager.shared.addWarningLog("Tunnel start appears wedged (\(Int(Date().timeIntervalSince(since)))s) — allowing a fresh attempt")
+            isStarting = false
+        }
+
         guard !isStarting else {
             return
         }
 
         isStarting = true
+        startedAt = Date()
 
         DispatchQueue.global(qos: .userInteractive).async { [showErrorUI] in
             let result: Result<Void, NSError>

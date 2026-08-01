@@ -232,7 +232,12 @@ final class TunnelHealthMonitor: ObservableObject {
         // Error-12 single-writer fix. So skip the reconnect while another mode owns the stream.
         guard !LocationSimulationCommandQueue.suppressResends else { return }
         guard reconnectWork == nil else { return } // one in flight already
-        guard force || reconnectAttempt < maxReconnectAttempts else { return }
+        guard force || reconnectAttempt < maxReconnectAttempts else {
+            // Out of attempts: stop claiming we're reconnecting. Leaving this true is what made the chip
+            // sit on "reconnecting…" forever even though nothing was being retried any more.
+            isReconnecting = false
+            return
+        }
         guard let target = SimulationSession.shared.lastTeleportCoordinate else { return }
 
         let delay = reconnectBackoff[min(reconnectAttempt, reconnectBackoff.count - 1)]

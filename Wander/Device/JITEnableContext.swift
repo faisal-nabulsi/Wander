@@ -38,6 +38,11 @@ final class JITEnableContext {
 
     private let tunnelLock = NSLock()
     private var tunnelConnecting = false
+
+    /// How long a second caller will wait to join an in-flight tunnel creation before giving up. Must
+    /// stay well under the user's patience: a wedged creation should surface as a retryable error, never
+    /// as a permanently stuck "reconnecting…".
+    static let tunnelJoinTimeout: TimeInterval = 12
     private var tunnelSemaphore: DispatchSemaphore?
     private var lastTunnelError: NSError?
 
@@ -237,7 +242,13 @@ final class JITEnableContext {
             tunnelLock.unlock()
 
             if let waitSemaphore {
-                waitSemaphore.wait()
+                // BOUNDED. The in-flight creation can hang (the RSD handshake below is un-timeout-able
+                // and a half-open socket during a network transition — e.g. Airplane Mode toggling —
+                // never returns). An unbounded wait here blocked EVERY later attempt forever, which is
+                // what left the tunnel permanently "reconnecting…" until the app was force-quit.
+                if waitSemaphore.wait(timeout: .now() + Self.tunnelJoinTimeout) == .timedOut {
+                    throw makeError("Tunnel is still connecting — try again in a moment.", code: -20)
+                }
                 waitSemaphore.signal()
             }
 
