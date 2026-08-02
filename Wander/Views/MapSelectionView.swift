@@ -1899,6 +1899,23 @@ struct LocationSimulationView: View {
     }
 
     private func performSimulate(coord: CLLocationCoordinate2D) {
+        // Bring Wander's own tunnel up before the first inject, so "connect the tunnel first" stops being
+        // a manual step. No-ops instantly unless the user opted in (useOwnTunnel) and never runs while
+        // gs-loc owns the VPN slot — see WanderTunnel.ensureStarted. If the tunnel is already carrying
+        // traffic the probe returns immediately, so the normal path is unaffected.
+        if UserDefaults.standard.bool(forKey: UserDefaults.Keys.useOwnTunnel),
+           !GslocMode.enabled,
+           !isTunnelSimEndpointReachable() {
+            Task {
+                await WanderTunnel.shared.ensureStarted()
+                performSimulateInner(coord: coord)
+            }
+            return
+        }
+        performSimulateInner(coord: coord)
+    }
+
+    private func performSimulateInner(coord: CLLocationCoordinate2D) {
         SavedPlacesStore.recordRecent(coord, name: "Pinned location")
         locationInfo.refresh(lat: coord.latitude, lng: coord.longitude)
 
