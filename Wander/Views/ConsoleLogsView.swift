@@ -68,6 +68,9 @@ struct ConsoleLogsView: View {
                             Button("Clear", systemImage: "trash", role: .destructive) {
                                 logManager.clearLogs()
                             }
+                            Button("Copy Spoof Diagnostics", systemImage: "stethoscope") {
+                                copySpoofDiagnostics()
+                            }
                             Button("Copy Logs", systemImage: "doc.on.doc") {
                                 copyJITLogs()
                             }
@@ -250,6 +253,32 @@ struct ConsoleLogsView: View {
                 }
             }
         }
+    }
+
+    /// Copy ONLY the lines that matter for diagnosing a spoof failure.
+    ///
+    /// The raw console is overwhelmingly pairing-file byte dumps — thousands of single-integer lines that
+    /// bury the handful of meaningful events and blow past any paste limit before you reach them. This
+    /// keeps the spoof trace plus the tunnel lifecycle markers (connection resets, adapter teardown,
+    /// tunnel establishment, errors) and drops the noise, so a report is small enough to actually send.
+    private func copySpoofDiagnostics() {
+        // Substrings worth keeping. Deliberately broad on failure words, narrow on everything else.
+        let keep = ["[spoof]", "RST on", "Freeing adapter", "CDTunnel established", "Tunnel health:",
+                    "simulateLocationWithLatitude", "error", "Error", "ERROR", "WARN", "failed", "Failed",
+                    "DeveloperModeStatus", "Connecting to RSD", "timed out", "refused", "reset"]
+        let matched = logManager.logs.filter { entry in
+            let m = entry.message
+            // Drop the byte-array spam explicitly: those lines are just an integer and a comma.
+            if m.count < 6, Int(m.trimmingCharacters(in: CharacterSet(charactersIn: " ,"))) != nil { return false }
+            return keep.contains { m.contains($0) }
+        }
+        var out = "=== WANDER SPOOF DIAGNOSTICS ===\n"
+        out += "iOS \(UIDevice.current.systemVersion) · build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")\n"
+        out += "kept \(matched.count) of \(logManager.logs.count) lines\n\n"
+        out += matched.map { "[\(formatTime(date: $0.timestamp))] \($0.message)" }.joined(separator: "\n")
+        UIPasteboard.general.string = out
+        presentAlert(title: "Diagnostics Copied",
+                     message: "\(matched.count) relevant lines copied (filtered out \(logManager.logs.count - matched.count) noise lines).")
     }
 
     private func copyJITLogs() {
