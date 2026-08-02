@@ -10,6 +10,7 @@
 //
 
 import NetworkExtension
+import Network
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
     var tunnelDeviceIp: String = "10.7.0.0"
@@ -18,6 +19,22 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private var deviceIpValue: UInt32 = 0
     private var fakeIpValue: UInt32 = 0
+
+    // Watches the UNDERLYING network so the tunnel can be re-established when it changes.
+    //
+    // WHY: this tunnel's settings are bound to the interface that existed when it started. Turning
+    // Airplane Mode off re-attaches cellular and iOS rebuilds the interfaces underneath us — the loopback
+    // route silently stops working, every connection through it is RST, and nothing here ever re-applies
+    // the settings. The tunnel stays "connected" while carrying nothing, which is why a spoof set in
+    // Airplane Mode died the moment cellular came back and could not be rebuilt afterwards.
+    //
+    // Re-applying the same NEPacketTunnelNetworkSettings makes iOS reinstall the addresses and routes on
+    // the NEW interface. `reasserting` tells the system we are mid-recovery so it doesn't treat the gap
+    // as a failure.
+    private let pathMonitor = NWPathMonitor()
+    private let pathQueue = DispatchQueue(label: "com.wander.tunnelprov.path")
+    private var lastPathSummary: String = ""
+    private var currentSettings: NEPacketTunnelNetworkSettings?
 
     override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         if let deviceIp = options?["TunnelDeviceIP"] as? String { tunnelDeviceIp = deviceIp }
@@ -47,10 +64,53 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         ipv6.excludedRoutes = [.default()]
         settings.ipv6Settings = ipv6
 
+        currentSettings = settings
+
         setTunnelNetworkSettings(settings) { error in
             guard error == nil else { return completionHandler(error) }
             self.setPackets()
+            self.startPathMonitoring()
             completionHandler(nil)
+        }
+    }
+
+    override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+        pathMonitor.cancel()
+        completionHandler()
+    }
+
+    /// Re-apply the tunnel settings whenever the underlying network changes (cellular <-> Wi-Fi, and
+    /// crucially the Airplane-Mode-off re-attach). Without this the tunnel survives as an object while its
+    /// routes are dead on the new interface.
+    private func startPathMonitoring() {
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            // Summarise the path so we only react to REAL changes, not every duplicate callback — a
+            // needless re-apply would tear down live connections for no reason.
+            let summary = "\(path.status)|" + path.availableInterfaces.map { "\($0.type)\($0.name)" }.joined(separator: ",")
+            guard summary != self.lastPathSummary else { return }
+            let isFirst = self.lastPathSummary.isEmpty
+            self.lastPathSummary = summary
+            guard !isFirst else { return }   // the initial callback is just the current state
+            guard path.status == .satisfied else { return }  // wait until there IS a usable path
+            self.reapplySettings()
+        }
+        pathMonitor.start(queue: pathQueue)
+    }
+
+    private func reapplySettings() {
+        guard let settings = currentSettings else { return }
+        reasserting = true
+        // Clearing first (nil) forces iOS to drop the stale interface configuration before we reinstall
+        // it; re-applying on top of a stale config is a no-op on some iOS versions.
+        setTunnelNetworkSettings(nil) { [weak self] _ in
+            guard let self else { return }
+            self.setTunnelNetworkSettings(settings) { [weak self] _ in
+                guard let self else { return }
+                self.reasserting = false
+                // The read loop is bound to the old flow; restart it so packets flow on the new interface.
+                self.setPackets()
+            }
         }
     }
 
