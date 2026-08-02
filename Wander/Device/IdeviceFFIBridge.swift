@@ -972,55 +972,28 @@ private enum LocationSimulationState {
         }
     }
 
-    /// Copy the current handles WITHOUT clearing or freeing them, so a timed-out write can hand the
-    /// session off for deferred reclamation (see `_boundedSet`'s late-completion path).
-    static func snapshot() -> StaleSimSession {
-        StaleSimSession(adapter: adapter,
-                        handshake: handshake,
-                        remoteServer: remoteServer,
-                        locationSimulation: locationSimulation)
+    // A bounded write timed out but the session is NOT presumed dead: the detached FFI thread is still
+    // blocked on it, and during a network transition a perfectly healthy loopback write can take many
+    // seconds (TCP retransmit backoff while the interface is rebuilt). We keep the session, skip issuing
+    // further writes until that one lands (the FFI is not safe to call concurrently on one handle), and
+    // let the OUTCOME decide the session's fate. This is what build 50 effectively did — it never threw
+    // away an established channel on a transient — and why airplane-off used to survive.
+    private static let writeLock = NSLock()
+    private static var _writeInFlight = false
+    static var writeInFlight: Bool {
+        get { writeLock.lock(); defer { writeLock.unlock() }; return _writeInFlight }
+        set { writeLock.lock(); _writeInFlight = newValue; writeLock.unlock() }
     }
 
-    /// Drop our references WITHOUT freeing them. Ownership of the free has ALREADY been transferred to
-    /// the detached FFI thread via `_boundedSet(onLateCompletion:)` — this only stops US from touching
-    /// pointers that thread is still using. Never call this without arranging that hand-off, or the
-    /// session leaks (that leak was the airplane-off "spoof reverts and never comes back" bug).
-    static func detachAfterHandoff() {
-        locationSimulation = nil
-        remoteServer = nil
-        handshake = nil
-        adapter = nil
-    }
-
-    /// Free a session we no longer hold references to. Safe ONLY once the detached FFI write that was
-    /// still using it has returned — that thread is the last toucher, so it performs this itself.
-    static func free(_ stale: StaleSimSession) {
-        if let p = stale.locationSimulation { location_simulation_free(p) }
-        if let p = stale.remoteServer { remote_server_free(p) }
-        if let p = stale.handshake { rsd_handshake_free(p) }
-        if let p = stale.adapter { adapter_free(p) }
-    }
-
-    // DtSimulateLocation is CONNECTION-SCOPED: the device drops the simulation when the owning session
-    // is torn down. So when a stale session is finally reclaimed, the device-side registration goes with
-    // it — and the handle we hold now no longer owns the fix even though its writes still return OK.
-    // This flag forces exactly one teardown+rebuild so we genuinely re-arm instead of writing into the
-    // void. (Set from the detached reclaim thread, read on the serial command queue — hence the lock.)
+    // Set when a session was torn down out-of-band (a late write came back an error). The device drops
+    // the simulation with its owning connection, so the next inject must rebuild rather than assume the
+    // fix still holds.
     private static let reassertLock = NSLock()
     private static var _needsReassert = false
     static var needsReassert: Bool {
         get { reassertLock.lock(); defer { reassertLock.unlock() }; return _needsReassert }
         set { reassertLock.lock(); _needsReassert = newValue; reassertLock.unlock() }
     }
-}
-
-/// Handles of a session we've stopped referencing but which is still alive because an FFI call has not
-/// returned yet. Held only long enough for that call to finish, then freed.
-private struct StaleSimSession {
-    let adapter: OpaquePointer?
-    let handshake: OpaquePointer?
-    let remoteServer: OpaquePointer?
-    let locationSimulation: OpaquePointer?
 }
 
 /// Arbitrates the race between a bounded write's caller giving up and the detached FFI thread finishing,
@@ -1171,31 +1144,35 @@ private enum BoundedSetResult { case ok, failed, timedOut }
 /// timeout and can block forever on a genuinely dead tunnel, so we run it on a detached thread and
 /// bound the wait — the serial command queue is never wedged. A live loopback write returns in
 /// milliseconds, so a timeout means the session is really gone (not merely new-connects-refused).
-/// `onLateCompletion` runs ONLY when we time out and the detached write later returns — at that moment
-/// the FFI thread is the last user of the session, so that closure is the one safe place to free it.
-/// Without this hand-off the session was abandoned forever, and because the device ties the simulation to
-/// the owning connection, the abandoned session either kept ownership or killed the simulation when iOS
-/// eventually reaped it — leaving the rebuilt session ACKing writes it didn't own.
+/// The timeout is generous ON PURPOSE. A healthy loopback write returns in milliseconds, but while iOS
+/// rebuilds the interfaces (exactly what turning Airplane Mode off does) an equally healthy write can sit
+/// in TCP retransmit backoff for several seconds. The old 2s bound misread that as "session dead" and
+/// discarded a channel that was still perfectly good — which is why the spoof stopped surviving
+/// airplane-off. We only need the bound so the serial command queue can't wedge; it is not a liveness
+/// test. `onLateOutcome(success:)` fires if the write lands AFTER we stopped waiting — that outcome, not
+/// the timeout, is what decides whether the session is really gone.
 private func _boundedSet(_ sim: OpaquePointer, _ latitude: Double, _ longitude: Double,
-                         timeoutSeconds: Double = 2,
-                         onLateCompletion: (() -> Void)? = nil) -> BoundedSetResult {
+                         timeoutSeconds: Double = 8,
+                         onLateOutcome: ((Bool) -> Void)? = nil) -> BoundedSetResult {
     let sem = DispatchSemaphore(value: 0)
     let handoff = BoundedSetHandoff()
     var setError: UnsafeMutablePointer<IdeviceFfiError>?
     Thread.detachNewThread {
         setError = location_simulation_set(sim, latitude, longitude)
-        let weOwnCleanup = handoff.markThreadFinished()
+        let callerGaveUp = handoff.markThreadFinished()
         sem.signal()
-        if weOwnCleanup {
-            // The caller gave up on us; nobody else is touching this session now.
+        if callerGaveUp {
+            // Nobody is waiting on us any more, so we own the result. Report whether the write actually
+            // landed; the caller kept the session alive pending exactly this answer.
+            let ok = setError == nil
             if let err = setError { idevice_error_free(err); setError = nil }
-            onLateCompletion?()
+            onLateOutcome?(ok)
         }
     }
     if sem.wait(timeout: .now() + timeoutSeconds) == .timedOut {
-        // Tiny race: the thread may have signalled at the exact timeout boundary. If it had already
-        // finished, IT won't run the closure, so we must — otherwise the session leaks again.
-        if handoff.markCallerGaveUp() { onLateCompletion?() }
+        // Tiny race: the thread may have signalled right at the boundary. If it already finished it
+        // won't invoke the closure, so we must — otherwise the in-flight latch is never cleared.
+        if handoff.markCallerGaveUp() { onLateOutcome?(setError == nil) }
         return .timedOut
     }
     if let err = setError { idevice_error_free(err); return .failed }
@@ -1223,26 +1200,40 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
     }
 
     if !_isSimEndpointReachable(deviceIP) {
+        // A previous write is still out there. Do NOT issue another one (the FFI is not safe to call
+        // concurrently on one handle) and do NOT tear anything down — we are waiting to learn whether
+        // that write lands. Report a soft error; the hold loop simply tries again on the next tick.
+        if LocationSimulationState.writeInFlight {
+            return LocationSimulationStatus.remoteServer
+        }
         if let sim = LocationSimulationState.locationSimulation {
-            // Snapshot BEFORE the write so a late completion has something to free. Taking the snapshot
-            // costs nothing when the write lands normally.
-            let stale = LocationSimulationState.snapshot()
-            let result = _boundedSet(sim, latitude, longitude, onLateCompletion: {
-                // The detached write finally returned: we are the last toucher, so freeing is safe here
-                // and ONLY here. Freeing releases the device-side simulation, hence the re-assert flag.
-                LocationSimulationState.free(stale)
-                LocationSimulationState.needsReassert = true
+            LocationSimulationState.writeInFlight = true
+            let result = _boundedSet(sim, latitude, longitude, onLateOutcome: { landed in
+                // The write finally came back. THIS is the liveness test — not the timeout.
+                LocationSimulationState.writeInFlight = false
+                if !landed {
+                    // Genuinely dead. The detached thread has returned, so we are the last toucher and
+                    // freeing is safe. The device drops the simulation with the connection, so the next
+                    // inject must rebuild rather than assume the fix still holds.
+                    LocationSimulationCommandQueue.shared.async {
+                        LocationSimulationState.cleanup()
+                        LocationSimulationState.needsReassert = true
+                    }
+                }
             })
             switch result {
             case .ok:
+                LocationSimulationState.writeInFlight = false
                 DeviceReadiness.markSimulationSucceeded()
                 return LocationSimulationStatus.ok
             case .failed:
+                LocationSimulationState.writeInFlight = false
                 LocationSimulationState.cleanup()   // session genuinely dead — free it, report below
             case .timedOut:
-                // Hand-off is armed above, so this only drops OUR refs; the FFI thread frees the session
-                // once its write returns. (It used to be abandoned unfreed — that leak is this bug.)
-                LocationSimulationState.detachAfterHandoff()
+                // KEEP THE SESSION. A slow write during an interface rebuild is not a dead session, and
+                // throwing it away here is precisely what broke surviving airplane-off. The late outcome
+                // above decides its fate.
+                break
             }
         }
         return LocationSimulationStatus.remoteServer
