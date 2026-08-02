@@ -997,22 +997,16 @@ private enum LocationSimulationState {
     // further writes until that one lands (the FFI is not safe to call concurrently on one handle), and
     // let the OUTCOME decide the session's fate. This is what build 50 effectively did — it never threw
     // away an established channel on a transient — and why airplane-off used to survive.
-    private static let writeLock = NSLock()
-    private static var _writeInFlight = false
-    static var writeInFlight: Bool {
-        get { writeLock.lock(); defer { writeLock.unlock() }; return _writeInFlight }
-        set { writeLock.lock(); _writeInFlight = newValue; writeLock.unlock() }
+    /// Drop our references WITHOUT freeing them — used only when a bounded write TIMED OUT and the
+    /// detached FFI thread may still be using the pointers. Leaks one dead session; the alternative is a
+    /// use-after-free. The next inject rebuilds, which is what actually restores the spoof.
+    static func dropReferencesUnsafeToFree() {
+        locationSimulation = nil
+        remoteServer = nil
+        handshake = nil
+        adapter = nil
     }
 
-    // Set when a session was torn down out-of-band (a late write came back an error). The device drops
-    // the simulation with its owning connection, so the next inject must rebuild rather than assume the
-    // fix still holds.
-    private static let reassertLock = NSLock()
-    private static var _needsReassert = false
-    static var needsReassert: Bool {
-        get { reassertLock.lock(); defer { reassertLock.unlock() }; return _needsReassert }
-        set { reassertLock.lock(); _needsReassert = newValue; reassertLock.unlock() }
-    }
 }
 
 /// Arbitrates the race between a bounded write's caller giving up and the detached FFI thread finishing,
@@ -1224,87 +1218,37 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
     // holding no longer owns the fix EVEN THOUGH its writes still return OK. Without this, the success
     // path below returns .ok forever and we never rebuild — the device sits on the REAL location while
     // the log shows perfectly healthy injects. Force one teardown so the rebuild path re-arms us.
-    if LocationSimulationState.needsReassert {
-        LocationSimulationState.needsReassert = false
-        LocationSimulationState.cleanup()
-    }
-
-    let reachable = _isSimEndpointReachable(deviceIP)
-    let haveSession = LocationSimulationState.locationSimulation != nil
-    SpoofTrace.log("inject probe=\(reachable ? "OK" : "FAIL") handle=\(haveSession ? "yes" : "NIL") inFlight=\(LocationSimulationState.writeInFlight) target=\(deviceIP):49152 pairing=\(FileManager.default.fileExists(atPath: pairingFile) ? "ok" : "MISSING")")
-
-    // THE PROBE ONLY GATES US WHEN THERE IS A SESSION TO PROTECT.
+    // ── BUILD-52 SEMANTICS (restored 2026-08-02) ──────────────────────────────────────────────────
+    // Build 52 — the last version where a spoof survived turning Airplane Mode off — did exactly this:
+    // try the cached handle; on ANY failure clean up and fall straight through to a full rebuild IN THE
+    // SAME CALL. No reachability probe, no latches, no early returns.
     //
-    // Build 84 added this probe to stop a dead tunnel wedging the serial queue, but it returns early on
-    // failure — which also skips the REBUILD below. With no session that is catastrophic: the rebuild is
-    // the only thing that can recover, so we sit returning error 9 forever. Build 52 had no probe here at
-    // all: a failed write cleaned up and rebuilt in the same call, which is exactly why a spoof survived
-    // turning Airplane Mode off.
+    // Everything added since was a guard that could SKIP the rebuild, and the rebuild is the only thing
+    // that recovers. Build 84's probe (_isSimEndpointReachable) is the regression: it returns early on
+    // failure, so after the cellular re-attach the app returned error 9 forever instead of rebuilding.
+    // The probe is also unreliable — the device log shows it reporting unreachable at the same moment a
+    // brand-new tunnel handshake SUCCEEDED (`CDTunnel established`). It is not consulted here any more.
     //
-    // And the probe LIES. On the cellular re-attach the loopback connection is RST, but a NEW tunnel can
-    // still be created: the on-device log shows `RST on hp=...` immediately followed by a SUCCESSFUL
-    // `mobile_image_mounter` RSD connect. The probe (a raw TCP connect to ip:49152) reported unreachable
-    // at the same moment `tunnel_create_rppairing` would have succeeded.
-    //
-    // So: with a live session, keep trusting the bounded-write path below (it protects a working channel).
-    // With NO session there is nothing to protect and everything to gain — always attempt the rebuild.
-    if !reachable && haveSession {
-        // A previous write is still out there. Do NOT issue another one (the FFI is not safe to call
-        // concurrently on one handle) and do NOT tear anything down — we are waiting to learn whether
-        // that write lands. Report a soft error; the hold loop simply tries again on the next tick.
-        if LocationSimulationState.writeInFlight {
-            SpoofTrace.log("  skip: a write is still in flight")
-            return LocationSimulationStatus.remoteServer
-        }
-        if let sim = LocationSimulationState.locationSimulation {
-            LocationSimulationState.writeInFlight = true
-            let result = _boundedSet(sim, latitude, longitude, onLateOutcome: { landed in
-                // The write finally came back. THIS is the liveness test — not the timeout.
-                SpoofTrace.log("  LATE write outcome: \(landed ? "LANDED (session alive)" : "ERROR (session dead)")")
-                LocationSimulationState.writeInFlight = false
-                if !landed {
-                    // Genuinely dead. The detached thread has returned, so we are the last toucher and
-                    // freeing is safe. The device drops the simulation with the connection, so the next
-                    // inject must rebuild rather than assume the fix still holds.
-                    LocationSimulationCommandQueue.shared.async {
-                        LocationSimulationState.cleanup()
-                        LocationSimulationState.needsReassert = true
-                    }
-                }
-            })
-            SpoofTrace.log("  boundedSet(unreachable path) -> \(result)")
-            switch result {
-            case .ok:
-                LocationSimulationState.writeInFlight = false
-                DeviceReadiness.markSimulationSucceeded()
-                return LocationSimulationStatus.ok
-            case .failed:
-                LocationSimulationState.writeInFlight = false
-                SpoofTrace.log("  cleanup: write returned an error")
-                LocationSimulationState.cleanup()   // session genuinely dead — free it, report below
-            case .timedOut:
-                // KEEP THE SESSION. A slow write during an interface rebuild is not a dead session, and
-                // throwing it away here is precisely what broke surviving airplane-off. The late outcome
-                // above decides its fate.
-                break
-            }
-        }
-        return LocationSimulationStatus.remoteServer
-    }
-    if let locationSimulation = LocationSimulationState.locationSimulation {
-        if let ffiError = location_simulation_set(locationSimulation, latitude, longitude) {
-            idevice_error_free(ffiError)
-            SpoofTrace.log("  fast-path set FAILED -> cleanup + rebuild")
-            LocationSimulationState.cleanup()
-        } else {
-            // The write succeeded on the cached handle. NOTE: this returning ok does NOT prove the device
-            // is honouring the fix — the whole airplane-off mystery is that these succeed while the device
-            // reports the real location. Traced so we can correlate against what the map actually shows.
-            SpoofTrace.log("  fast-path set OK (cached handle)")
+    // The ONLY thing kept from build 84's intent is a TIMEOUT, because the FFI write has none and could
+    // otherwise hang the serial command queue forever (blocking even Stop/Panic). A timeout now just
+    // means "stop waiting and rebuild" — never "give up".
+    if let sim = LocationSimulationState.locationSimulation {
+        let result = _boundedSet(sim, latitude, longitude)
+        SpoofTrace.log("  cached-handle set -> \(result)")
+        switch result {
+        case .ok:
             DeviceReadiness.markSimulationSucceeded()
             return LocationSimulationStatus.ok
+        case .failed:
+            // Thread has returned, so freeing is safe. Falls through to the rebuild below.
+            LocationSimulationState.cleanup()
+        case .timedOut:
+            // The detached write may still be touching these pointers, so drop our references WITHOUT
+            // freeing (leaks one dead session; a use-after-free would crash). Falls through to rebuild.
+            LocationSimulationState.dropReferencesUnsafeToFree()
         }
     }
+
     SpoofTrace.log("  REBUILDING session (tunnel_create_rppairing -> remote_server -> location_simulation_new)")
 
     var address = sockaddr_in()
