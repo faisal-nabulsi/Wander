@@ -51,11 +51,29 @@ final class LogManager: ObservableObject {
             .first(where: { message.hasPrefix($0) })
             .map { String(message.dropFirst($0.count)) } ?? message
 
+        // DROP RAW BYTE-ARRAY SPAM BEFORE IT REACHES THE BUFFER.
+        //
+        // The idevice layer debug-prints plists (the pairing file, escrow bag, keys) one BYTE PER LINE.
+        // A single pairing dump is thousands of entries, so with a 1000-entry buffer it evicted every
+        // real event — which is exactly why four separate diagnostic captures came back containing
+        // nothing but numbers, with the [spoof] trace already gone before Export could run. These lines
+        // carry no diagnostic value: a byte of a key tells you nothing, and the surrounding context
+        // lines are kept.
+        if Self.isRawByteLine(clean) { return }
+
         DispatchQueue.main.async {
             self.logs.append(LogEntry(timestamp: Date(), type: type, message: clean))
             if type == .error { self.errorCount += 1 }
-            if self.logs.count > 1000 { self.logs.removeFirst(100) }
+            if self.logs.count > 4000 { self.logs.removeFirst(500) }
         }
+    }
+
+    /// True for a line that is only a number (optionally with a trailing comma) — i.e. one element of a
+    /// dumped Data array. Cheap enough to run on every log line.
+    private static func isRawByteLine(_ message: String) -> Bool {
+        let t = message.trimmingCharacters(in: CharacterSet(charactersIn: " \t,"))
+        guard !t.isEmpty, t.count <= 3 else { return false }
+        return t.allSatisfy(\.isNumber)
     }
 
     func addInfoLog(_ message: String)    { addLog(message: message, type: .info) }

@@ -1197,7 +1197,9 @@ struct LocationSimulationView: View {
                 Spacer()
 
                 WanderCard {
-                    VStack(spacing: 12) {
+                    // Tighter than the standard card spacing on purpose: this panel sits on top of the
+                    // map, and the map is the point. Every point of height here is map the user can't see.
+                    VStack(spacing: 8) {
                         if !hasRouteContext {
                             AddressSearchBar(
                                 placeholder: "Search, coordinates, or Plus Code",
@@ -1222,7 +1224,11 @@ struct LocationSimulationView: View {
                             pinControls
                         }
                     }
-                    .hugScrollCard(maxHeight: UIScreen.main.bounds.height * 0.5)
+                    // Was 0.5 — the panel could eat HALF the screen. The map is the product; the controls
+                    // are the accessory. Capped lower so the map always keeps roughly two-thirds, and the
+                    // card scrolls internally instead of growing (hugScrollCard already handles that), so
+                    // nothing becomes unreachable — it just stops covering the map to get there.
+                    .hugScrollCard(maxHeight: UIScreen.main.bounds.height * 0.34)
                 }
                 .background(
                     GeometryReader { geo in
@@ -1261,7 +1267,13 @@ struct LocationSimulationView: View {
                 Spacer(minLength: 0)
             }
         }
-        .onPreferenceChange(ControlsCardTopKey.self) { controlsCardTopY = $0 }
+        // Ignore non-positive readings. Swapping between the online and offline map tears the card's
+        // GeometryReader down and briefly reports 0, which made crosshairLift snap to its default and
+        // the crosshair visibly jump up (and land under the card). Keeping the last good measurement
+        // makes the swap invisible.
+        .onPreferenceChange(ControlsCardTopKey.self) { newValue in
+            if newValue > 0 { controlsCardTopY = newValue }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarLeading) {
