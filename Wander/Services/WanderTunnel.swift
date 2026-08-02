@@ -72,6 +72,41 @@ final class WanderTunnel: ObservableObject {
         (status == .connected || status == .connecting) ? stop() : start()
     }
 
+    /// Bring the tunnel up if it isn't, and resolve only once it can actually carry traffic.
+    ///
+    /// WHY: nothing in the app restarted this tunnel if the VPN itself died — `TunnelHealthMonitor`
+    /// re-asserted the last teleport but never touched `WanderTunnel`, so a dropped VPN left a silently
+    /// dead session the user had to notice and fix by hand.
+    ///
+    /// Readiness is the endpoint probe, NOT a fixed sleep: `.connected` only means iOS started the
+    /// provider, and injecting before the loopback route is installed fails. `isTunnelSimEndpointReachable()`
+    /// is the already-shipped bounded TCP probe to ip:49152, which is exactly the thing that has to work.
+    ///
+    /// `.reasserting` is treated as UP on purpose. iOS reports it during a normal network change; calling
+    /// start() then would bounce a tunnel that is about to recover and kill the live, connection-scoped
+    /// DVT session with it — the bug class this app just spent a long night fixing.
+    @discardableResult
+    func ensureStarted(timeout: TimeInterval = 12) async -> Bool {
+        // Opt-in only. start() sets isEnabled + saves, which takes iOS's single VPN slot away from
+        // whatever the user actually chose (LocalDevVPN, Shadowrocket, a real VPN).
+        guard UserDefaults.standard.bool(forKey: UserDefaults.Keys.useOwnTunnel) else { return false }
+        // gs-loc needs Shadowrocket to hold that slot; stealing it would break PoGo mode outright.
+        guard !GslocMode.enabled else { return false }
+
+        if isTunnelSimEndpointReachable() { return true }
+        if status != .connected && status != .connecting { start() }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            // Fail fast on the free-sideload case rather than burning the whole timeout: the NE
+            // entitlement is stripped there, so the tunnel can never come up and LocalDevVPN is the path.
+            if status == .error { return false }
+            if isTunnelSimEndpointReachable() { return true }
+        }
+        return false
+    }
+
     func start() {
         DispatchQueue.main.async { self.lastError = nil }
         setStatus(.connecting)

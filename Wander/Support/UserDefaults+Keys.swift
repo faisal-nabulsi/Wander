@@ -15,6 +15,12 @@ extension UserDefaults {
         static let defaultScriptName = "DefaultScriptName"
         static let defaultScriptNameValue = ""
         /// The fake/peer IP Wander CONNECTS TO (LocalDevVPN's "Tunnel IP"). Default 10.7.0.1.
+        /// Opt-in: let Wander start and revive its OWN NE tunnel instead of relying on an external helper.
+        /// Off by default — starting our tunnel claims iOS's single VPN slot from whatever the user chose
+        /// (LocalDevVPN, Shadowrocket, a real VPN), and on free-sideload builds the NE entitlement is
+        /// stripped so it can never come up at all.
+        static let useOwnTunnel = "useOwnTunnel"
+
         static let targetDeviceIP = "TunnelDeviceIP"
         /// The interface/device IP Wander's OWN packet tunnel assigns (LocalDevVPN's "Device IP"),
         /// used only on the paid TunnelProv path. Default 10.7.0.0.

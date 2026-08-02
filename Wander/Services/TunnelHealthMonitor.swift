@@ -250,6 +250,11 @@ final class TunnelHealthMonitor: ObservableObject {
                 LogManager.shared.addInfoLog(
                     "Tunnel health: best-effort reconnect attempt \(self.reconnectAttempt) → re-asserting last target"
                 )
+                // Revive the TUNNEL first, then re-assert. Re-asserting a teleport is pointless if the
+                // VPN carrying it is down — and nothing else in the app ever restarted it, so a dropped
+                // tunnel used to leave a silently dead session until the user noticed. No-ops unless the
+                // user opted into Wander's own tunnel, and never while gs-loc owns the VPN slot.
+                await WanderTunnel.shared.ensureStarted()
                 // Reuse the normal teleport path (re-mounts the tunnel). Does NOT guarantee recovery.
                 SimulationSession.shared.resume(to: target)
                 // If the next poll shows health recovered, setState() clears isReconnecting. If not and
