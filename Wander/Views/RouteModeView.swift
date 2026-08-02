@@ -202,6 +202,30 @@ struct RouteModeView: View {
 
     @State private var isComputing = false
     @State private var isDriving = false
+
+    /// True while this view holds the background keep-alive.
+    ///
+    /// Without a hold, iOS suspends the app and reclaims the socket under the DVT connection (Apple
+    /// TN2277), dropping the spoof — and on cellular the reconnect is refused by lockdownd, so it never
+    /// comes back. This view had no keep-alive at all and survived only on the app-wide silent-audio one.
+    ///
+    /// A latch rather than raw requestStart/requestStop calls: there is one entry path but several exit
+    /// paths, and unbalanced calls would decrement the shared activity count, possibly releasing a hold
+    /// belonging to another active mode (e.g. a teleport hold running at the same time).
+    @State private var keepAliveHeld = false
+
+    private func holdKeepAlive() {
+        guard !keepAliveHeld else { return }
+        keepAliveHeld = true
+        BackgroundLocationManager.shared.requestStart()
+    }
+
+    private func releaseKeepAlive() {
+        guard keepAliveHeld else { return }
+        keepAliveHeld = false
+        BackgroundLocationManager.shared.requestStop()
+    }
+
     @State private var playbackTask: Task<Void, Never>?
 
     @State private var alertText: String?
@@ -1451,6 +1475,7 @@ struct RouteModeView: View {
             return
         }
 
+        holdKeepAlive()
         isDriving = true
         isPaused = false
         followCamera = true   // each drive starts tracking the pin
@@ -1540,7 +1565,8 @@ struct RouteModeView: View {
                 }
             } while shouldLoop && !Task.isCancelled
             if !Task.isCancelled {
-                isDriving = false
+                releaseKeepAlive()
+        isDriving = false
                 // Drive finished naturally — park at the destination. Hand the warm-hold back to the
                 // Map tab's resend, re-seeded at the ARRIVED point, so the fix stays alive now that our
                 // playback loop has stopped (mirrors WalkModeView.arriveAutoWalk). A user Stop instead
@@ -1565,6 +1591,7 @@ struct RouteModeView: View {
         playbackTask = nil
         // Adventure Sync: flush the tail of the drive and clear accumulation.
         AdventureSyncManager.shared.endWalk()
+        releaseKeepAlive()
         isDriving = false
         isPaused = false
         progress = 0

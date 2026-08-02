@@ -39,6 +39,30 @@ struct WalkModeView: View {
     private var gamePreset: GamePreset { GamePreset(rawValue: gamePresetRaw) ?? .pokemonGo }
     @State private var knobOffset: CGSize = .zero
     @State private var isWalking = false
+
+    /// True while this view holds the background keep-alive.
+    ///
+    /// Without a hold, iOS suspends the app and reclaims the socket under the DVT connection (Apple
+    /// TN2277), dropping the spoof — and on cellular the reconnect is refused by lockdownd, so it never
+    /// comes back. This view had no keep-alive at all and survived only on the app-wide silent-audio one.
+    ///
+    /// A latch rather than raw requestStart/requestStop calls: there is one entry path but several exit
+    /// paths, and unbalanced calls would decrement the shared activity count, possibly releasing a hold
+    /// belonging to another active mode (e.g. a teleport hold running at the same time).
+    @State private var keepAliveHeld = false
+
+    private func holdKeepAlive() {
+        guard !keepAliveHeld else { return }
+        keepAliveHeld = true
+        BackgroundLocationManager.shared.requestStart()
+    }
+
+    private func releaseKeepAlive() {
+        guard keepAliveHeld else { return }
+        keepAliveHeld = false
+        BackgroundLocationManager.shared.requestStop()
+    }
+
     @State private var moveTimer: Timer?
     @State private var showPaywall = false
     @State private var joyFraction: Double = 0
@@ -506,6 +530,7 @@ struct WalkModeView: View {
         // Advisory only (never blocks): if a soft-ban cooldown is still running, remind the user that
         // moving still counts as interacting. Shown before we flip isWalking; movement proceeds either way.
         noteCooldownIfActive()
+        holdKeepAlive()
         isWalking = true
         // We are now the sole location writer. Silence the Map tab's teleport "hold" resend so it
         // can't re-inject the frozen teleport point every 4 s and snap us backward mid-walk — the
@@ -535,6 +560,7 @@ struct WalkModeView: View {
         stopTimer()
         // Adventure Sync: flush the tail of the walk and clear accumulation.
         AdventureSyncManager.shared.endWalk()
+        releaseKeepAlive()
         isWalking = false
         autoWalkTarget = nil
         lockedHeading = nil
@@ -691,6 +717,7 @@ struct WalkModeView: View {
         noteCooldownIfActive()
         autoWalkTarget = target
         knobOffset = .zero        // defensive: ensure step() takes the auto-walk path, not the stick
+        holdKeepAlive()
         isWalking = true
         // Own the stream: suppress the Map tab's stale teleport resend for the duration (see start()).
         LocationSimulationCommandQueue.suppressResends = true
@@ -715,6 +742,7 @@ struct WalkModeView: View {
         AdventureSyncManager.shared.recordSimulatedMovement(to: target)
         AdventureSyncManager.shared.endWalk()
         autoWalkTarget = nil
+        releaseKeepAlive()
         isWalking = false
         idleTicks = 0
         stopTimer()
@@ -787,6 +815,7 @@ struct WalkModeView: View {
         AdventureSyncManager.shared.endWalk()
         autoWalkTarget = nil
         releaseHeadingLock(resetGait: false)
+        releaseKeepAlive()
         isWalking = false
         knobOffset = .zero
         idleTicks = 0
