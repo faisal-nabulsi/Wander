@@ -1976,14 +1976,26 @@ struct LocationSimulationView: View {
         onSuccess: @escaping () -> Void
     ) {
         isBusy = true
+        // Capture on the caller (main) for the mount guard below — a simulation that is ALREADY running
+        // proves the developer image is mounted, so a remount can only do harm.
+        let simulationWasActive = hasActiveSimulation
         LocationSimulationCommandQueue.shared.async {
             var code = operation()
             // Auto-recover the most common failure (error 3): the tunnel is up but the device's
             // developer image isn't mounted yet. The built-in auto-mount only fires for Wander's OWN
             // tunnel, so LocalDevVPN users (free installs) never get it — their first teleport fails.
             // Mount it here (the DDI files are downloaded at launch), then retry the command once.
+            //
+            // GUARDED ON `!simulationWasActive` (build 128+). This block fires on ANY non-zero code, not
+            // only the "not mounted" one it was written for. So a TRANSIENT failure during a LIVE spoof —
+            // exactly what the cellular re-attach after turning Airplane Mode off produces (it surfaces as
+            // error 9) — used to trigger a full personalized DDI mount underneath a running simulation.
+            // Mounting re-initialises the device's developer services, which drops the location simulation
+            // the mount was supposed to be helping: the spoof reverted to the real location, and the retry
+            // then "succeeded" on a session that no longer owned the fix. Routes died the same way, since
+            // they run through this same helper. A live simulation cannot need a mount, so skip it.
             var mountFailure: String? = nil
-            if code != 0, isPairing(), !isMounted() {
+            if code != 0, !simulationWasActive, isPairing(), !isMounted() {
                 let mountError = mountPersonalDDI(
                     imagePath: URL.documentsDirectory.appendingPathComponent("DDI/Image.dmg").path,
                     trustcachePath: URL.documentsDirectory.appendingPathComponent("DDI/Image.dmg.trustcache").path,
