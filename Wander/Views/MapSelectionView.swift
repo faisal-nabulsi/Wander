@@ -2083,6 +2083,20 @@ struct LocationSimulationView: View {
     private func beginBackgroundTask() {
         guard backgroundTaskID == .invalid else { return }
         backgroundTaskID = UIApplication.shared.beginBackgroundTask { endBackgroundTask() }
+        // Hold the app awake for the WHOLE spoof, not just this task.
+        //
+        // beginBackgroundTask buys seconds, then iOS suspends us — and per Apple TN2277 the system
+        // "may choose to reclaim resources out from underneath a network socket used by the app",
+        // which closes the DVT connection holding the fake location. On cellular that is terminal,
+        // because lockdownd refuses the reconnect (it cannot tell our loopback TUN from pdp_ip0), so
+        // the spoof is gone until Airplane Mode comes back. This is why it advances only while Wander
+        // is frontmost.
+        //
+        // Continuous location updates are one of the two things that actually keep an app running
+        // (declaring UIBackgroundModes alone grants nothing). requestStop() was already being called
+        // on stop/clear WITHOUT a matching requestStart() anywhere in this view — so the location
+        // keep-alive has never once started for a teleport, route, or walk.
+        BackgroundLocationManager.shared.requestStart()
     }
 
     private func endBackgroundTask() {
