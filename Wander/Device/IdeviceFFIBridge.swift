@@ -1219,8 +1219,25 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
     }
 
     let reachable = _isSimEndpointReachable(deviceIP)
-    SpoofTrace.log("inject probe=\(reachable ? "OK" : "FAIL") handle=\(LocationSimulationState.locationSimulation != nil ? "yes" : "NIL") inFlight=\(LocationSimulationState.writeInFlight)")
-    if !reachable {
+    let haveSession = LocationSimulationState.locationSimulation != nil
+    SpoofTrace.log("inject probe=\(reachable ? "OK" : "FAIL") handle=\(haveSession ? "yes" : "NIL") inFlight=\(LocationSimulationState.writeInFlight)")
+
+    // THE PROBE ONLY GATES US WHEN THERE IS A SESSION TO PROTECT.
+    //
+    // Build 84 added this probe to stop a dead tunnel wedging the serial queue, but it returns early on
+    // failure — which also skips the REBUILD below. With no session that is catastrophic: the rebuild is
+    // the only thing that can recover, so we sit returning error 9 forever. Build 52 had no probe here at
+    // all: a failed write cleaned up and rebuilt in the same call, which is exactly why a spoof survived
+    // turning Airplane Mode off.
+    //
+    // And the probe LIES. On the cellular re-attach the loopback connection is RST, but a NEW tunnel can
+    // still be created: the on-device log shows `RST on hp=...` immediately followed by a SUCCESSFUL
+    // `mobile_image_mounter` RSD connect. The probe (a raw TCP connect to ip:49152) reported unreachable
+    // at the same moment `tunnel_create_rppairing` would have succeeded.
+    //
+    // So: with a live session, keep trusting the bounded-write path below (it protects a working channel).
+    // With NO session there is nothing to protect and everything to gain — always attempt the rebuild.
+    if !reachable && haveSession {
         // A previous write is still out there. Do NOT issue another one (the FFI is not safe to call
         // concurrently on one handle) and do NOT tear anything down — we are waiting to learn whether
         // that write lands. Report a soft error; the hold loop simply tries again on the next tick.
