@@ -1157,6 +1157,17 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
     return code
 }
 
+
+/// Read an FFI error's real code + message. MUST be called BEFORE idevice_error_free — the whole reason
+/// "error 3" was uninformative for days is that every failure site freed the error without ever looking
+/// inside it, discarding the one string that says what actually went wrong.
+private func _ffiDetail(_ err: UnsafeMutablePointer<IdeviceFfiError>?) -> String {
+    guard let err else { return "(no error object)" }
+    let code = err.pointee.code
+    let msg = err.pointee.message.flatMap { String(validatingUTF8: $0) } ?? "(no message)"
+    return "ffi_code=\(code) msg=\(msg)"
+}
+
 private enum BoundedSetResult { case ok, failed, timedOut }
 
 /// Run `location_simulation_set` on the CACHED handle with a hard timeout. The FFI itself has no
@@ -1220,7 +1231,7 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
 
     let reachable = _isSimEndpointReachable(deviceIP)
     let haveSession = LocationSimulationState.locationSimulation != nil
-    SpoofTrace.log("inject probe=\(reachable ? "OK" : "FAIL") handle=\(haveSession ? "yes" : "NIL") inFlight=\(LocationSimulationState.writeInFlight)")
+    SpoofTrace.log("inject probe=\(reachable ? "OK" : "FAIL") handle=\(haveSession ? "yes" : "NIL") inFlight=\(LocationSimulationState.writeInFlight) target=\(deviceIP):49152 pairing=\(FileManager.default.fileExists(atPath: pairingFile) ? "ok" : "MISSING")")
 
     // THE PROBE ONLY GATES US WHEN THERE IS A SESSION TO PROTECT.
     //
@@ -1334,6 +1345,7 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
     }
 
     if let providerError {
+        SpoofTrace.log("  rebuild FAILED at tunnel_create_rppairing: " + _ffiDetail(providerError))
         idevice_error_free(providerError)
         SpoofTrace.log("  rebuild: tunnel_create_rppairing FAILED")
         LocationSimulationState.cleanup()
@@ -1346,6 +1358,7 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
         &LocationSimulationState.remoteServer
     )
     if let remoteServerError {
+        SpoofTrace.log("  rebuild FAILED at remote_server_connect_rsd: " + _ffiDetail(remoteServerError))
         idevice_error_free(remoteServerError)
         SpoofTrace.log("  rebuild: remote_server_connect_rsd FAILED")
         LocationSimulationState.cleanup()
@@ -1357,6 +1370,7 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
         &LocationSimulationState.locationSimulation
     )
     if let locationSimulationError {
+        SpoofTrace.log("  rebuild FAILED at location_simulation_new: " + _ffiDetail(locationSimulationError))
         idevice_error_free(locationSimulationError)
         SpoofTrace.log("  rebuild: location_simulation_new FAILED")
         LocationSimulationState.cleanup()
@@ -1371,6 +1385,7 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
         longitude
     )
     if let locationSetError {
+        SpoofTrace.log("  rebuild FAILED at location_simulation_set(first): " + _ffiDetail(locationSetError))
         idevice_error_free(locationSetError)
         SpoofTrace.log("  rebuild: first location_simulation_set FAILED")
         LocationSimulationState.cleanup()
