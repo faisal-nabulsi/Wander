@@ -936,6 +936,25 @@ final class CMSDecoderHelper: NSObject {
     }
 }
 
+/// Verbose trace of the location-injection path, written to the in-app Console log.
+///
+/// WHY THIS EXISTS: five attempted fixes for "the spoof reverts ~2 minutes after Airplane Mode goes off"
+/// all failed, because every diagnosis was inferred from symptoms rather than observed. The confusing part
+/// is that the injects keep SUCCEEDING while the device reports the real location — so success codes are
+/// not evidence the fix is being honoured. This traces what the session actually does across the network
+/// transition so the failure can be READ instead of guessed at. Timestamps are what matter: correlate the
+/// moment the map snaps back with what this path was doing.
+enum SpoofTrace {
+    /// Master switch. On while diagnosing the airplane-off revert; turn OFF before shipping widely — it
+    /// writes a line every ~4s hold tick.
+    static var enabled = true
+
+    static func log(_ message: String) {
+        guard enabled else { return }
+        LogManager.shared.addInfoLog("[spoof] \(message)")
+    }
+}
+
 private enum LocationSimulationStatus {
     static let ok: Int32 = 0
     static let invalidIP: Int32 = 1
@@ -1199,17 +1218,21 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
         LocationSimulationState.cleanup()
     }
 
-    if !_isSimEndpointReachable(deviceIP) {
+    let reachable = _isSimEndpointReachable(deviceIP)
+    SpoofTrace.log("inject probe=\(reachable ? "OK" : "FAIL") handle=\(LocationSimulationState.locationSimulation != nil ? "yes" : "NIL") inFlight=\(LocationSimulationState.writeInFlight)")
+    if !reachable {
         // A previous write is still out there. Do NOT issue another one (the FFI is not safe to call
         // concurrently on one handle) and do NOT tear anything down — we are waiting to learn whether
         // that write lands. Report a soft error; the hold loop simply tries again on the next tick.
         if LocationSimulationState.writeInFlight {
+            SpoofTrace.log("  skip: a write is still in flight")
             return LocationSimulationStatus.remoteServer
         }
         if let sim = LocationSimulationState.locationSimulation {
             LocationSimulationState.writeInFlight = true
             let result = _boundedSet(sim, latitude, longitude, onLateOutcome: { landed in
                 // The write finally came back. THIS is the liveness test — not the timeout.
+                SpoofTrace.log("  LATE write outcome: \(landed ? "LANDED (session alive)" : "ERROR (session dead)")")
                 LocationSimulationState.writeInFlight = false
                 if !landed {
                     // Genuinely dead. The detached thread has returned, so we are the last toucher and
@@ -1221,6 +1244,7 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
                     }
                 }
             })
+            SpoofTrace.log("  boundedSet(unreachable path) -> \(result)")
             switch result {
             case .ok:
                 LocationSimulationState.writeInFlight = false
@@ -1228,6 +1252,7 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
                 return LocationSimulationStatus.ok
             case .failed:
                 LocationSimulationState.writeInFlight = false
+                SpoofTrace.log("  cleanup: write returned an error")
                 LocationSimulationState.cleanup()   // session genuinely dead — free it, report below
             case .timedOut:
                 // KEEP THE SESSION. A slow write during an interface rebuild is not a dead session, and
@@ -1241,12 +1266,18 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
     if let locationSimulation = LocationSimulationState.locationSimulation {
         if let ffiError = location_simulation_set(locationSimulation, latitude, longitude) {
             idevice_error_free(ffiError)
+            SpoofTrace.log("  fast-path set FAILED -> cleanup + rebuild")
             LocationSimulationState.cleanup()
         } else {
+            // The write succeeded on the cached handle. NOTE: this returning ok does NOT prove the device
+            // is honouring the fix — the whole airplane-off mystery is that these succeed while the device
+            // reports the real location. Traced so we can correlate against what the map actually shows.
+            SpoofTrace.log("  fast-path set OK (cached handle)")
             DeviceReadiness.markSimulationSucceeded()
             return LocationSimulationStatus.ok
         }
     }
+    SpoofTrace.log("  REBUILDING session (tunnel_create_rppairing -> remote_server -> location_simulation_new)")
 
     var address = sockaddr_in()
     address.sin_family = sa_family_t(AF_INET)
@@ -1287,6 +1318,7 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
 
     if let providerError {
         idevice_error_free(providerError)
+        SpoofTrace.log("  rebuild: tunnel_create_rppairing FAILED")
         LocationSimulationState.cleanup()
         return LocationSimulationStatus.providerCreate
     }
@@ -1298,6 +1330,7 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
     )
     if let remoteServerError {
         idevice_error_free(remoteServerError)
+        SpoofTrace.log("  rebuild: remote_server_connect_rsd FAILED")
         LocationSimulationState.cleanup()
         return LocationSimulationStatus.remoteServer
     }
@@ -1308,6 +1341,7 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
     )
     if let locationSimulationError {
         idevice_error_free(locationSimulationError)
+        SpoofTrace.log("  rebuild: location_simulation_new FAILED")
         LocationSimulationState.cleanup()
         return LocationSimulationStatus.locationSimulation
     }
@@ -1321,10 +1355,12 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
     )
     if let locationSetError {
         idevice_error_free(locationSetError)
+        SpoofTrace.log("  rebuild: first location_simulation_set FAILED")
         LocationSimulationState.cleanup()
         return LocationSimulationStatus.locationSet
     }
 
+    SpoofTrace.log("  rebuild OK — NEW session established")
     DeviceReadiness.markSimulationSucceeded()
     return LocationSimulationStatus.ok
 }
