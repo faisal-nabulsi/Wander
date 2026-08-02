@@ -70,10 +70,14 @@ final class LogManager: ObservableObject {
 
     /// True for a line that is only a number (optionally with a trailing comma) — i.e. one element of a
     /// dumped Data array. Cheap enough to run on every log line.
-    private static func isRawByteLine(_ message: String) -> Bool {
+    static func isRawByteLine(_ message: String) -> Bool {
         let t = message.trimmingCharacters(in: CharacterSet(charactersIn: " \t,"))
-        guard !t.isEmpty, t.count <= 3 else { return false }
-        return t.allSatisfy(\.isNumber)
+        guard !t.isEmpty else { return false }
+        // One element of a dumped Data array: "65," / "224," etc.
+        if t.count <= 3, t.allSatisfy(\.isNumber) { return true }
+        // The scaffolding those dumps sit inside — bare brackets and parens on their own line.
+        if t.count <= 2, t.allSatisfy({ "[](){}".contains($0) }) { return true }
+        return false
     }
 
     func addInfoLog(_ message: String)    { addLog(message: message, type: .info) }
@@ -98,13 +102,20 @@ final class LogManager: ObservableObject {
     }
 
     func setLogs(_ entries: [LogEntry]) {
+        let kept = entries.filter { !Self.isRawByteLine($0.message) }
         DispatchQueue.main.async {
-            self.logs = entries
-            self.errorCount = entries.filter { $0.type == .error }.count
+            self.logs = kept
+            self.errorCount = kept.filter { $0.type == .error }.count
         }
     }
 
-    func appendLogs(_ entries: [LogEntry], maxTotal: Int = 1000) {
+    // NOTE: the idevice log stream arrives HERE, in batches — not through addLog. Filtering only in
+    // addLog did nothing for the byte-dump spam, which is exactly why it kept flooding the console after
+    // the first attempt at this. Filter on every ingestion path, and raise the cap: a pairing-file dump
+    // is thousands of entries and at 1000 it evicted every real event before it could be read.
+    func appendLogs(_ entries: [LogEntry], maxTotal: Int = 4000) {
+        let entries = entries.filter { !Self.isRawByteLine($0.message) }
+        guard !entries.isEmpty else { return }
         DispatchQueue.main.async {
             self.logs.append(contentsOf: entries)
             self.errorCount += entries.filter { $0.type == .error }.count

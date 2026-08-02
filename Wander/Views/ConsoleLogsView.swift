@@ -452,7 +452,10 @@ struct ConsoleLogsView: View {
             if let (entries, lineCount) = result {
                 lastProcessedLineCount = lineCount
                 if !entries.isEmpty {
-                    logManager.appendLogs(entries, maxTotal: 500)
+                    // 500 was far too small: one pairing-file dump is thousands of lines, so the buffer
+                    // was flushed before any real event could be read. Byte spam is now filtered at
+                    // ingestion, so a larger cap holds actual history rather than noise.
+                    logManager.appendLogs(entries, maxTotal: 4000)
                     if jitIsAtBottom, let last = logManager.logs.last {
                         jitScrollView?.scrollTo(last.id, anchor: .bottom)
                     }
