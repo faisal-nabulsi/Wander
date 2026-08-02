@@ -72,6 +72,30 @@ final class WanderTunnel: ObservableObject {
         (status == .connected || status == .connecting) ? stop() : start()
     }
 
+    /// True when a tunnel interface exists that isn't ours — i.e. LocalDevVPN, Shadowrocket, or a real VPN
+    /// is up. Used to keep auto-start from stealing iOS's single VPN slot out from under the user.
+    ///
+    /// utun0 always exists on iOS, so a bare "any utun" test is useless — it would report a VPN forever.
+    /// Require a tunnel interface carrying an actual IPv4 address, which a live tunnel has and the idle
+    /// system utun does not. Only consulted when OUR tunnel is not already connected/connecting, so a
+    /// running Wander tunnel never blocks itself.
+    static func foreignVPNInterfaceActive() -> Bool {
+        var addrs: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&addrs) == 0, let first = addrs else { return false }
+        defer { freeifaddrs(addrs) }
+        var found = false
+        for ptr in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            guard let raw = ptr.pointee.ifa_name else { continue }
+            let name = String(cString: raw)
+            guard name.hasPrefix("utun") || name.hasPrefix("ipsec") || name.hasPrefix("ppp") || name.hasPrefix("tap") else { continue }
+            guard let sa = ptr.pointee.ifa_addr, sa.pointee.sa_family == UInt8(AF_INET) else { continue }
+            guard (ptr.pointee.ifa_flags & UInt32(IFF_UP)) != 0 else { continue }
+            found = true
+            break
+        }
+        return found
+    }
+
     /// Bring the tunnel up if it isn't, and resolve only once it can actually carry traffic.
     ///
     /// WHY: nothing in the app restarted this tunnel if the VPN itself died — `TunnelHealthMonitor`
@@ -93,7 +117,20 @@ final class WanderTunnel: ObservableObject {
         // gs-loc needs Shadowrocket to hold that slot; stealing it would break PoGo mode outright.
         guard !GslocMode.enabled else { return false }
 
+        // Someone else's tunnel is already doing the job — leave it alone.
+        //
+        // iOS runs ONE VPN at a time, and start() sets isEnabled + saves, which DISCONNECTS whatever is
+        // currently connected. If LocalDevVPN is up and carrying the loopback, starting ours would tear
+        // down a working tunnel and take the spoof with it — strictly worse than doing nothing.
         if isTunnelSimEndpointReachable() { return true }
+
+        // Even when the endpoint isn't answering, another VPN may be mid-handshake or briefly stalled
+        // (exactly what a network transition looks like). Claiming the slot then would kill a tunnel that
+        // was about to recover. Only start ours when no foreign tunnel interface is present at all.
+        if Self.foreignVPNInterfaceActive(), status != .connected, status != .connecting {
+            return false
+        }
+
         if status != .connected && status != .connecting { start() }
 
         let deadline = Date().addingTimeInterval(timeout)
