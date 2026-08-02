@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "127",
-      "versionDate": "2026-07-31",
-      "versionDescription": "Fix: a location set with the Airplane-Mode trick now restores automatically when you turn Airplane Mode back off — no more manual re-teleport. The tunnel auto-reconnect is more persistent (retries longer, and refreshes when you reopen the app).",
+      "buildVersion": "128",
+      "versionDate": "2026-08-01",
+      "versionDescription": "Fixes the tunnel getting permanently stuck on 'reconnecting' after a network change (Airplane Mode toggle) - it now retries properly instead of silently giving up. Also stops a healthy location session being thrown away during the cellular re-attach, which is what made a spoof set in Airplane Mode revert when you turned Airplane Mode back off.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 18496287,
+      "size": 18432946,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "127",
-          "date": "2026-07-31",
-          "localizedDescription": "Fix: a location set with the Airplane-Mode trick now restores automatically when you turn Airplane Mode back off — no more manual re-teleport. The tunnel auto-reconnect is more persistent (retries longer, and refreshes when you reopen the app).",
+          "buildVersion": "128",
+          "date": "2026-08-01",
+          "localizedDescription": "Fixes the tunnel getting permanently stuck on 'reconnecting' after a network change (Airplane Mode toggle) - it now retries properly instead of silently giving up. Also stops a healthy location session being thrown away during the cellular re-attach, which is what made a spoof set in Airplane Mode revert when you turned Airplane Mode back off.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 18496287,
+          "size": 18432946,
           "minOSVersion": "17.0"
         }
       ],

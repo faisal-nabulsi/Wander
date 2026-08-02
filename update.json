@@ -1,6 +1,6 @@
 {
-  "build": 127,
+  "build": 128,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Fix: a location set with the Airplane-Mode trick now restores automatically when you turn Airplane Mode back off — no more manual re-teleport. The tunnel auto-reconnect is more persistent (retries longer, and refreshes when you reopen the app)."
+  "notes": "Fixes the tunnel getting permanently stuck on 'reconnecting' after a network change (Airplane Mode toggle) - it now retries properly instead of silently giving up. Also stops a healthy location session being thrown away during the cellular re-attach, which is what made a spoof set in Airplane Mode revert when you turned Airplane Mode back off."
 }
