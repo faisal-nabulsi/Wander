@@ -846,6 +846,13 @@ struct LocationSimulationView: View {
     @AppStorage("jitterEnabled") private var jitterEnabled = true
     @AppStorage("jitterRadius") private var jitterRadius = 1.5
     @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
+
+    // Set when the pin was moved BY the map itself (Move here / tap-to-place). The camera is already
+    // showing exactly where the user put it, so the auto-recenter below must not fire — re-centring and
+    // re-zooming to a fixed 1 km span there is what made the map visibly snap and lose the framing the
+    // user had just chosen. Recentring is still correct for pins that arrive from OFF-screen sources
+    // (search, saved places, share links, deep links), which is what it was written for.
+    @State private var pinMovedFromMap = false
     @State private var visibleCenter: CLLocationCoordinate2D?
     // Debounced background task that warms the offline CARTO tile cache for wherever the user is
     // browsing on the (online, Apple) map — so flipping to airplane mode still shows a map instead
@@ -1175,8 +1182,14 @@ struct LocationSimulationView: View {
                             latitudinalMeters: 1000,
                             longitudinalMeters: 1000
                         )
-                        position = .region(region)
+                        // Keep the offline-tile window in sync either way — it's not user-visible framing.
                         offlineRegion = region
+                        // Don't yank the camera when the user placed this pin on the map themselves.
+                        if pinMovedFromMap {
+                            pinMovedFromMap = false
+                        } else {
+                            position = .region(region)
+                        }
                     }
                 }
 
@@ -1779,6 +1792,9 @@ struct LocationSimulationView: View {
             showAlert = true
             return
         }
+        // The camera is already framed on this exact point — suppress the auto-recenter so the map
+        // doesn't jump and reset the user's zoom the instant the pin lands.
+        pinMovedFromMap = true
         applySelection(center)
     }
 

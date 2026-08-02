@@ -268,19 +268,44 @@ struct ConsoleLogsView: View {
 
     @ViewBuilder
     private var exportMenuOption: some View {
-        let logURL: URL = URL.documentsDirectory.appendingPathComponent("idevice_log.txt")
-        if FileManager.default.fileExists(atPath: logURL.path) {
-            ShareLink(
-                item: logURL,
-                preview: SharePreview("idevice_log.txt", image: Image(systemName: "doc.text"))
-            ) {
-                Label("Export Logs", systemImage: "square.and.arrow.up")
-            }
-        } else {
-            Button("Export Logs", systemImage: "square.and.arrow.up") {
-                presentAlert(title: "Export Failed", message: "No idevice logs found")
-            }
+        // Export what is actually ON SCREEN, written to a temp file on demand.
+        //
+        // This used to share `idevice_log.txt` from Documents and fail with "No idevice logs found"
+        // whenever that file didn't exist — which is most of the time. Worse, that file is the raw
+        // idevice dump: it does NOT contain the app's own LogManager entries, so the lines that matter
+        // most for diagnosing a problem (including the [spoof] trace) could never be exported at all.
+        // Sharing the rendered entries means Export always works and always matches what the user sees.
+        ShareLink(
+            item: exportedLogFile(),
+            preview: SharePreview("wander-log.txt", image: Image(systemName: "doc.text"))
+        ) {
+            Label("Export Logs", systemImage: "square.and.arrow.up")
         }
+    }
+
+    /// Write the current log entries to a temp file and return its URL. Uses the same body as Copy, so
+    /// the two can't drift. Falls back to a placeholder file rather than failing the share sheet.
+    private func exportedLogFile() -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("wander-log.txt")
+        do {
+            try logsContentForSharing().write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            try? "Could not write logs: \(error.localizedDescription)".write(to: url, atomically: true, encoding: .utf8)
+        }
+        return url
+    }
+
+    private func logsContentForSharing() -> String {
+        var logsContent = "=== DEVICE INFORMATION ===\n"
+        logsContent += "Version: \(UIDevice.current.systemVersion)\n"
+        logsContent += "Name: \(UIDevice.current.name)\n"
+        logsContent += "Model: \(UIDevice.current.model)\n"
+        logsContent += "App Version: 1.0 (build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))\n\n"
+        logsContent += "=== LOG ENTRIES ===\n"
+        logsContent += logManager.logs.map {
+            "[\(formatTime(date: $0.timestamp))] [\($0.type.rawValue)] \($0.message)"
+        }.joined(separator: "\n")
+        return logsContent
     }
     
     private func formatTime(date: Date) -> String {

@@ -117,6 +117,12 @@ struct MainTabView: View {
 
     // Panic button confirmation toast.
     @State private var panicToastVisible = false
+
+    // The "Update ready" banner sits over the top of every screen until it's tapped, which gets in the
+    // way while you're actually using the app. Auto-hide it after a few seconds — the update is still
+    // available in Settings, and a NEW version re-shows it (see the onChange below).
+    @State private var updateBannerAutoHidden = false
+    private let updateBannerVisibleSeconds: TimeInterval = 10
     @State private var panicToastHideWork: DispatchWorkItem?
 
     // Reboot-aware recovery: a spoof session that ended WITHOUT a clean Stop (app/tunnel died or the
@@ -277,6 +283,17 @@ struct MainTabView: View {
             .overlay(alignment: .bottomTrailing) { if panicButtonEnabled { panicButton } }
             .overlay(alignment: .top) { panicToast }
             .overlay(alignment: .top) { updateBanner }
+            .onChange(of: updater.available?.build) { _, newBuild in
+                // A newly-discovered update gets its own 10s on screen; don't let a previous
+                // auto-hide swallow it silently.
+                guard newBuild != nil else { return }
+                updateBannerAutoHidden = false
+                Task {
+                    try? await Task.sleep(nanoseconds: UInt64(updateBannerVisibleSeconds * 1_000_000_000))
+                    // Keep it up while an install is actually running — hiding mid-update looks broken.
+                    if !updater.isBusy { withAnimation(.easeInOut(duration: 0.25)) { updateBannerAutoHidden = true } }
+                }
+            }
             // Persistent soft-ban countdown chip — guidance only, visible across every tab while a
             // cooldown runs, sitting just above the tab bar so it never covers the map controls.
             .overlay(alignment: .bottom) {
@@ -606,7 +623,7 @@ struct MainTabView: View {
     /// (not just Settings), so the user doesn't have to dig into Settings to update. Hidden while
     /// spoofing (the spoof banner owns the top) and during the panic toast.
     @ViewBuilder private var updateBanner: some View {
-        if updater.available != nil && !session.isActive && !panicToastVisible {
+        if updater.available != nil && !session.isActive && !panicToastVisible && !updateBannerAutoHidden {
             Button {
                 installUpdateFromBanner()
             } label: {
