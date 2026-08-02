@@ -1,6 +1,6 @@
 {
-  "build": 128,
+  "build": 129,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Fixes the tunnel getting permanently stuck on 'reconnecting' after a network change (Airplane Mode toggle) - it now retries properly instead of silently giving up. Also stops a healthy location session being thrown away during the cellular re-attach, which is what made a spoof set in Airplane Mode revert when you turned Airplane Mode back off."
+  "notes": "Big fix: your spoof now survives leaving the app. iOS was suspending Wander in the background and reclaiming the connection that holds your fake location - so it snapped back to real, and on cellular it couldn't reconnect. Wander now stays awake for the whole session, so teleports and routes keep running with the app closed. Also: the tunnel no longer gets permanently stuck on 'reconnecting' after an Airplane Mode toggle, PoGo mode shows it's teleport-only so the joystick can't silently fail, gs-loc setup now supports Loon, Quantumult X and Stash (not just Shadowrocket), a new 'Check my setup' diagnostic pinpoints exactly why a spoof isn't working, the map keeps more of the screen, and 'Move here' no longer snaps the map."
 }
