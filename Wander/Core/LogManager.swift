@@ -73,9 +73,12 @@ final class LogManager: ObservableObject {
     static func isRawByteLine(_ message: String) -> Bool {
         let t = message.trimmingCharacters(in: CharacterSet(charactersIn: " \t,"))
         guard !t.isEmpty else { return false }
-        // One element of a dumped Data array: "65," / "224," etc.
-        if t.count <= 3, t.allSatisfy(\.isNumber) { return true }
-        // The scaffolding those dumps sit inside — bare brackets and parens on their own line.
+        // ANY line that is nothing but digits. No length limit: a bare number carries no diagnostic
+        // value whatever its size — there is no context, no label, nothing to correlate. Dropping the
+        // whole class is simpler and more robust than guessing at byte-sized ones (the earlier <=3
+        // version still let larger numeric dumps through).
+        if t.allSatisfy(\.isNumber) { return true }
+        // The scaffolding those dumps sit inside — bare brackets/parens on their own line.
         if t.count <= 2, t.allSatisfy({ "[](){}".contains($0) }) { return true }
         return false
     }
