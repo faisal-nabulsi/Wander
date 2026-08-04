@@ -269,7 +269,7 @@ struct ProxySetupView: View {
             stepHeader(n: 5, done: vpn.active,
                        icon: "antenna.radiowaves.left.and.right",
                        title: "Connect the VPN")
-            Text("Open \(app.title) and flip the top toggle on. Then reboot once (iOS caches your real location), turn Wi-Fi on, and check Apple Maps. This card turns green on its own when it detects the proxy.")
+            Text("Open \(app.title) and flip the top toggle on. Keep Wi-Fi on. Then turn Location Services OFF, leave it off for about 10 seconds, and turn it back on — that wait is what makes iOS let go of its cached real location, and a quick flick is the usual reason this step fails. Wait until Apple Maps shows a location again, and it should be your spot. Still snapping back? Then reboot once and redo this step. This card turns green on its own when it detects the proxy.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
@@ -398,24 +398,24 @@ struct ProxySetupView: View {
                 title: "First spoof (once each session)",
                 steps: [
                     "Keep Wi-Fi on. Turn Location Services OFF.",
-                    "Reboot your iPhone.",
+                    "Leave it off for about 10 seconds — the WAIT is the flush, and rushing it is the single most common reason the first spoof doesn't take.",
                     "Open \(app.title) and connect it (VPN icon shows).",
                     "Open Wander and teleport to your spot.",
                     "Turn Location Services back ON.",
-                    "Check Apple Maps — you're at the spot. Then open Pokémon GO.",
+                    "Open Apple Maps and wait until it shows a location — that's your spot. Then open Pokémon GO.",
                 ],
-                note: "The reboot clears iOS's cached real location, so the first fresh look lands on your spot."
+                note: "No reboot needed: the long Location Services OFF is what makes iOS let go of its cached real location. Still snapping back after two honest tries? Then reboot once (with Location Services off) and run these steps again."
             )
 
             howToCard(
                 icon: "2.circle.fill",
-                title: "Teleport again (no reboot)",
+                title: "Teleport again (every hop after the first)",
                 steps: [
                     "Teleport in Wander to the new spot.",
-                    "Toggle Location Services OFF, then ON.",
+                    "Toggle Location Services OFF, wait about 10 seconds, then ON.",
                     "It jumps to the new spot. Repeat for each hop.",
                 ],
-                note: "No reboot per teleport — the Location Services toggle is the quick flush. If a spot sticks, redo the First-spoof reboot once."
+                note: "The Location Services toggle is the whole flush — give it the full ~10 seconds rather than a quick flick. If a spot sticks, redo the First-spoof steps; only reboot if it still sticks after that."
             )
 
             howToCard(
@@ -423,7 +423,7 @@ struct ProxySetupView: View {
                 title: "Reset to your REAL location",
                 steps: [
                     "Turn OFF PoGo (gs-loc) mode in Settings → Experimental — this tells the spoof to stop.",
-                    "Toggle Location Services OFF, then ON.",
+                    "Toggle Location Services OFF, wait about 10 seconds, then ON.",
                     "You're back on your real location. If it lingers, disconnect \(app.title) too, then toggle Location Services again.",
                 ],
                 note: "Same idea in reverse: stop the spoof first, then force a fresh look so iOS grabs your real spot."

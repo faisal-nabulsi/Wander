@@ -252,7 +252,7 @@
 "error12.step.location_on.title" = "Turn Location Services ON";
 "error12.step.location_on.detail" = "iPhone Settings → Privacy & Security → Location Services → ON, and set Pokémon GO → While Using the App. Location Services must be on for the injected location to reach the game.";
 "error12.step.refresh.title" = "After you teleport, refresh the fix";
-"error12.step.refresh.detail" = "Toggle Location Services off for ~3 seconds, then back on (Settings → Privacy & Security → Location Services). This forces iOS to grab a fresh fix at your new spot.";
+"error12.step.refresh.detail" = "Toggle Location Services off, wait about 10 seconds, then back on (Settings → Privacy & Security → Location Services). The WAIT is what does the work — iOS holds a cached copy of your real location, and a quick flick usually isn't long enough to clear it. Then wait until Maps shows a location again before you check. Still snapping back after a couple of honest tries? Then reboot once — on iOS 26 most people don't need to.";
 "error12.step.cooldown.title" = "Respect the cooldown after INTERACTING";
 "error12.step.cooldown.detail" = "The cooldown timer is started by actions — catching a Pokémon, spinning a stop, feeding a berry, battling, dropping in a gym — not by teleporting itself. So you can teleport freely, but wait out the cooldown before your next interaction.";
 "error12.step.smooth.title" = "Move smoothly; don't rapid-teleport";
@@ -268,7 +268,7 @@
 "error12.taxonomy.err11.title" = "\"Failed to detect location (11)\" — no location at all";
 "error12.taxonomy.err11.detail" = "Error 11 means the game is getting NO location stream — the tunnel/connection dropped, so nothing is reaching Pokémon GO. Fix: make sure Wander is open with the tunnel connected, reconnect it, then reopen Pokémon GO.";
 "error12.taxonomy.err12.title" = "\"Failed to detect location (12)\" — a bad or jumpy stream";
-"error12.taxonomy.err12.detail" = "Error 12 means the location IS arriving but looks inconsistent to the game. Wander already smooths this on its side (a single writer for your movement). Remaining user-side fixes: set Pokémon GO's Location to Always + Precise; try the airplane-mode trick (Airplane Mode ON, connect the tunnel, then Wi-Fi back on) for a clean fix right after a teleport. On iOS 26, if the location keeps snapping back, the community reports a reboot clears the cached real location that the usual toggles no longer clear — not guaranteed, but worth a try.";
+"error12.taxonomy.err12.detail" = "Error 12 means the location IS arriving but looks inconsistent to the game. Wander already smooths this on its side (a single writer for your movement). Remaining user-side fixes: set Pokémon GO's Location to Always + Precise; try the airplane-mode trick (Airplane Mode ON, connect the tunnel, then Wi-Fi back on) for a clean fix right after a teleport. If the location keeps snapping back, turn Location Services off for a full ~10 seconds — not a quick flick — and wait until Maps shows a location again after you turn it back on. Only if that still snaps back is it worth rebooting.";
 "error12.taxonomy.auth.title" = "\"Unable to authenticate\" — a login problem, not a GPS one";
 "error12.taxonomy.auth.detail" = "This one isn't about location. Log into Pokémon GO BEFORE connecting the tunnel: sign in while you're still on your real GPS, then connect the tunnel and teleport.";
 
@@ -371,7 +371,7 @@
 /* Gentle snap-back recovery — shown only after a real detected bounce-back. */
 "snapback.title" = "Location snapped back";
 "snapback.reteleport" = "Re-teleport";
-"snapback.body" = "Your device pulled back toward your real location. Tap Re-teleport to jump back.\n\nCommunity-reported for iOS 26 (not guaranteed): if it keeps snapping back, restart your iPhone — iOS 26 holds a cached location that toggles no longer clear. Wander will put you back here when you reopen it.";
+"snapback.body" = "Your device pulled back toward your real location. Tap Re-teleport to jump back.\n\nIf it keeps snapping back: turn Location Services off, leave it off a full ~10 seconds, then back on — the wait is what makes iOS let go of its cached location, and a quick flick usually doesn't. Still snapping back after that? Then restart your iPhone; Wander will put you back here when you reopen it.";
 
 /* Tunnel/DDI heartbeat chip + self-heal. Copy stays honest: it only TRIES to reconnect. */
 "tunnel.chip.connected" = "Tunnel: connected";

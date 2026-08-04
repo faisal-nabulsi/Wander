@@ -172,7 +172,7 @@ struct GslocVerifyCard: View {
         case .wrongLocation(let d):
             content(icon: "exclamationmark.triangle.fill", tint: .orange,
                     title: "Not spoofed yet",
-                    message: "iOS is still reporting a spot \(distanceLabel(d)) from your target. Toggle Location Services off, wait ~3 s, back on — and make sure Shadowrocket is connected.")
+                    message: "iOS is still reporting a spot \(distanceLabel(d)) from your target. Toggle Location Services off, wait a full ~10 s (a quick flick usually isn't enough), back on — and make sure Shadowrocket is connected.")
         case .noTarget:
             content(icon: "location.slash", tint: .secondary,
                     title: "No target set",

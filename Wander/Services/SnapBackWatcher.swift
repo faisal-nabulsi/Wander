@@ -8,8 +8,8 @@
 //  REALLY is (Wi-Fi/cell correction, a dropped tunnel, a background suspension). When that happens
 //  the spoof has effectively "bounced back": the device's real reported location no longer sits near
 //  the spoofed target. This watcher detects that condition and flips `didBounceBack` so the UI can
-//  offer a gentle recovery — a one-tap re-teleport, plus a community-reported (NOT guaranteed)
-//  reboot suggestion.
+//  offer a gentle recovery — a one-tap re-teleport, then the Location-Services flush (held off a full
+//  ~10 s, which is what actually clears the cached fix), with a reboot only as the escalation.
 //
 //  It ONLY signals after an ACTUAL detected bounce-back — never proactively. It reads the device's
 //  REAL location via CLLocationManager (the same read CurrentLocation uses) and compares it to the

@@ -14,10 +14,15 @@
 //  entitlement is stripped when Wander is re-signed for free sideloading (same wall as the VPN). So we
 //  borrow the proxy's entitlement — Wander only PUSHES the coordinate to it.
 //
-//  HOW THE PUSH WORKS: while the proxy VPN is active it routes all of Wander's traffic, so a request to
-//  a made-up host the module intercepts (never actually leaves the device) lands in the rewriter's
-//  persistent store. mekos2772's rewriter reads latitude/longitude from $persistentStore, so pushing
-//  those keys re-points the spoof.
+//  HOW THE PUSH WORKS: while the proxy VPN is active it routes all of Wander's traffic, so a control
+//  request the module intercepts lands in the rewriter's persistent store. mekos2772's rewriter reads
+//  latitude/longitude from $persistentStore, so pushing those keys re-points the spoof.
+//
+//  TWO CONTROL CHANNELS (see GslocChannel): the original channel is a made-up HOST, which a proxy can only
+//  catch through a [Rule] — and rules only fire while Global Routing is Proxy/Config, which proxy updates
+//  silently reset to Direct. The newer channel is a fake PATH on a host the module already decrypts, so it
+//  needs no rule at all. We push on the new one and fall back to the old, because a user still running an
+//  older imported config has ONLY the old one.
 //
 //  STABILITY (see memory wander-gsloc-consistency):
 //   • KEEP-ALIVE (A3): the rewriter is reactive — it only changes what the NEXT gs-loc query returns,
@@ -35,19 +40,53 @@
 //
 import Foundation
 
+/// The two control channels a Wander proxy config can answer on. Both carry the SAME contract — `…/set`
+/// steers the spoof, `…/probe` answers `{"ok":true}` — what differs is what the proxy needs in order to
+/// catch the request at all.
+enum GslocChannel: Sendable {
+    /// PREFERRED. A fake PATH on a REAL host the module already MITMs. A rewrite matched on the URL needs
+    /// no `[Rule]` section, and rules are exactly what breaks: a Shadowrocket update periodically resets
+    /// Global Routing to Direct, rules stop firing, and the spoof dies with no visible cause — the single
+    /// biggest support burden this mode has.
+    case modern
+    /// LEGACY. A made-up host that resolves nowhere, so it is reachable ONLY through a `[Rule]` the proxy
+    /// matches. Every config imported before the path move has only this one, so we keep pushing to it as a
+    /// fallback — dropping it would silently kill working setups mid-session.
+    case legacy
+
+    var setEndpoint: String {
+        switch self {
+        case .modern: return "https://gs-loc.apple.com/wander/set"
+        case .legacy: return "http://wander.gsloc/set"
+        }
+    }
+
+    var probeEndpoint: String {
+        switch self {
+        case .modern: return "https://gs-loc.apple.com/wander/probe"
+        case .legacy: return "http://wander.gsloc/probe"
+        }
+    }
+
+    /// New first, old second. A config that answers both should be driven on the rule-free channel.
+    static let preferenceOrder: [GslocChannel] = [.modern, .legacy]
+}
+
 enum GslocMode {
     /// UserDefaults key backing `enabled`. Exposed (not private) so movement/teleport views can bind an
     /// `@AppStorage(GslocMode.defaultsKey)` to it and react the instant PoGo mode is toggled — the same
     /// store `enabled` reads/writes, so the two can't disagree.
     static let defaultsKey = "gsloc_mode_enabled"
 
-    /// Made-up host the Wander gs-loc module intercepts with an http-request script. The request is
-    /// caught locally by the proxy and never hits the network.
-    static let setEndpoint = "http://wander.gsloc/set"
-
     static var enabled: Bool {
         get { UserDefaults.standard.bool(forKey: defaultsKey) }
-        set { UserDefaults.standard.set(newValue, forKey: defaultsKey) }
+        set {
+            UserDefaults.standard.set(newValue, forKey: defaultsKey)
+            // Toggling the mode is the moment a user has most likely just re-imported a proxy config, so
+            // throw away what we learned about which channel answers and re-discover from the top. Being
+            // pinned to the legacy channel after an upgrade would look exactly like "the update broke it".
+            forgetChannel()
+        }
     }
 
     /// Thread-safe snapshot of the coordinate currently being pushed, for the verification banner to
@@ -74,16 +113,60 @@ enum GslocMode {
     /// interaction range; bounded (not a random walk) so it never drifts away from the target.
     private static let jitterRadiusMeters: Double = 2.0
 
+    /// Ceiling for ONE channel attempt. The request is supposed to be caught locally by the proxy, so a slow
+    /// attempt is a failed attempt — and the fallback attempt is queued behind it, so this is also how long
+    /// a teleport can sit on a dead channel before the other one is tried.
+    private static let attemptTimeout: TimeInterval = 2.0
+
     private static let session: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
-        // The push is supposed to be intercepted locally by the proxy, so it resolves near-instantly.
-        // A long timeout only matters when the proxy is OFF — and then a 5 s hang per push backs up the
+        // Every request sets its own `timeoutInterval` (see attemptTimeout); this is the backstop. A long
+        // timeout only matters when the proxy is OFF — and then a multi-second hang per push backs up the
         // ~1 Hz throttle. Fail fast instead so a misconfigured session degrades cleanly.
-        cfg.timeoutIntervalForRequest = 1.5
+        cfg.timeoutIntervalForRequest = attemptTimeout
         cfg.waitsForConnectivity = false
         cfg.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         return URLSession(configuration: cfg)
     }()
+
+    // MARK: - Channel selection (which endpoint this device's proxy config answers on)
+
+    private static let channelLock = NSLock()
+    /// The channel that last answered, or nil if we haven't learned it yet this run. Guarded by
+    /// `channelLock` because it's touched from URLSession completion handlers (arbitrary threads), the push
+    /// queue, and the Spoof Doctor on the main actor.
+    ///
+    /// IN-MEMORY ON PURPOSE — never persisted. A user who re-imports a newer proxy config must not stay
+    /// pinned to the legacy channel forever, so the memory dies with the process, and `enabled`/`reset()`
+    /// clear it at every point where the config plausibly changed under us.
+    nonisolated(unsafe) private static var learnedChannel: GslocChannel?
+
+    /// The channel that answered most recently this run, if any.
+    static var preferredChannel: GslocChannel? {
+        channelLock.lock(); defer { channelLock.unlock() }
+        return learnedChannel
+    }
+
+    /// Record a channel that just answered, so the next push doesn't pay for a doomed first attempt. The
+    /// Spoof Doctor writes here too — one "Check my setup" run teaches the teleport path which one to use.
+    static func rememberChannel(_ channel: GslocChannel) {
+        channelLock.lock(); defer { channelLock.unlock() }
+        learnedChannel = channel
+    }
+
+    /// Drop what we learned so the next attempt starts from the NEW channel again.
+    static func forgetChannel() {
+        channelLock.lock(); defer { channelLock.unlock() }
+        learnedChannel = nil
+    }
+
+    /// Channels to try, in order: the learned one first (if any), then the rest. The others are ALWAYS kept
+    /// as fallbacks rather than dropped — a config can change mid-run (a re-import, or the user flipping
+    /// Global Routing back), and re-learning beats going dead until the next launch.
+    static func channelAttemptOrder() -> [GslocChannel] {
+        guard let learned = preferredChannel else { return GslocChannel.preferenceOrder }
+        return [learned] + GslocChannel.preferenceOrder.filter { $0 != learned }
+    }
 
     /// Push the target to the gs-loc rewriter. Stores it as the current target (latest wins), fires a
     /// jittered update (throttled to ~1 Hz), and starts the keep-alive re-push so the spot holds between
@@ -105,6 +188,10 @@ enum GslocMode {
         q.async {
             currentTarget = nil
             stopKeepAlive_locked()
+            // reset() marks every session boundary (Stop, mode turned on, proxy just connected), which is
+            // also where a config swap would have happened — so re-discover the channel from the top rather
+            // than trusting a guess made before the swap.
+            forgetChannel()
             fire(queryItems: [URLQueryItem(name: "reset", value: "1")])
         }
     }
@@ -157,9 +244,43 @@ enum GslocMode {
     }
 
     private static func fire(queryItems: [URLQueryItem]) {
-        guard var comps = URLComponents(string: setEndpoint) else { return }
+        fire(queryItems: queryItems, channels: channelAttemptOrder()[...])
+    }
+
+    /// Send one control request down the first channel in `channels`; on failure, walk to the next one.
+    /// Fire-and-forget from the caller's side — nothing here blocks the teleport, the fallback just lands a
+    /// couple of seconds later.
+    ///
+    /// FAILURE = transport error, timeout, or any non-2xx. The non-2xx case is the one that matters: when
+    /// the proxy isn't rewriting the new channel, the request reaches the real host and comes back 404, and
+    /// that 404 is precisely the signal "this config doesn't know the new path — use the old one".
+    ///
+    /// TRADE-OFF that comes with a real host: an un-intercepted new-channel attempt actually leaves the
+    /// device, carrying the TARGET coordinate (never the user's real one) to Apple, where it 404s. The old
+    /// channel couldn't leak because its host resolves nowhere. That's the price of dropping the [Rule]
+    /// requirement; pinning keeps it to one attempt per session boundary on a legacy-only config, not one
+    /// per teleport.
+    private static func fire(queryItems: [URLQueryItem], channels: ArraySlice<GslocChannel>) {
+        guard let channel = channels.first else {
+            // Nothing answered. Deliberately do NOT pin anything: the proxy being off looks the same as a
+            // config that speaks neither channel, and pinning on an outage would outlive it.
+            forgetChannel()
+            return
+        }
+        guard var comps = URLComponents(string: channel.setEndpoint) else { return }
         comps.queryItems = queryItems
         guard let url = comps.url else { return }
-        session.dataTask(with: url).resume()
+        var request = URLRequest(url: url)
+        request.timeoutInterval = attemptTimeout
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        session.dataTask(with: request) { _, response, error in
+            let answered = error == nil
+                && ((response as? HTTPURLResponse).map { (200...299).contains($0.statusCode) } ?? false)
+            if answered {
+                rememberChannel(channel)
+            } else {
+                fire(queryItems: queryItems, channels: channels.dropFirst())
+            }
+        }.resume()
     }
 }

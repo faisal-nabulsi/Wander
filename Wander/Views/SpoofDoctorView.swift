@@ -138,7 +138,7 @@ struct SpoofDoctorView: View {
                 subCause(
                     icon: "wifi.slash",
                     title: "2. Real GPS override / stale cache",
-                    message: "A strong real GPS fix (or a cached location) can override the network fix. Turn Wi-Fi OFF in Settings (not just disconnect it), and reboot to flush the location cache (iOS 26+).",
+                    message: "A strong real GPS fix (or a cached location) can override the network fix. Turn Wi-Fi OFF in Settings (not just disconnect it), then turn Location Services off for a full ~10 seconds and back on — the WAIT is what makes iOS drop the cached fix, and a quick flick usually doesn't. Still off-target after that? Then reboot once.",
                     action: .init(title: "Open Wi-Fi settings", icon: "wifi", url: "prefs:root=WIFI")
                 )
             }

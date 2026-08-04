@@ -56,7 +56,7 @@ struct LocationErrorHelpView: View {
                 title: L("error12.taxonomy.err12.title",
                          fallback: "\"Failed to detect location (12)\" — a bad or jumpy stream"),
                 detail: L("error12.taxonomy.err12.detail",
-                          fallback: "Error 12 means the location IS arriving but looks inconsistent to the game. Wander already smooths this on its side (a single writer for your movement). Remaining user-side fixes: set Pokémon GO's Location to Always + Precise; try the airplane-mode trick (Airplane Mode ON, connect the tunnel, then Wi-Fi back on) for a clean fix right after a teleport. On iOS 26, if the location keeps snapping back, the community reports a reboot clears the cached real location that the usual toggles no longer clear — not guaranteed, but worth a try.")
+                          fallback: "Error 12 means the location IS arriving but looks inconsistent to the game. Wander already smooths this on its side (a single writer for your movement). Remaining user-side fixes: set Pokémon GO's Location to Always + Precise; try the airplane-mode trick (Airplane Mode ON, connect the tunnel, then Wi-Fi back on) for a clean fix right after a teleport. If the location keeps snapping back, turn Location Services off for a full ~10 seconds — not a quick flick — and wait until Maps shows a location again after you turn it back on. Only if that still snaps back is it worth rebooting.")
             ),
             ErrorCase(
                 icon: "person.badge.key",
@@ -110,7 +110,7 @@ struct LocationErrorHelpView: View {
                 title: L("error12.step.refresh.title",
                          fallback: "After you teleport, refresh the fix"),
                 detail: L("error12.step.refresh.detail",
-                          fallback: "Toggle Location Services off a few seconds, then back on (Settings → Privacy & Security → Location Services) — a quick nudge to pull a fresh fix. On iOS 26 this often isn't enough on its own: if the location snaps back or won't move, reboot once. iOS 26 keeps a cached copy of your real location that airplane mode and Location-Services toggles no longer clear — only a reboot does.")
+                          fallback: "Toggle Location Services off, wait about 10 seconds, then back on (Settings → Privacy & Security → Location Services). The WAIT is what does the work — iOS holds a cached copy of your real location, and a quick flick usually isn't long enough to clear it. Then wait until Maps shows a location again before you check. Still snapping back after a couple of honest tries? Then reboot once — on iOS 26 most people don't need to.")
             ),
             Step(
                 number: 3,

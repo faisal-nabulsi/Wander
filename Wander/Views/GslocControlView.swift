@@ -6,7 +6,7 @@
 //  proxy, swap the VPN, jump to the Location Services toggle, reset — are a single tap inside the app
 //  instead of a dig through Settings and other apps. Plus AutomationsView: import the Wander Shortcuts
 //  and set up the personal automations. None of this crosses the hard iOS walls (the Location Services
-//  toggle and reboot stay manual); it just puts you one tap from each.
+//  toggle stays manual, and so does the rare reboot); it just puts you one tap from each.
 //
 
 import SwiftUI
@@ -48,7 +48,7 @@ struct GslocQuickControlsCard: View {
             controlRow(icon: "location.fill.viewfinder",
                        tint: .orange,
                        title: "Flush — toggle Location Services",
-                       subtitle: "The one step that makes a teleport take. Off ~3s, then back on.") {
+                       subtitle: "The one step that makes a teleport take. Off a full ~10s — not a quick flick — then back on.") {
                 openURLString("prefs:root=Privacy&path=LOCATION")
             }
             controlRow(icon: "arrow.triangle.2.circlepath",

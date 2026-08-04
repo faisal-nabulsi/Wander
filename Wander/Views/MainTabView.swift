@@ -454,10 +454,10 @@ struct MainTabView: View {
         case .snapBack:
             // Gentle snap-back recovery — shown ONLY after an ACTUAL detected bounce-back (the device's
             // real location drifted away from the spoofed target while spoofing). Offers a one-tap
-            // re-teleport plus a community-reported (not guaranteed) reboot suggestion.
+            // re-teleport, then the Location-Services flush; the reboot is the escalation, not the advice.
             let target = session.lastTeleportCoordinate
             let message = Text(L("snapback.body",
-                                 fallback: "Your device pulled back toward your real location. Tap Re-teleport to jump back.\n\nCommunity-reported for iOS 26 (not guaranteed): if it keeps snapping back, restart your iPhone — iOS 26 holds a cached location that toggles no longer clear. Wander will put you back here when you reopen it."))
+                                 fallback: "Your device pulled back toward your real location. Tap Re-teleport to jump back.\n\nIf it keeps snapping back: turn Location Services off, leave it off a full ~10 seconds, then back on — the wait is what makes iOS let go of its cached location, and a quick flick usually doesn't. Still snapping back after that? Then restart your iPhone; Wander will put you back here when you reopen it."))
             let cancel = Alert.Button.cancel(Text(L("action.ok", fallback: "OK"))) {
                 snapBack.reset()
                 syncActiveAlert()

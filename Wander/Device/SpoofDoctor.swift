@@ -6,11 +6,17 @@
 //  reports the EXACT fix instead of a generic "it's not working". The two rungs isolate the two independent
 //  failure planes:
 //
-//   • RUNG 1 — is the proxy intercepting AT ALL? A plain-HTTP GET to the fake control host
-//     (http://wander.gsloc/probe) that the Wander rewrite answers locally with {"ok":true}. This proves the
-//     proxy's rules are firing WITHOUT needing a trusted CA — it's plain HTTP, nothing is decrypted. If it
-//     fails/timeouts, the rules are OFF (routing set to Direct, module disabled, proxy not connected, or
-//     LocalDevVPN stealing the tunnel). No point checking location until this passes.
+//   • RUNG 1 — is the proxy intercepting AT ALL? A GET to the Wander control endpoint, which the rewrite
+//     answers locally with {"ok":true}. Tried on BOTH channels (see GslocChannel) — new path-based one
+//     first, legacy fake-host one second — because a user on an older imported config only answers the old
+//     one, and a Doctor that called that "broken" would send them re-installing a working setup. EITHER
+//     channel answering means interception is live. Neither answering means it's OFF (routing set to
+//     Direct, module disabled, proxy not connected, or LocalDevVPN stealing the tunnel). No point checking
+//     location until this passes.
+//
+//     Note the legacy channel is plain HTTP, so it proves rules fire without a trusted CA; the new channel
+//     rides the MITM, so it additionally implies the CA is trusted. Neither distinction changes Rung 1's
+//     verdict — Rung 2 is what separates "rules fire" from "the rewrite lands".
 //
 //   • RUNG 2 — is the location ACTUALLY spoofed? Reuses GslocVerifier (live CoreLocation vs the pushed
 //     target). A match means the HTTPS MITM is landing end-to-end. A mismatch means Rung 1 passed (rules
@@ -30,9 +36,15 @@ import Combine
 @MainActor
 final class SpoofDoctor: ObservableObject {
 
-    /// The made-up host + path the Wander rewrite intercepts to answer the interception probe. Sibling of
-    /// GslocMode.setEndpoint (…/set); this one is …/probe and returns JSON rather than steering location.
-    nonisolated static let probeEndpoint = "http://wander.gsloc/probe"
+    /// The endpoint the Wander rewrite intercepts to answer the interception probe — sibling of the
+    /// channel's …/set, but returning JSON instead of steering location. This is the PREFERRED (new) one;
+    /// `probeAnyChannel()` is what actually runs Rung 1 across both. Kept as the default argument of
+    /// `probeIntercepting` so single-endpoint callers and tests still read cleanly.
+    nonisolated static let probeEndpoint = GslocChannel.modern.probeEndpoint
+
+    /// Per-attempt ceiling. Short on purpose: the fallback attempt is queued behind this one, so it caps how
+    /// long the diagnostic sits on a dead channel before trying the other.
+    nonisolated static let attemptTimeout: TimeInterval = 2
 
     /// The full ladder result. Each terminal case maps to one exact, user-facing fix (see SpoofDoctorView).
     enum Stage: Equatable {
@@ -61,6 +73,7 @@ final class SpoofDoctor: ObservableObject {
 
     /// Short-timeout session for Rung 1. The probe is caught locally by the proxy, so it resolves near
     /// instantly when interception is on; when it's OFF we want to fail fast, not hang the diagnostic.
+    /// Each request also sets its own (shorter) `timeoutInterval` — these are the backstop.
     nonisolated static let probeSession: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 3
@@ -84,13 +97,15 @@ final class SpoofDoctor: ObservableObject {
         return (json["ok"] as? Bool) == true
     }
 
-    /// Run Rung 1: GET the probe host and report whether the proxy intercepted it. Endpoint + session are
+    /// Probe ONE endpoint and report whether the proxy intercepted it. Endpoint + session + timeout are
     /// injectable so a test can point at a stub. Treats any thrown error as "not intercepting".
     static func probeIntercepting(endpoint: String = probeEndpoint,
-                                  session: URLSession = probeSession) async -> Bool {
+                                  session: URLSession = probeSession,
+                                  timeout: TimeInterval = attemptTimeout) async -> Bool {
         guard let url = URL(string: endpoint) else { return false }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        request.timeoutInterval = timeout
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         do {
             let (data, response) = try await session.data(for: request)
@@ -98,6 +113,23 @@ final class SpoofDoctor: ObservableObject {
         } catch {
             return interpretProbe(data: nil, response: nil, error: error)
         }
+    }
+
+    /// Run Rung 1 for real: try the channels in preference order and return the first that answers
+    /// `{"ok":true}` (nil = neither, i.e. not intercepting). Interception is proven by EITHER channel, so an
+    /// older config keeps passing the Doctor exactly as it did before the new endpoint existed.
+    ///
+    /// The winner is published into GslocMode's channel cache, so running the Doctor also spares the next
+    /// teleport its doomed first attempt.
+    static func probeAnyChannel() async -> GslocChannel? {
+        for channel in GslocMode.channelAttemptOrder() {
+            if await probeIntercepting(endpoint: channel.probeEndpoint) {
+                GslocMode.rememberChannel(channel)
+                return channel
+            }
+        }
+        GslocMode.forgetChannel()
+        return nil
     }
 
     // MARK: - Ladder
@@ -112,7 +144,7 @@ final class SpoofDoctor: ObservableObject {
         stage = .probing
 
         Task { @MainActor in
-            let intercepting = await Self.probeIntercepting()
+            let intercepting = (await Self.probeAnyChannel()) != nil
             guard token == self.runToken else { return }   // superseded
             if intercepting {
                 self.startRung2(token: token)
