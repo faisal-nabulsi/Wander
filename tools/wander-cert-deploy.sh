@@ -151,16 +151,27 @@ PY
 )
   ok=0
   for u in ${=UDIDS}; do
-    if xcrun devicectl list devices 2>/dev/null | grep -q "$u.*available"; then
-      log "installing to $u…"
-      if xcrun devicectl device install app --device "$u" "$OUT_IPA" > /tmp/wander-install.log 2>&1; then
-        log "  ✓ installed"; ok=1
+    # Just TRY the install rather than pre-checking availability. `devicectl list devices` prints the
+    # UDID in the hostname column only over USB — paired over WI-FI the same device shows up as
+    # `<name>.coredevice.local`, so grepping the list for the UDID silently skipped the install on
+    # every wireless run while reporting "no device connected". devicectl resolves --device from the
+    # UDID either way, so letting it fail and reading the error is both simpler and correct.
+    log "installing to $u…"
+    if xcrun devicectl device install app --device "$u" "$OUT_IPA" > /tmp/wander-install.log 2>&1; then
+      log "  ✓ installed"; ok=1
+    else
+      # Only surface the failure for a device that's actually around; an unreachable second device in
+      # the profile is expected noise, not an error worth printing in full.
+      if grep -qiE "locked|passcode" /tmp/wander-install.log; then
+        log "  ✗ device is locked — unlock it and re-run with --no-build"
+      elif grep -qiE "not found|unreachable|no device|could not find" /tmp/wander-install.log; then
+        log "  · $u not reachable (skipped)"
       else
         tail -6 /tmp/wander-install.log
-        log "  ✗ install failed (device locked? unlock and re-run with --no-build)"
+        log "  ✗ install failed for $u"
       fi
     fi
   done
-  [ "$ok" = 1 ] || log "no provisioned device connected/unlocked — signed IPA is ready at $OUT_IPA"
+  [ "$ok" = 1 ] || log "no provisioned device reachable — signed IPA is ready at $OUT_IPA"
 fi
 log "done."
