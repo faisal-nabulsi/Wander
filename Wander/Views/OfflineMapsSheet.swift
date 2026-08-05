@@ -64,7 +64,10 @@ struct OfflineMapsSheet: View {
                 OfflineMapView(
                     selectedCoordinate: $selectedCoordinate,
                     region: $region,
-                    cacheOnly: cacheOnly
+                    cacheOnly: cacheOnly,
+                    // This screen floats no style control of its own, so the map draws one.
+                    // (MapSelectionView does have one and therefore leaves this off.)
+                    showsStyleSwitcher: true
                 )
                 .ignoresSafeArea()
                 .overlay(alignment: .center) {

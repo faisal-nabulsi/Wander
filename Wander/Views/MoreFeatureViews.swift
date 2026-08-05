@@ -43,20 +43,29 @@ struct WhatsNewView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(L("whatsnew.title", fallback: "What's New"))
-                            .font(.largeTitle.weight(.bold))
+                            .wanderDisplay()
                         Text(updater.currentBuildVersionLabel)
-                            .font(.subheadline).foregroundStyle(.secondary)
+                            .font(.wanderNumeric(.subheadline))
+                            .foregroundStyle(.secondary)
                     }
                     if highlights.isEmpty {
-                        Text(L("whatsnew.uptodate", fallback: "You're on the latest version — no new notes right now."))
-                            .foregroundStyle(.secondary)
+                        // Genuinely empty, not loading: say so in the app's empty-state voice
+                        // instead of leaving one grey sentence floating on a blank screen.
+                        WanderEmptyState(
+                            title: L("whatsnew.uptodate.title", fallback: "You're up to date"),
+                            icon: Wander.Icon.whatsNew,
+                            message: L("whatsnew.uptodate",
+                                       fallback: "You're on the latest version — no new notes right now.")
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 40)
                     } else {
                         VStack(alignment: .leading, spacing: 14) {
                             ForEach(Array(highlights.enumerated()), id: \.offset) { _, line in
                                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                    Image(systemName: "sparkle")
-                                        .font(.caption).foregroundStyle(Wander.brand)
-                                    Text(line).font(.body)
+                                    Image(systemName: Wander.Icon.sparkle)
+                                        .font(.footnote).foregroundStyle(Wander.accent)
+                                    Text(line).wanderBody()
                                 }
                             }
                         }
@@ -85,15 +94,14 @@ struct MatchIPView: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
-                        Label("Match your IP", systemImage: "network.badge.shield.half.filled")
-                            .font(.body.weight(.semibold))
+                        Label("Match your IP", systemImage: Wander.Icon.matchIP)
+                            .font(.wanderTitle)
                         Text("Some dating and Pokémon GO-style apps compare your IP address against your GPS location. A VPN in the same region keeps them consistent.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .wanderDetail()
                         Link(destination: MoreFeatureLinks.vpn) {
-                            Label("Get a matching VPN", systemImage: "arrow.up.right.square")
+                            Label("Get a matching VPN", systemImage: Wander.Icon.externalLink)
+                                .font(.wanderLabel)
                         }
-                        .font(.callout.weight(.medium))
                         .padding(.top, 2)
                     }
                     .padding(.vertical, 4)
@@ -115,17 +123,19 @@ struct CommunityView: View {
             Form {
                 Section {
                     Link(destination: MoreFeatureLinks.githubRepo) {
-                        Label(L("settings.community.star", fallback: "⭐ Star Wander on GitHub"), systemImage: "star.fill")
+                        Label(L("settings.community.star", fallback: "⭐ Star Wander on GitHub"), systemImage: Wander.Icon.github)
+                            .font(.wanderLabel)
                     }
                     Link(destination: MoreFeatureLinks.discordInvite) {
-                        Label(L("settings.community.discord", fallback: "💬 Join our Discord"), systemImage: "bubble.left.and.bubble.right.fill")
+                        Label(L("settings.community.discord", fallback: "💬 Join our Discord"), systemImage: Wander.Icon.community)
+                            .font(.wanderLabel)
                             .foregroundStyle(Color(red: 0x58 / 255, green: 0x65 / 255, blue: 0xF2 / 255))
                     }
                     // Required CC BY 4.0 credit for the bundled offline place data (GeoNames).
+                    // Genuinely tertiary metadata — one of the few honest uses of `wanderMicro`.
                     Link(destination: MoreFeatureLinks.geonamesLicense) {
                         Text("Offline place data © GeoNames (CC BY 4.0)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .wanderMicro()
                     }
                 } footer: {
                     Text("Wander is open source. Star the repo on GitHub to help others find it, and join our Discord to share tips and get help.")
@@ -152,18 +162,25 @@ struct BackupView: View {
                     Button {
                         startBackupExport()
                     } label: {
-                        Label(L("settings.backup.back_up", fallback: "Back up my data"), systemImage: "square.and.arrow.up")
+                        Label(L("settings.backup.back_up", fallback: "Back up my data"), systemImage: Wander.Icon.export)
+                            .font(.wanderLabel)
                     }
                     Button {
                         backupResult = nil
                         isImportingBackup = true
                     } label: {
-                        Label(L("settings.backup.restore", fallback: "Restore from backup"), systemImage: "square.and.arrow.down")
+                        Label(L("settings.backup.restore", fallback: "Restore from backup"), systemImage: Wander.Icon.restore)
+                            .font(.wanderLabel)
                     }
                     if let msg = backupResult {
-                        Label(msg.text, systemImage: msg.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(msg.isError ? .red : .green)
+                        let status: Wander.Status = msg.isError ? .blocked : .good
+                        Label {
+                            Text(msg.text).font(.wanderDetail)
+                        } icon: {
+                            Image(systemName: status.symbol)
+                        }
+                        .foregroundStyle(status.color)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                 } header: {
                     Text(localized: "settings.backup.header", fallback: "Backup")
@@ -173,6 +190,12 @@ struct BackupView: View {
             }
             .navigationTitle(L("settings.backup.header", fallback: "Backup"))
             .navigationBarTitleDisplayMode(.inline)
+            .wanderAnimation(WanderMotion.layout, on: backupResult?.text)
+            // Export/restore is always something the user just tapped, so the outcome earns a
+            // haptic — and success and failure must not feel the same.
+            .wanderFeedback(backupResult?.isError == true ? .failure : .success,
+                            on: backupResult?.text,
+                            enabled: backupResult != nil)
         }
         .fileExporter(
             isPresented: $isExportingBackup,
@@ -252,9 +275,10 @@ struct AdventureSyncView: View {
                         } label: {
                             HStack {
                                 Label(L("settings.adventuresync.toggle", fallback: "Adventure Sync (write steps to Health)"),
-                                      systemImage: "figure.walk.motion")
+                                      systemImage: Wander.Icon.adventureSync)
+                                    .font(.wanderLabel)
                                 Spacer()
-                                Image(systemName: "lock.fill").foregroundStyle(.secondary)
+                                Image(systemName: Wander.Icon.locked).foregroundStyle(.secondary)
                             }
                         }
                     } else {
@@ -263,43 +287,30 @@ struct AdventureSyncView: View {
                             set: { adventureSync.setEnabled($0) }
                         )) {
                             Label(L("settings.adventuresync.toggle", fallback: "Adventure Sync (write steps to Health)"),
-                                  systemImage: "figure.walk.motion")
+                                  systemImage: Wander.Icon.adventureSync)
+                                .font(.wanderLabel)
+                                .wanderSymbolAccent(on: adventureSync.isEnabled)
                         }
-                        .tint(Wander.brand)
 
                         if adventureSync.isEnabled {
-                            switch adventureSync.status {
-                            case .authorized:
-                                Label(L("settings.adventuresync.status.on",
-                                        fallback: "Writing steps to Apple Health while you move."),
-                                      systemImage: "checkmark.circle.fill")
-                                    .font(.caption).foregroundStyle(.green)
-                            case .denied:
-                                Label(L("settings.adventuresync.status.denied",
-                                        fallback: "Health write access is off. Enable it in Settings → Health → Data Access & Devices → Wander."),
-                                      systemImage: "exclamationmark.circle")
-                                    .font(.caption).foregroundStyle(.orange)
-                            case .unavailable:
-                                Label(L("settings.adventuresync.status.unavailable",
-                                        fallback: "Apple Health isn't available on this install. Writing steps needs a HealthKit-enabled (paid-signing) build."),
-                                      systemImage: "xmark.circle")
-                                    .font(.caption).foregroundStyle(.orange)
-                            case .idle:
-                                Label(L("settings.adventuresync.status.idle",
-                                        fallback: "Grant Apple Health write access when prompted to start mirroring steps."),
-                                      systemImage: "hourglass")
-                                    .font(.caption).foregroundStyle(.secondary)
+                            // One chip instead of four differently-coloured caption labels: the
+                            // status decides both the colour and the glyph, so "denied" can never
+                            // be the same orange as "unavailable" by accident.
+                            HStack {
+                                WanderStatusChip(status: healthStatus, text: healthStatusTitle)
+                                Spacer()
                             }
+                            Text(healthStatusDetail).wanderDetail()
                         }
                     }
                 } header: {
                     HStack(spacing: 6) {
                         Text(localized: "settings.adventuresync.header", fallback: "Adventure Sync")
                         Text(verbatim: "WIP")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(.orange)
+                            .font(.wanderNumeric(.caption2, weight: .bold))
+                            .foregroundStyle(Wander.caution)
                             .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(Capsule().fill(Color.orange.opacity(0.18)))
+                            .background(Capsule().fill(Wander.caution.opacity(0.16)))
                     }
                 } footer: {
                     Text(license.isLicensed
@@ -311,9 +322,47 @@ struct AdventureSyncView: View {
             }
             .navigationTitle(L("settings.adventuresync.header", fallback: "Adventure Sync"))
             .navigationBarTitleDisplayMode(.inline)
+            .wanderAnimation(WanderMotion.layout, on: adventureSync.isEnabled)
         }
         .sheet(isPresented: $showPaywall) {
             PaywallView(onClose: { showPaywall = false })
+        }
+    }
+
+    // MARK: - Health permission, as one status
+
+    private var healthStatus: Wander.Status {
+        switch adventureSync.status {
+        case .authorized:  return .good
+        case .denied:      return .blocked   // you must go change something before this works
+        case .unavailable: return .inactive  // not a fault: this build simply can't do it
+        case .idle:        return .caution   // waiting on a permission prompt
+        }
+    }
+
+    private var healthStatusTitle: String {
+        switch adventureSync.status {
+        case .authorized:  return L("settings.adventuresync.chip.on", fallback: "Writing to Health")
+        case .denied:      return L("settings.adventuresync.chip.denied", fallback: "Access off")
+        case .unavailable: return L("settings.adventuresync.chip.unavailable", fallback: "Not available")
+        case .idle:        return L("settings.adventuresync.chip.idle", fallback: "Waiting for access")
+        }
+    }
+
+    private var healthStatusDetail: String {
+        switch adventureSync.status {
+        case .authorized:
+            return L("settings.adventuresync.status.on",
+                     fallback: "Writing steps to Apple Health while you move.")
+        case .denied:
+            return L("settings.adventuresync.status.denied",
+                     fallback: "Health write access is off. Enable it in Settings → Health → Data Access & Devices → Wander.")
+        case .unavailable:
+            return L("settings.adventuresync.status.unavailable",
+                     fallback: "Apple Health isn't available on this install. Writing steps needs a HealthKit-enabled (paid-signing) build.")
+        case .idle:
+            return L("settings.adventuresync.status.idle",
+                     fallback: "Grant Apple Health write access when prompted to start mirroring steps.")
         }
     }
 }

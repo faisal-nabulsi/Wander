@@ -1161,6 +1161,57 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
 }
 
 
+/// The one write funnel for the spoof TIMELINE — a pure pass-through around `simulate_location`.
+///
+/// Wander is a remote control that forgets: it writes a coordinate into the device and keeps nothing,
+/// so nobody can check whether the story their location tells holds together. This is where the
+/// record comes from, and it sits HERE because nearly every mode — teleport, walk, route, itinerary,
+/// schedule, Shortcuts, and the gs-loc re-route inside `simulate_location` above — already funnels
+/// through that one function. One wrapper covers nine of the ten write sites; nine call sites logging
+/// themselves would not.
+///
+/// ⚠️ IT IS NOT LITERALLY EVERY WRITE, and pretending otherwise would be the kind of comment that
+/// costs someone an afternoon. `GslocControlView`'s "Re-teleport to last spot" button calls
+/// `GslocMode.push` DIRECTLY, bypassing `simulate_location` entirely, so this wrapper cannot see it.
+/// That site logs itself with an explicit `SpoofTimelineRecorder.record(source: .gsloc)`. Any future
+/// caller of `GslocMode.push` has the same obligation.
+///
+/// ⚠️ READ BEFORE EDITING. This file took eight fixes to stabilise (root cause: iOS suspending the
+/// app and reclaiming the socket — Apple TN2277) and the injection path below is finally correct.
+/// This wrapper is bound by a hard contract, and anything that breaks it is a spoof bug, not a
+/// logging bug:
+///
+///   * PURE PASS-THROUGH. It returns exactly what `simulate_location` returned, unchanged, on every
+///     path. It has no failure mode of its own and no branch on the ledger's behaviour.
+///   * NEVER THROWS. Nothing in it can throw, so no caller needs `try` and no error can escape.
+///   * NO LATENCY ON THE CALLING QUEUE. `simulate_location` runs on the SERIAL location command
+///     queue; a blocked call there wedges Stop and Panic. `SpoofTimelineRecorder.record` does two
+///     float checks, takes a timestamp, and hands off to its own utility queue — no lock the caller
+///     can contend on, no file I/O, no UserDefaults read, no geocoding, no main-actor hop.
+///   * RETAINS NOTHING. Only three `Double`s and an enum cross the hand-off. Nothing that could keep
+///     an FFI handle, a session or a device object alive is captured.
+///   * FAILS INVISIBLY. If every part of the ledger is broken — disk full, directory gone, decoder
+///     confused — the spoof is unaffected, because nothing on the inject path ever reads a result
+///     back from it.
+///
+/// The logging is DELIBERATELY after the call, not around it: the recorded row includes whether the
+/// inject was accepted, and a run of rejected rows is exactly the "my spoof looked live but wasn't"
+/// story the timeline exists to expose.
+@discardableResult
+func simulate_location_logged(_ deviceIP: String,
+                              _ latitude: Double,
+                              _ longitude: Double,
+                              _ pairingFile: String,
+                              source: SpoofFixSource = .other) -> Int32 {
+    let code = simulate_location(deviceIP, latitude, longitude, pairingFile)
+    SpoofTimelineRecorder.record(latitude: latitude,
+                                 longitude: longitude,
+                                 source: source,
+                                 accepted: code == LocationSimulationStatus.ok)
+    return code
+}
+
+
 /// Read an FFI error's real code + message. MUST be called BEFORE idevice_error_free — the whole reason
 /// "error 3" was uninformative for days is that every failure site freed the error without ever looking
 /// inside it, discarding the one string that says what actually went wrong.

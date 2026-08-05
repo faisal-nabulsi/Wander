@@ -1,6 +1,6 @@
 {
-  "build": 129,
+  "build": 130,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Big fix: your spoof now survives leaving the app. iOS was suspending Wander in the background and reclaiming the connection that holds your fake location - so it snapped back to real, and on cellular it couldn't reconnect. Wander now stays awake for the whole session, so teleports and routes keep running with the app closed. Also: the tunnel no longer gets permanently stuck on 'reconnecting' after an Airplane Mode toggle, PoGo mode shows it's teleport-only so the joystick can't silently fail, gs-loc setup now supports Loon, Quantumult X and Stash (not just Shadowrocket), a new 'Check my setup' diagnostic pinpoints exactly why a spoof isn't working, the map keeps more of the screen, and 'Move here' no longer snaps the map."
+  "notes": "Routes now look like a real maps app: each portion is coloured by how you travel it (walk, drive, cycle, transit), shows how long that portion takes, and the other routes are labelled with their time so you can tap one. Arrival time instead of just duration, and your device's current location now shows on the map. New Timeline records where you've been — see your day, and repeat it. Search now looks around your spoofed spot instead of where your phone really is, and you can tap any place Apple draws on the map to teleport there. Look Around street-level preview is now free. Plus: live hotspot list with freshness, cooldown journal and rulebook, per-account cooldowns, roam and orbit walking, optimise stop order, more Shortcuts actions, and a cleaner, easier-to-read app throughout."
 }

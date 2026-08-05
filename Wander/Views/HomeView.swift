@@ -238,23 +238,32 @@ struct HomeView: View {
         }
     }
 
+    /// The one transient status this screen shows. It used to be a bare spinner + grey text that
+    /// turned red on failure — colour alone, no shape, no confirmation you could feel. Now it is
+    /// the app's status vocabulary: a semantic tint, a matching glyph (so the state survives
+    /// colour-blindness and a glance), a pulse while it's working, and a spring in and out.
     private func debugFeedbackView(_ feedback: DebugFeedback) -> some View {
-        HStack(spacing: 10) {
-            if feedback.isWorking {
-                ProgressView()
-                    .controlSize(.small)
-            }
+        let status: Wander.Status = feedback.isError ? .blocked : (feedback.isWorking ? .caution : .good)
+        return HStack(spacing: 10) {
+            Image(systemName: feedback.isWorking ? Wander.Icon.simulate : status.symbol)
+                .imageScale(.medium)
+                .foregroundStyle(status.color)
+                .wanderSymbolActive(feedback.isWorking)
+                .wanderSymbolAccent(on: feedback.isWorking)
+                .accessibilityHidden(true)
 
             Text(feedback.message)
-                .font(.subheadline.weight(.semibold))
+                .font(.wanderLabel)
                 .multilineTextAlignment(.center)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(Capsule().fill(.ultraThinMaterial))
-        .foregroundStyle(feedback.isError ? .red : .primary)
-        .shadow(radius: 4)
+        .overlay(Capsule().strokeBorder(status.color.opacity(0.28), lineWidth: 0.5))
+        .foregroundStyle(feedback.isError ? Wander.blocked : .primary)
+        .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
         .padding(.horizontal, 20)
+        .wanderAnimation(WanderMotion.quick, on: feedback.isWorking)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(feedback.message)
     }
@@ -285,7 +294,7 @@ struct HomeView: View {
         let targetName = displayName ?? bundleID ?? pid.map { String(format: "process %d".localized, $0) } ?? "app".localized
         let startingMessage = String(format: "Starting JIT for %@".localized, targetName)
         LogManager.shared.addInfoLog("Starting Debug for \(bundleID ?? String(pid ?? 0))")
-        withAnimation {
+        withAnimation(WanderMotion.layout) {
             debugFeedback = DebugFeedback(message: startingMessage, isError: false, isWorking: true)
         }
         AccessibilityAnnouncer.announce(startingMessage)
@@ -309,14 +318,17 @@ struct HomeView: View {
                         ? String(format: "JIT request completed for %@".localized, targetName)
                         : String(format: "JIT failed for %@".localized, targetName)
                     let feedback = DebugFeedback(message: message, isError: !success, isWorking: false)
-                    withAnimation {
+                    withAnimation(WanderMotion.pop) {
                         debugFeedback = feedback
                     }
+                    // The result of something the user asked for — success and failure must feel
+                    // different, not just look different.
+                    (success ? WanderFeedback.success : WanderFeedback.failure).play()
                     AccessibilityAnnouncer.announce(message)
 
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                         if debugFeedback?.id == feedback.id {
-                            withAnimation {
+                            withAnimation(WanderMotion.layout) {
                                 debugFeedback = nil
                             }
                         }

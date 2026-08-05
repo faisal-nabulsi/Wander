@@ -68,11 +68,15 @@ struct SettingsView: View {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
     }
 
-    private var tunnelHealthColor: Color {
+    /// Tunnel health as a MEANING, not a hue — so "connected" reads the same green here, on the
+    /// map and in the diagnostics screen, and "reconnecting" is amber (usable, degraded) rather
+    /// than the red it used to share with a dead tunnel.
+    private var tunnelHealthStatus: Wander.Status {
+        if tunnelHealth.isReconnecting { return .caution }
         switch tunnelHealth.state {
-        case .connected: return .green
-        case .unstable: return .orange
-        case .disconnected: return .red
+        case .connected: return .good
+        case .unstable: return .caution
+        case .disconnected: return .blocked
         }
     }
 
@@ -90,6 +94,8 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // THE ONE THING THIS SCREEN LEADS WITH: which app this is and whether it's Pro.
+                // Everything below is configuration, so it is deliberately quieter than this.
                 Section {
                     HStack {
                         Spacer()
@@ -98,24 +104,34 @@ struct SettingsView: View {
                                 .resizable().aspectRatio(contentMode: .fit)
                                 .frame(width: 84, height: 84)
                                 .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
-                            VStack(spacing: 2) {
-                                Text("Wander").font(.title2.weight(.semibold))
-                                Text(localized: "settings.tagline", fallback: "Your location, anywhere").font(.caption).foregroundStyle(.secondary)
+                            VStack(spacing: 4) {
+                                Text("Wander").wanderDisplay()
+                                Text(localized: "settings.tagline", fallback: "Your location, anywhere")
+                                    .wanderDetail()
                             }
+                            WanderStatusChip(status: license.isLicensed ? .good : .inactive,
+                                             text: license.isLicensed
+                                                 ? L("settings.pro.active", fallback: "Wander Pro — active")
+                                                 : L("settings.pro.free", fallback: "Free trial"))
                         }
                         Spacer()
                     }
                     .listRowBackground(Color.clear)
                     .padding(.vertical, 8)
+                    .wanderAnimation(WanderMotion.layout, on: license.isLicensed)
                 }
 
                 Section {
                     if license.isLicensed {
-                        Label(L("settings.pro.active", fallback: "Wander Pro — active"), systemImage: "checkmark.seal.fill")
-                            .foregroundStyle(.green)
                         if let expiry = license.expiry {
-                            Text("Renews/expires \(expiry.formatted(date: .abbreviated, time: .omitted))")
-                                .font(.caption).foregroundStyle(.secondary)
+                            HStack {
+                                Text(L("settings.pro.renews", fallback: "Renews / expires"))
+                                    .font(.wanderLabel)
+                                Spacer()
+                                Text(expiry.formatted(date: .abbreviated, time: .omitted))
+                                    .font(.wanderNumeric(.subheadline))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         // A Pro account can manage the devices it's signed into (5-device cap).
                         if proAccount.isPro {
@@ -125,10 +141,8 @@ struct SettingsView: View {
                         // Pro account, but THIS device is over the 5-device cap → not unlocked
                         // here. Point the user straight at Manage Devices to free a slot.
                         if proAccount.isPro && deviceActivation.atLimit && !deviceActivation.registered {
-                            Label("This device isn't unlocked — your Pro account is at its \(deviceActivation.limit)-device limit.",
-                                  systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.orange)
+                            noticeRow(.caution,
+                                      "This device isn't unlocked — your Pro account is at its \(deviceActivation.limit)-device limit.")
                             manageDevicesRow
                         }
                         trialRow(L("settings.trial.teleports_today", fallback: "Teleports today"), trial.teleportsUsed, TrialManager.maxTeleports)
@@ -137,7 +151,8 @@ struct SettingsView: View {
                         Button {
                             showPaywall = true
                         } label: {
-                            Label(L("settings.pro.get", fallback: "Get Wander Pro"), systemImage: "sparkles")
+                            Label(L("settings.pro.get", fallback: "Get Wander Pro"), systemImage: Wander.Icon.proUpgrade)
+                                .font(.wanderLabel)
                         }
                     }
                 } header: {
@@ -154,38 +169,38 @@ struct SettingsView: View {
 
                 Section {
                     if selfRefresh.needsReSignIn {
-                        Label("Apple sign-in expired — sign in again so Wander can keep refreshing.",
-                              systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.orange)
+                        noticeRow(.caution, "Apple sign-in expired — sign in again so Wander can keep refreshing.")
                     }
                     Button {
                         showLogin = true
                     } label: {
-                        Label(wanderAccount.isSignedIn ? "Apple ID — signed in ✓" : "Sign in to Apple ID", systemImage: "person.badge.key")
+                        Label(wanderAccount.isSignedIn ? "Apple ID — signed in" : "Sign in to Apple ID",
+                              systemImage: wanderAccount.isSignedIn ? Wander.Icon.appleID : Wander.Icon.signIn)
+                            .font(.wanderLabel)
+                            .wanderSymbolAccent(on: wanderAccount.isSignedIn)
                     }
                     if !wanderAccount.status.isEmpty {
-                        Text(wanderAccount.status)
-                            .font(.caption).foregroundStyle(.secondary)
+                        Text(wanderAccount.status).wanderDetail()
                     }
                     if wanderAccount.isSignedIn {
                         Button(role: .destructive) {
                             wanderAccount.signOut()
                         } label: {
-                            Label("Sign out of Apple ID", systemImage: "person.badge.minus")
+                            Label("Sign out of Apple ID", systemImage: Wander.Icon.removeAccount)
                         }
                     }
                     Button {
                         wanderAccount.twoFactorPresenter = .settings   // Settings owns the 2FA prompt here
                         Task { await selfRefresh.refresh() }
                     } label: {
-                        Label("Run self-refresh (sign + install)", systemImage: "checkmark.seal")
+                        Label(selfRefresh.isRefreshing ? "Refreshing…" : "Run self-refresh (sign + install)",
+                              systemImage: Wander.Icon.resign)
+                            .wanderSymbolActive(selfRefresh.isRefreshing)
                     }
                     .disabled(selfRefresh.isRefreshing)
                     if let s = selfRefresh.status {
                         Text(s)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .wanderDetail()
                             .textSelection(.enabled)
                     }
                 } header: {
@@ -197,39 +212,48 @@ struct SettingsView: View {
                 Section {
                     HStack {
                         Text(localized: "settings.update.current_version", fallback: "Current version")
+                            .font(.wanderLabel)
                         Spacer()
                         Text("\(updater.currentVersion) (\(updater.currentBuild))")
+                            .font(.wanderNumeric(.subheadline))
                             .foregroundStyle(.secondary)
+                            .wanderTick(updater.currentBuild)
                     }
                     if let m = updater.available {
                         VStack(alignment: .leading, spacing: 4) {
                             Label(updater.needsUserAction ? "Update ready — tap to install"
                                                           : "Update available — v\(m.version)",
-                                  systemImage: "arrow.down.circle.fill")
-                                .foregroundStyle(Wander.brand)
-                                .font(updater.needsUserAction ? .body.weight(.semibold) : .body)
+                                  systemImage: Wander.Icon.update)
+                                .font(.wanderLabel)
+                                .foregroundStyle(Wander.accent)
+                                .wanderSymbolAccent(on: updater.needsUserAction)
                             if let notes = m.notes, !notes.isEmpty {
-                                Text(notes).font(.caption).foregroundStyle(.secondary)
+                                Text(notes).wanderDetail()
                             }
                         }
                         Button {
                             runUpdate()
                         } label: {
                             Label(updater.needsUserAction ? "Install update now" : "Download & install update",
-                                  systemImage: "square.and.arrow.down")
+                                  systemImage: Wander.Icon.install)
+                                .wanderSymbolActive(updater.isBusy)
                         }
                         .disabled(updater.isBusy)
                     } else {
                         Button {
                             Task { await updater.check() }
                         } label: {
-                            Label(L("settings.update.check", fallback: "Check for updates"), systemImage: "arrow.clockwise")
+                            Label(updater.isBusy
+                                    ? L("settings.update.checking", fallback: "Checking…")
+                                    : L("settings.update.check", fallback: "Check for updates"),
+                                  systemImage: Wander.Icon.refresh)
+                                .wanderSymbolActive(updater.isBusy)
                         }
                         .disabled(updater.isBusy)
                     }
                     if !updater.status.isEmpty {
                         Text(updater.status)
-                            .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                            .wanderDetail().textSelection(.enabled)
                     }
                 } header: {
                     Text(localized: "settings.update.header", fallback: "Software Update")
@@ -239,9 +263,11 @@ struct SettingsView: View {
 
                 Section {
                     HStack {
-                        Image(systemName: tunnel.status == .connected ? "checkmark.shield.fill" : "shield.slash")
-                            .foregroundStyle(tunnel.status == .connected ? Color.green : Color.secondary)
-                        Text(tunnel.status.title)
+                        Image(systemName: tunnel.status == .connected ? Wander.Icon.tunnelConnected : Wander.Icon.tunnelDown)
+                            .foregroundStyle(tunnel.status == .connected ? Wander.good : Wander.inactive)
+                            .wanderSymbolAccent(on: tunnel.status)
+                            .wanderSymbolActive(tunnel.status == .connecting)
+                        Text(tunnel.status.title).font(.wanderLabel)
                         Spacer()
                         Button(tunnel.status == .connected || tunnel.status == .connecting
                                ? L("action.disconnect", fallback: "Disconnect")
@@ -249,12 +275,13 @@ struct SettingsView: View {
                             tunnel.toggle()
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(Wander.brand)
+                        .tint(Wander.accent)
                     }
+                    .wanderAnimation(WanderMotion.quick, on: tunnel.status)
                     Button {
                         showSetupCheck = true
                     } label: {
-                        Label(L("settings.tunnel.checklist", fallback: "Setup checklist"), systemImage: "checklist")
+                        Label(L("settings.tunnel.checklist", fallback: "Setup checklist"), systemImage: Wander.Icon.checklist)
                     }
                 } header: {
                     HStack(spacing: 6) {
@@ -275,31 +302,29 @@ struct SettingsView: View {
                 // means and what actually helps (nothing can stop iOS from reclaiming it).
                 Section {
                     if simSession.isActive {
-                        HStack(spacing: 8) {
-                            Circle()
-                                .fill(tunnelHealthColor)
-                                .frame(width: 10, height: 10)
-                            Text(tunnelHealthText)
+                        HStack {
+                            WanderStatusChip(status: tunnelHealthStatus,
+                                             text: tunnelHealthText,
+                                             isBusy: tunnelHealth.isReconnecting)
                             Spacer()
-                            if tunnelHealth.isReconnecting {
-                                ProgressView().controlSize(.small)
-                            }
                         }
                         if !tunnelHealth.state.isHealthy {
                             Button(role: .destructive) {
                                 SimulationSession.shared.stopAll()
                             } label: {
                                 Label(L("tunnel.action.stop", fallback: "Stop — return to real GPS"),
-                                      systemImage: "stop.circle")
+                                      systemImage: Wander.Icon.stopCircle)
+                                    .font(.wanderLabel)
                             }
+                            .transition(.move(edge: .top).combined(with: .opacity))
                         }
                     } else {
                         HStack(spacing: 8) {
-                            Image(systemName: "waveform.path.ecg")
-                                .foregroundStyle(.secondary)
+                            Image(systemName: Wander.Icon.heartbeat)
+                                .foregroundStyle(Wander.inactive)
                             Text(localized: "tunnel.stability.idle",
                                  fallback: "Not spoofing — the heartbeat shows while a simulation is running.")
-                                .foregroundStyle(.secondary)
+                                .wanderDetail()
                         }
                     }
                 } header: {
@@ -308,6 +333,10 @@ struct SettingsView: View {
                     Text(localized: "tunnel.stability.footer",
                          fallback: "Wander watches the connection it injects location through and, if it drops, tries to reconnect on its own — best-effort only, since iOS can close the tunnel when memory runs low or the app is backgrounded (nothing can prevent that). Low memory can drop it, so close background apps for a steadier spoof.")
                 }
+                // Health here is polled in the background, so the chip animates but deliberately
+                // carries NO haptic (see WanderStatusChip's note) — the phone must not buzz in a
+                // pocket for something the user never did.
+                .wanderAnimation(WanderMotion.layout, on: tunnelHealthStatus)
 
                 // SAFETY — the panic button + the manual stop, grouped so the revert-to-real-GPS
                 // controls live together instead of being buried in the Location catch-all.
@@ -315,13 +344,15 @@ struct SettingsView: View {
                     Button(role: .destructive) {
                         SimulationSession.shared.stopAll()
                     } label: {
-                        Label(L("settings.location.stop", fallback: "Stop simulating location"), systemImage: "stop.circle")
+                        Label(L("settings.location.stop", fallback: "Stop simulating location"),
+                              systemImage: Wander.Icon.stopCircle)
+                            .font(.wanderLabel)
                     }
 
                     Toggle(isOn: $panicButtonEnabled) {
-                        Label(L("settings.safety.panic", fallback: "Show panic button"), systemImage: "exclamationmark.octagon")
+                        Label(L("settings.safety.panic", fallback: "Show panic button"), systemImage: Wander.Icon.panic)
+                            .wanderSymbolAccent(on: panicButtonEnabled)
                     }
-                    .tint(Wander.brand)
                 } header: {
                     Text(localized: "settings.safety.header", fallback: "Safety")
                 } footer: {
@@ -331,7 +362,8 @@ struct SettingsView: View {
 
                 Section {
                     HStack {
-                        Label(L("settings.location.speed_units", fallback: "Speed units"), systemImage: "speedometer")
+                        Label(L("settings.location.speed_units", fallback: "Speed units"), systemImage: Wander.Icon.speed)
+                            .font(.wanderLabel)
                         Spacer()
                         Picker("Speed units", selection: $useMph) {
                             Text("km/h").tag(false)
@@ -349,59 +381,72 @@ struct SettingsView: View {
                 // catch-all Location section so they read as one coherent group.
                 Section {
                     Toggle(isOn: $realisticMotion) {
-                        Label(L("settings.motion.realistic", fallback: "Realistic motion"), systemImage: "figure.walk.motion")
+                        Label(L("settings.motion.realistic", fallback: "Realistic motion"), systemImage: Wander.Icon.motionRealism)
+                            .font(.wanderLabel)
+                            .wanderSymbolAccent(on: realisticMotion)
                     }
-                    if realisticMotion {
-                        Text(localized: "settings.motion.realistic.on.footer",
-                             fallback: "While you're moving (joystick or a route), your pace varies and your path curves slightly instead of a dead-straight line at a constant speed — the tell-tale sign of a spoofed track. Best-in-class anti-detection, no root needed.")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Text(localized: "settings.motion.realistic.off.footer",
-                             fallback: "Off — movement is perfectly straight and constant-speed. Faster to aim, but easier for apps to flag as simulated.")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                    .wanderFeedback(.selection, on: realisticMotion)
+                    toggleFootnote(realisticMotion
+                        ? L("settings.motion.realistic.on.footer",
+                            fallback: "While you're moving (joystick or a route), your pace varies and your path curves slightly instead of a dead-straight line at a constant speed — the tell-tale sign of a spoofed track. Best-in-class anti-detection, no root needed.")
+                        : L("settings.motion.realistic.off.footer",
+                            fallback: "Off — movement is perfectly straight and constant-speed. Faster to aim, but easier for apps to flag as simulated."))
 
                     Toggle(isOn: $jitterEnabled) {
-                        Label(L("settings.location.jitter", fallback: "Natural drift"), systemImage: "dot.radiowaves.left.and.right")
+                        Label(L("settings.location.jitter", fallback: "Natural drift"), systemImage: Wander.Icon.drift)
+                            .font(.wanderLabel)
+                            .wanderSymbolAccent(on: jitterEnabled)
                     }
+                    .wanderFeedback(.selection, on: jitterEnabled)
                     if jitterEnabled {
                         HStack {
-                            Text(localized: "settings.location.drift", fallback: "Drift").font(.caption).foregroundStyle(.secondary)
+                            Text(localized: "settings.location.drift", fallback: "Drift").wanderDetail()
                             Slider(value: $jitterRadius, in: 0.5...5, step: 0.5)
                             Text(String(format: "%.1f m", jitterRadius))
-                                .font(.caption).monospacedDigit().frame(width: 52, alignment: .trailing)
+                                .font(.wanderNumeric(.subheadline))
+                                .frame(width: 56, alignment: .trailing)
+                                .wanderTick(jitterRadius)
                         }
                     } else {
-                        Text(localized: "settings.location.jitter.off.footer",
-                             fallback: "Off — your spot is held perfectly still. On adds a subtle natural drift, like a real GPS reading.")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        toggleFootnote(L("settings.location.jitter.off.footer",
+                                         fallback: "Off — your spot is held perfectly still. On adds a subtle natural drift, like a real GPS reading."))
                     }
 
                     Toggle(isOn: $smoothLongJumps) {
-                        Label(L("settings.location.smooth_jumps", fallback: "Smooth long jumps"), systemImage: "arrow.up.right.circle")
+                        Label(L("settings.location.smooth_jumps", fallback: "Smooth long jumps"), systemImage: Wander.Icon.smoothJump)
+                            .font(.wanderLabel)
+                            .wanderSymbolAccent(on: smoothLongJumps)
                     }
+                    .wanderFeedback(.selection, on: smoothLongJumps)
                     if smoothLongJumps {
-                        Text(localized: "settings.location.smooth_jumps.footer",
-                             fallback: "A big teleport glides to the new spot over a few seconds instead of jumping instantly, so apps that flag an impossible jump (dating apps, Life360) see a fast but continuous move. Short jumps stay instant.")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        toggleFootnote(L("settings.location.smooth_jumps.footer",
+                                         fallback: "A big teleport glides to the new spot over a few seconds instead of jumping instantly, so apps that flag an impossible jump (dating apps, Life360) see a fast but continuous move. Short jumps stay instant."))
                     }
 
                     Toggle(isOn: $approximateLocation) {
-                        Label(L("settings.location.coarse", fallback: "Approximate location"), systemImage: "location.circle")
+                        Label(L("settings.location.coarse", fallback: "Approximate location"), systemImage: Wander.Icon.coarse)
+                            .font(.wanderLabel)
+                            .wanderSymbolAccent(on: approximateLocation)
                     }
+                    .wanderFeedback(.selection, on: approximateLocation)
                     if approximateLocation {
-                        Text(localized: "settings.location.coarse.footer",
-                             fallback: "Privacy: reports a spot within about 3–5 km of your target so you share a neighborhood, not the exact place. The offset stays the same for the whole session.")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        toggleFootnote(L("settings.location.coarse.footer",
+                                         fallback: "Privacy: reports a spot within about 3–5 km of your target so you share a neighborhood, not the exact place. The offset stays the same for the whole session."))
                     }
                 } header: {
                     Text(localized: "settings.realism.header", fallback: "Realism & privacy")
                 }
+                // These four toggles reveal and hide their own explanation — without a curve the
+                // rows below snap up and down, which reads as a glitch rather than a change. The
+                // animation belongs on the SECTION because the rows being animated are the
+                // footnotes inserting and removing, which only the container sees.
+                //
+                // The HAPTIC deliberately does not live here. SwiftUI pushes a section modifier
+                // down into every row, so one `.wanderFeedback` on this Section would install
+                // eight `sensoryFeedback` triggers watching the same array — flipping one switch
+                // would fire up to eight taps and feel like a stutter instead of a click. Each
+                // Toggle carries its own, watching only its own flag: exactly one tap per flip.
+                .wanderAnimation(WanderMotion.layout, on: [realisticMotion, jitterEnabled, smoothLongJumps, approximateLocation])
                 .onAppear {
                     // The old "Hold perfectly still" toggle was just the inverse of jitter;
                     // migrate anyone who had it on to jitter-off (still) and retire the flag,
@@ -421,9 +466,10 @@ struct SettingsView: View {
                         }
                     )) {
                         Label(L("settings.sharing.mode", fallback: "Life360 / Find My mode"),
-                              systemImage: "person.2.wave.2")
+                              systemImage: Wander.Icon.sharing)
+                            .font(.wanderLabel)
+                            .wanderSymbolAccent(on: jitterEnabled && smoothLongJumps)
                     }
-                    .tint(Wander.brand)
                 } header: {
                     Text(localized: "settings.sharing.header", fallback: "Location-sharing apps")
                 } footer: {
@@ -433,7 +479,8 @@ struct SettingsView: View {
 
                 Section {
                     HStack {
-                        Label(L("settings.appearance.title", fallback: "Appearance"), systemImage: "circle.lefthalf.filled")
+                        Label(L("settings.appearance.title", fallback: "Appearance"), systemImage: Wander.Icon.appearance)
+                            .font(.wanderLabel)
                         Spacer()
                         Picker("Appearance", selection: $appearanceRaw) {
                             ForEach(AppearanceMode.allCases) { mode in
@@ -450,7 +497,9 @@ struct SettingsView: View {
 
                 Section {
                     Toggle(isOn: $reminderEnabled) {
-                        Label(L("settings.reminders.toggle", fallback: "Remind me if it may have paused"), systemImage: "bell.badge")
+                        Label(L("settings.reminders.toggle", fallback: "Remind me if it may have paused"), systemImage: Wander.Icon.reminder)
+                            .font(.wanderLabel)
+                            .wanderSymbolAccent(on: reminderEnabled)
                     }
                     .onChange(of: reminderEnabled) { _, isOn in
                         if isOn {
@@ -469,8 +518,9 @@ struct SettingsView: View {
                     Toggle(isOn: $keepAliveAudio) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(localized: "settings.keepalive.audio", fallback: "Silent Audio")
+                                .font(.wanderLabel)
                             Text("Plays inaudible audio so iOS keeps the app running.")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .wanderDetail()
                         }
                     }
                     .onChange(of: keepAliveAudio) { _, enabled in
@@ -481,8 +531,9 @@ struct SettingsView: View {
                     Toggle(isOn: $keepAliveLocation) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(localized: "settings.keepalive.background_location", fallback: "Background Location")
+                                .font(.wanderLabel)
                             Text("Uses low-accuracy location to stay alive when an activity needs it.")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .wanderDetail()
                         }
                     }
                     .onChange(of: keepAliveLocation) { _, enabled in
@@ -494,19 +545,22 @@ struct SettingsView: View {
 
                 Section {
                     Link(destination: SettingsLinks.localDevVPN) {
-                        Label(L("settings.help.download_vpn", fallback: "Download LocalDevVPN"), systemImage: "arrow.down.circle")
+                        Label(L("settings.help.download_vpn", fallback: "Download LocalDevVPN"), systemImage: Wander.Icon.vpnDownload)
+                            .font(.wanderLabel)
                     }
                     Button {
                         showLocationHelp = true
                     } label: {
                         Label(L("settings.help.error12", fallback: "Location not detected? (Error 12)"),
-                              systemImage: "questionmark.circle")
+                              systemImage: Wander.Icon.help)
+                            .font(.wanderLabel)
                     }
                     Button {
                         showTunnelHelp = true
                     } label: {
                         Label(L("settings.help.tunnel", fallback: "Tunnel won't connect?"),
-                              systemImage: "cable.connector.horizontal")
+                              systemImage: Wander.Icon.cable)
+                            .font(.wanderLabel)
                     }
                 } header: {
                     Text(localized: "settings.help.header", fallback: "Help")
@@ -517,38 +571,18 @@ struct SettingsView: View {
                 // EXPERIMENTAL — opt-in, off-by-default beta features. Nothing here changes anything
                 // unless the user opens the screen and acts.
                 Section {
-                    Button {
-                        showStabilizerBeta = true
-                    } label: {
-                        HStack {
-                            Label(L("settings.experimental.stabilizer",
-                                    fallback: "Long-distance stabilizer (Beta)"),
-                                  systemImage: "point.3.connected.trianglepath.dotted")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption).foregroundStyle(.tertiary)
-                        }
-                    }
-                    .tint(.primary)
+                    navRow(L("settings.experimental.stabilizer", fallback: "Long-distance stabilizer (Beta)"),
+                           icon: Wander.Icon.stabilizer) { showStabilizerBeta = true }
 
-                    Button {
-                        showLocationDiagnostic = true
-                    } label: {
-                        HStack {
-                            Label(L("settings.experimental.diagnostic",
-                                    fallback: "Location diagnostic"),
-                                  systemImage: "scope")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption).foregroundStyle(.tertiary)
-                        }
-                    }
-                    .tint(.primary)
+                    navRow(L("settings.experimental.diagnostic", fallback: "Location diagnostic"),
+                           icon: Wander.Icon.diagnostic) { showLocationDiagnostic = true }
 
                     Toggle(isOn: $gslocModeEnabled) {
                         Label(L("settings.experimental.gsloc",
                                 fallback: "PoGo / anti-cheat games mode (gs-loc)"),
-                              systemImage: "antenna.radiowaves.left.and.right")
+                              systemImage: Wander.Icon.gsloc)
+                            .font(.wanderLabel)
+                            .wanderSymbolAccent(on: gslocModeEnabled)
                     }
                     .onChange(of: gslocModeEnabled) { _, newValue in
                         GslocMode.enabled = newValue
@@ -564,38 +598,18 @@ struct SettingsView: View {
                         }
                     }
 
-                    Button {
-                        showGslocSetup = true
-                    } label: {
-                        HStack {
-                            Label(L("settings.experimental.gsloc.setup",
-                                    fallback: "Set up gs-loc mode (proxy app)"),
-                                  systemImage: "wand.and.stars")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption).foregroundStyle(.tertiary)
-                        }
-                    }
-                    .tint(.primary)
+                    navRow(L("settings.experimental.gsloc.setup", fallback: "Set up gs-loc mode (proxy app)"),
+                           icon: Wander.Icon.wand) { showGslocSetup = true }
 
-                    Button {
-                        showGslocAutomations = true
-                    } label: {
-                        HStack {
-                            Label(L("settings.experimental.gsloc.automations",
-                                    fallback: "Shortcuts & automations"),
-                                  systemImage: "square.stack.3d.up.fill")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption).foregroundStyle(.tertiary)
-                        }
-                    }
-                    .tint(.primary)
+                    navRow(L("settings.experimental.gsloc.automations", fallback: "Shortcuts & automations"),
+                           icon: Wander.Icon.shortcuts) { showGslocAutomations = true }
 
                     Toggle(isOn: $loopbackTunnelTest) {
                         Label(L("settings.experimental.loopback",
                                 fallback: "Loopback tunnel test (no LocalDevVPN)"),
-                              systemImage: "arrow.triangle.2.circlepath.circle")
+                              systemImage: Wander.Icon.loopback)
+                            .font(.wanderLabel)
+                            .wanderSymbolAccent(on: loopbackTunnelTest)
                     }
                     .onChange(of: loopbackTunnelTest) { _, on in
                         // Lead B experiment: point the dev tunnel at 127.0.0.1 instead of LocalDevVPN's
@@ -608,19 +622,8 @@ struct SettingsView: View {
                         }
                     }
 
-                    Button {
-                        showTunnelIP = true
-                    } label: {
-                        HStack {
-                            Label(L("settings.experimental.tunnelip",
-                                    fallback: "Tunnel IP (fix for iOS 26.4+)"),
-                                  systemImage: "network")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption).foregroundStyle(.tertiary)
-                        }
-                    }
-                    .tint(.primary)
+                    navRow(L("settings.experimental.tunnelip", fallback: "Tunnel IP (fix for iOS 26.4+)"),
+                           icon: Wander.Icon.network) { showTunnelIP = true }
                 } header: {
                     Text(localized: "settings.experimental.header", fallback: "Experimental")
                 } footer: {
@@ -632,27 +635,44 @@ struct SettingsView: View {
                     Button {
                         isShowingPairingFilePicker = true
                     } label: {
-                        Label(L("settings.pairing.import", fallback: "Import pairing file"), systemImage: "doc.badge.plus")
+                        Label(L("settings.pairing.import", fallback: "Import pairing file"), systemImage: Wander.Icon.pairing)
+                            .font(.wanderLabel)
                     }
+                    // The user just tapped Import — this outcome IS theirs, so it earns a haptic.
+                    // It hangs off the BUTTON, not the Section: a section modifier is pushed into
+                    // every row, which would fire the tap once per row. The button is also the one
+                    // row that always exists — parking it on the result row instead would mean the
+                    // trigger arrives with the view and never registers a change at all.
+                    .wanderFeedback(pairingImportResult?.isError == true ? .failure : .success,
+                                    on: pairingImportResult?.text,
+                                    enabled: pairingImportResult != nil)
                     if let msg = pairingImportResult {
-                        Label(msg.text, systemImage: msg.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(msg.isError ? .red : .green)
+                        noticeRow(msg.isError ? .blocked : .good, msg.text)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                 } footer: {
                     Text("Only needed if pairing didn't set up automatically — import this device's pairing file by hand.")
                 }
+                // Stays on the Section: the result row inserting/removing is a container-level
+                // change, so this is the only level that can animate it.
+                .wanderAnimation(WanderMotion.layout, on: pairingImportResult?.text)
 
                 Section {
                     Text(versionFooter)
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .wanderMicro()
                         .frame(maxWidth: .infinity, alignment: .center)
                         .listRowBackground(Color.clear)
                 }
             }
             .navigationTitle(L("settings.title", fallback: "Settings"))
+            // INLINE ON PURPOSE. The branded header above (logo + "Wander" + the Pro chip) is
+            // this screen's ONE display-size moment. A default LARGE nav title would put a
+            // second 34pt title directly above it, which is the exact "two displays on one
+            // screen" mistake WanderStyle's type scale calls out. The title still reads in the
+            // bar — it just stops competing with the wordmark it sits on top of.
+            .navigationBarTitleDisplayMode(.inline)
             .scrollContentBackground(.hidden)
-            .background(Color.blue.opacity(0.07).ignoresSafeArea())
+            .background(Wander.canvas.ignoresSafeArea())
         }
         .fileImporter(
             isPresented: $isShowingPairingFilePicker,
@@ -732,7 +752,8 @@ struct SettingsView: View {
                     Text(language.displayName).tag(language)
                 }
             } label: {
-                Label(L("settings.language", fallback: "Language"), systemImage: "globe")
+                Label(L("settings.language", fallback: "Language"), systemImage: Wander.Icon.language)
+                    .font(.wanderLabel)
             }
             .pickerStyle(.navigationLink)
         } footer: {
@@ -748,15 +769,57 @@ struct SettingsView: View {
             showManageDevices = true
         } label: {
             HStack {
-                Label("Manage devices", systemImage: "iphone.and.arrow.forward")
+                Label("Manage devices", systemImage: Wander.Icon.devices)
+                    .font(.wanderLabel)
                 Spacer()
                 Text("\(max(deviceActivation.devices.count, 0))/\(deviceActivation.limit)")
-                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                Image(systemName: "chevron.right")
-                    .font(.caption).foregroundStyle(.tertiary)
+                    .font(.wanderNumeric(.subheadline))
+                    .foregroundStyle(.secondary)
+                    .wanderTick(deviceActivation.devices.count)
+                Image(systemName: Wander.Icon.disclosure)
+                    .font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
             }
         }
         .tint(.primary)
+    }
+
+    // MARK: - Shared row shapes
+    //
+    // These three exist because the same three shapes were hand-rolled a dozen times with slightly
+    // different fonts and colours each time — which is exactly how a settings screen ends up
+    // reading as noise. One definition each, so a status looks like a status everywhere.
+
+    /// A push row: label + chevron. Replaces six copies of the same HStack.
+    private func navRow(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Label(title, systemImage: icon).font(.wanderLabel)
+                Spacer()
+                Image(systemName: Wander.Icon.disclosure)
+                    .font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+            }
+        }
+        .tint(.primary)
+    }
+
+    /// An inline status line — the thing that used to be `.font(.caption).foregroundStyle(.orange)`
+    /// (or `.red`, or `.green`) with a hand-picked glyph. Now the colour and the symbol both come
+    /// from the status, so they can't disagree.
+    private func noticeRow(_ status: Wander.Status, _ message: String) -> some View {
+        Label {
+            Text(message).font(.wanderDetail)
+        } icon: {
+            Image(systemName: status.symbol)
+        }
+        .foregroundStyle(status.color)
+    }
+
+    /// The explanation under a toggle. Was `.caption` + `.secondary` at seven call sites; a
+    /// 12pt explanation of a control you are actively reading is too small to be useful.
+    private func toggleFootnote(_ text: String) -> some View {
+        Text(text)
+            .wanderDetail()
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Multi-device sync (Pro, opt-in)
@@ -769,45 +832,43 @@ struct SettingsView: View {
                     showPaywall = true
                 } label: {
                     HStack {
-                        Label("Sync places across devices", systemImage: "arrow.triangle.2.circlepath")
+                        Label("Sync places across devices", systemImage: Wander.Icon.sync)
+                            .font(.wanderLabel)
                         Spacer()
-                        Image(systemName: "lock.fill").foregroundStyle(.secondary)
+                        Image(systemName: Wander.Icon.locked).foregroundStyle(.secondary)
                     }
                 }
             } else {
                 Toggle(isOn: $syncPlacesEnabled) {
-                    Label("Sync places across devices", systemImage: "arrow.triangle.2.circlepath")
+                    Label("Sync places across devices", systemImage: Wander.Icon.sync)
+                        .font(.wanderLabel)
+                        .wanderSymbolAccent(on: syncPlacesEnabled)
                 }
                 .onChange(of: syncPlacesEnabled) { _, isOn in
                     if isOn { SavedPlacesSync.shared.syncIfEnabled() }
                 }
-                .tint(Wander.brand)
 
                 Toggle(isOn: $syncRoutesEnabled) {
-                    Label("Sync routes across devices", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                    Label("Sync routes across devices", systemImage: Wander.Icon.syncRoutes)
+                        .font(.wanderLabel)
+                        .wanderSymbolAccent(on: syncRoutesEnabled)
                 }
                 .onChange(of: syncRoutesEnabled) { _, isOn in
                     if isOn { SavedRoutesSync.shared.syncIfEnabled() }
                 }
-                .tint(Wander.brand)
 
                 if syncPlacesEnabled || syncRoutesEnabled {
                     if proAccount.isSignedIn {
-                        Label("Signed in as \(proAccount.email ?? "your Wander account")",
-                              systemImage: "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.green)
+                        noticeRow(.good, "Signed in as \(proAccount.email ?? "your Wander account")")
                     } else {
                         // Pro via offline key but no Wander account: sync needs a signed-in
                         // account to know WHERE to store. Prompt to sign in.
-                        Label("Sign in to your Wander account to start syncing.",
-                              systemImage: "exclamationmark.circle")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
+                        noticeRow(.caution, "Sign in to your Wander account to start syncing.")
                         Button {
                             showProSignIn = true
                         } label: {
-                            Label("Sign in to Wander account", systemImage: "person.badge.key")
+                            Label("Sign in to Wander account", systemImage: Wander.Icon.signIn)
+                                .font(.wanderLabel)
                         }
                     }
                 }
@@ -830,11 +891,11 @@ struct SettingsView: View {
     /// Small "work in progress" pill for section headers (Tunnel, Adventure Sync).
     private var wipBadge: some View {
         Text(verbatim: "WIP")
-            .font(.caption2.weight(.bold))
-            .foregroundStyle(.orange)
+            .font(.wanderNumeric(.caption2, weight: .bold))
+            .foregroundStyle(Wander.caution)
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
-            .background(Capsule().fill(Color.orange.opacity(0.18)))
+            .background(Capsule().fill(Wander.caution.opacity(0.16)))
     }
 
     private func runUpdate() {
@@ -856,13 +917,33 @@ struct SettingsView: View {
         }
     }
 
+    /// A trial allowance. The NUMBER is the point of the row, so it's the rounded numeric — and it
+    /// ticks rather than cuts, because these count up while you use the app. The bar underneath
+    /// answers "how much is left" without doing arithmetic, and turns amber at the last unit.
     private func trialRow(_ label: String, _ used: Int, _ maximum: Int, unit: String = "") -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            Text("\(min(used, maximum))/\(maximum)\(unit)")
-                .foregroundStyle(.secondary).monospacedDigit()
+        let clamped = min(used, maximum)
+        let fraction = maximum > 0 ? Double(clamped) / Double(maximum) : 0
+        let status: Wander.Status = clamped >= maximum ? .blocked : (fraction >= 0.75 ? .caution : .good)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(label).font(.wanderLabel)
+                Spacer()
+                Text("\(clamped)/\(maximum)\(unit)")
+                    .font(.wanderNumeric(.subheadline))
+                    .foregroundStyle(status.color)
+                    .wanderTick(clamped)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.primary.opacity(0.08))
+                    Capsule().fill(status.color)
+                        .frame(width: max(0, min(1, fraction)) * geo.size.width)
+                }
+            }
+            .frame(height: 4)
+            .wanderAnimation(WanderMotion.tick, on: clamped)
         }
+        .padding(.vertical, 2)
     }
 
     private func handlePairingImport(_ result: Result<[URL], Error>) {

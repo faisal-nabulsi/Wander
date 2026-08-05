@@ -218,6 +218,12 @@ struct PlacesView: View {
     // Observed so the cooldown annotations below re-evaluate as the shared countdown ticks and as
     // each confirmed teleport moves the point every candidate jump is measured from.
     @ObservedObject private var session = SimulationSession.shared
+    // And the journal, because `CooldownPreview.status` now measures from the SELECTED account's last
+    // spot and against its clock. In the states where only that clock is running — a hand-logged
+    // interaction restarted it, or it's the first jump after a relaunch (the journal persists its last
+    // point, the session doesn't) — the session publishes nothing at all, and row dimming would sit
+    // stale until some unrelated change redrew the list.
+    @ObservedObject private var journal = CooldownJournal.shared
 
     @State private var filter: PlacesFilter = .all
     @State private var editingPlace: LocationBookmark?
@@ -624,8 +630,12 @@ struct PlacesView: View {
     /// Places is a general teleport hub, not a PoGo screen, so the soft-ban annotation would be pure
     /// noise for someone spoofing Find My. Show it only when the app already knows the user is in the
     /// anti-cheat flow: gs-loc mode is on (games-only path), or a cooldown is literally running.
+    ///
+    /// "Running" has to mean the same clock the annotation itself reads, or the gate closes on states
+    /// the label would have had something true to say about — an account whose own timer is counting
+    /// after a hand-logged spin publishes nothing on the session.
     private var showsCooldownPreview: Bool {
-        GslocMode.enabled || session.cooldownActive
+        GslocMode.enabled || session.cooldownActive || journal.displayedRemaining() > 0
     }
 
     /// The shared sub-line for a teleport-target row: what the jump would cost, and what time it is

@@ -799,37 +799,29 @@ struct LocationBookmark: Identifiable, Codable {
     }
 }
 
-// MARK: - Search Completer
-
-@MainActor
-final class LocationSearchCompleter: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
-    @Published var results: [MKLocalSearchCompletion] = []
-    private let completer = MKLocalSearchCompleter()
-
-    override init() {
-        super.init()
-        completer.delegate = self
-        completer.resultTypes = [.address, .pointOfInterest]
-    }
-
-    func update(query: String) {
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            results = []
-            completer.queryFragment = ""
-            return
+private extension View {
+    /// Apple's full place card (name, category, hours, photos) for a tapped map
+    /// feature. iOS 18+ only; the app still deploys to 17.4, where the selection
+    /// binding alone already makes POIs tappable with the plain built-in callout —
+    /// so 17 loses the rich card, not the interaction.
+    @ViewBuilder
+    func wanderMapFeatureAccessory() -> some View {
+        if #available(iOS 18.0, *) {
+            self.mapFeatureSelectionAccessory(.automatic)
+        } else {
+            self
         }
-        completer.queryFragment = query
-    }
-
-    nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        let results = completer.results
-        Task { @MainActor in self.results = results }
-    }
-
-    nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
-        Task { @MainActor in self.results = [] }
     }
 }
+
+// MARK: - Search Completer
+
+/// The route sheet searches places exactly the way the main search bar does:
+/// anchored to the spoof target, with the same worldwide retry when the anchor has
+/// no answer (a Tokyo→Osaka route must still be searchable from a Tokyo pin). That
+/// is one behaviour, so it is one implementation — see `AnchoredPlaceCompleter`
+/// in AddressSearchBar.swift.
+typealias LocationSearchCompleter = AnchoredPlaceCompleter
 
 struct LocationSimulationView: View {
     @State private var coordinate: CLLocationCoordinate2D?
@@ -838,6 +830,21 @@ struct LocationSimulationView: View {
     // defaults key so it appears/disappears the instant the mode is toggled.
     @AppStorage(GslocMode.defaultsKey) private var gslocMode = false
     @AppStorage("mapStyleMode") private var mapStyleModeRaw = MapStyleMode.standard.rawValue
+    /// Which points of interest the base map draws. Lives beside the style choice in
+    /// the same switcher menu — it's the same question ("what should this map show
+    /// me?"), so it doesn't get its own floating control.
+    @AppStorage("mapPOIPreset") private var mapPOIPresetRaw = MapPOIPreset.automatic.rawValue
+    /// The Apple-drawn place the user last tapped on the map. Non-nil means Apple's
+    /// own place card is up and our action row is offering to do something with it.
+    ///
+    /// Typed `MapFeature?` rather than `MapSelection<MKMapItem>?` for one reason:
+    /// `MapSelection` is iOS 18+ and this target still deploys to 17.4. The two are
+    /// equivalent here — `MapSelection` only earns its keep when you ALSO want your
+    /// own `MKMapItem` annotations selectable, and Wander's markers are plain
+    /// `Marker`s. Everything the action row needs (title, coordinate) comes straight
+    /// off `MapFeature`, and `.mapFeatureSelectionAccessory` still attaches Apple's
+    /// full place card on 18+.
+    @State private var mapFeatureSelection: MapFeature?
     /// "Smooth long jumps": when on, a teleport farther than the threshold from
     /// the current spoofed position eases over a few seconds instead of hopping.
     @AppStorage("smoothLongJumps") private var smoothLongJumps = false
@@ -860,6 +867,19 @@ struct LocationSimulationView: View {
     // "browse then airplane mode" went dark.
     @State private var tilePrefetchTask: Task<Void, Never>?
     @StateObject private var currentLocation = CurrentLocation()
+    /// The device's own coordinate, captured ONCE and only while nothing is known to
+    /// be spoofing. This is the only thing allowed to be labelled "your real
+    /// location" in the search header.
+    ///
+    /// It exists because `currentLocation` cannot be trusted for that label: while a
+    /// simulation is live, CoreLocation reports the FAKE position to this app too —
+    /// that is exactly what the "Check my spoof" verify card reads. `request()` runs
+    /// on every `onAppear`, so returning to this tab mid-spoof would quietly refresh
+    /// the "real" coordinate to the spoof target, and "Near me" would re-anchor to
+    /// the place it was already anchored to under a label claiming the opposite. In a
+    /// feature whose entire subject is map honesty, that label has to be true or
+    /// absent — so when we can't be sure, this stays nil and the toggle disappears.
+    @State private var realLocationSnapshot: CLLocationCoordinate2D?
     @StateObject private var locationInfo = LocationInfoService()
     @ObservedObject private var reachability = NetworkReachability.shared
     // "First fix is real" guardrail (OFF by default — see RealGPSSeeder). When enabled, seeds the
@@ -1029,6 +1049,169 @@ struct LocationSimulationView: View {
         MapStyleMode(rawValue: mapStyleModeRaw) ?? .standard
     }
 
+    private var mapPOIPreset: MapPOIPreset {
+        MapPOIPreset(rawValue: mapPOIPresetRaw) ?? .automatic
+    }
+
+    /// True while there is a line on the map the user needs to be able to read — a
+    /// route polyline, or a live playback/joystick track. POIs come off for both.
+    private var isDrawingPath: Bool {
+        hasRouteContext || routePlaybackCoordinate != nil
+    }
+
+    /// The POI set the base map is actually allowed to draw right now.
+    private var mapPOICategories: PointOfInterestCategories {
+        MapPOIPreset.categories(
+            for: mapPOIPreset,
+            gamesMode: gslocMode,
+            drawingPath: isDrawingPath
+        )
+    }
+
+    /// Where place search should be ranked around.
+    ///
+    /// MapKit's default is the device's PHYSICAL location, which in a spoofer is the
+    /// one place the user is not asking about — spoof to Tokyo, search "coffee", get
+    /// a café near your couch. So the anchor follows, in order: the position we are
+    /// currently reporting to the device, the pin the user has dropped, and finally
+    /// whatever the map is framed on. Nil (nothing pinned, camera not yet settled)
+    /// leaves the search bar in its original unanchored behaviour.
+    private var searchAnchor: MapSearchAnchor? {
+        if let spoofed = currentSpoofedCoordinate {
+            return MapSearchAnchor(
+                coordinate: spoofed,
+                name: L("search.anchor.spoof", fallback: "your spoofed location")
+            )
+        }
+        if let coordinate {
+            return MapSearchAnchor(
+                coordinate: coordinate,
+                name: L("search.anchor.pin", fallback: "your pin")
+            )
+        }
+        if let visibleCenter {
+            return MapSearchAnchor(
+                coordinate: visibleCenter,
+                name: L("search.anchor.map", fallback: "the map view")
+            )
+        }
+        return nil
+    }
+
+    /// True when CoreLocation might be handing this app a spoofed fix rather than a
+    /// device one, so nothing it reports may be labelled "your real location".
+    ///
+    /// Covers all three ways that happens: our own DVT simulation (`SimulationSession`
+    /// survives leaving this tab, which is why the view's local flags aren't enough),
+    /// a route/glide playing back, and gs-loc mode — where the poisoning happens
+    /// outside the app entirely and we genuinely cannot tell a real fix from a
+    /// rewritten one. Read-only use of the simulation state; nothing here touches it.
+    private var mayBeReportingSpoofedLocation: Bool {
+        SimulationSession.shared.isActive
+            || hasActiveSimulation
+            || currentSpoofedCoordinate != nil
+            || gslocMode
+    }
+
+    /// Title + coordinate of the Apple POI the user last tapped, if any.
+    private var selectedFeature: (title: String, coordinate: CLLocationCoordinate2D)? {
+        guard let feature = mapFeatureSelection else { return nil }
+        let name = feature.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return (name.isEmpty ? L("map.poi.unnamed", fallback: "Dropped place") : name,
+                feature.coordinate)
+    }
+
+    /// Action row for a tapped Apple POI. Apple's own accessory already answers
+    /// "what is this place?" (name, category, hours, photos); this answers the two
+    /// questions only Wander can: put me there, or remember it for later.
+    @ViewBuilder
+    private var selectedFeatureRow: some View {
+        // Hidden while a route/track is on the map: POIs aren't drawn then, so any
+        // selection still sitting here is left over from before the route existed.
+        if !isDrawingPath, let selected = selectedFeature {
+            VStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "mappin.circle.fill")
+                        .foregroundStyle(Wander.brand)
+                    Text(selected.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Button {
+                        mapFeatureSelection = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L("map.poi.dismiss", fallback: "Dismiss place"))
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        if isRouteRunning { return }
+                        saveFeatureAsPlace(selected)
+                    } label: {
+                        Label(L("map.poi.save", fallback: "Save to Places"), systemImage: "bookmark")
+                            .frame(maxWidth: .infinity).frame(height: 30)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Wander.brand)
+                    .controlSize(.large)
+                    .opacity(isRouteRunning ? 0.5 : 1)
+
+                    Button {
+                        if isRouteRunning || isBusy { return }
+                        teleportToFeature(selected)
+                    } label: {
+                        Label(L("map.poi.teleport", fallback: "Teleport here"), systemImage: Wander.Icon.simulate)
+                            .frame(maxWidth: .infinity).frame(height: 30)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Wander.brand)
+                    .controlSize(.large)
+                    .opacity((isRouteRunning || isBusy) ? 0.5 : 1)
+                }
+            }
+            .transition(.opacity)
+        }
+    }
+
+    /// Move the pin to a tapped POI and teleport, mirroring the shared
+    /// `.teleportToRequested` path so there is exactly one teleport route.
+    private func teleportToFeature(_ selected: (title: String, coordinate: CLLocationCoordinate2D)) {
+        // The camera is already framed on the POI the user tapped — don't yank it.
+        pinMovedFromMap = true
+        applySelection(selected.coordinate)
+        mapFeatureSelection = nil
+        guard pairingExists else {
+            alertTitle = "Pairing needed"
+            alertMessage = "Import a pairing file in Settings, then tap Simulate to start."
+            showAlert = true
+            return
+        }
+        simulate()
+    }
+
+    /// Save a tapped POI straight into the same bookmark list the "Save Bookmark"
+    /// alert writes to — including the `.placesDidChange` post, so the Places tab
+    /// and multi-device sync pick it up with no extra plumbing.
+    private func saveFeatureAsPlace(_ selected: (title: String, coordinate: CLLocationCoordinate2D)) {
+        bookmarks.append(
+            LocationBookmark(
+                name: selected.title,
+                latitude: selected.coordinate.latitude,
+                longitude: selected.coordinate.longitude,
+                updatedAt: Date()
+            )
+        )
+        saveBookmarks()
+        mapFeatureSelection = nil
+        alertTitle = L("map.poi.saved.title", fallback: "Saved")
+        alertMessage = String(format: L("map.poi.saved.body", fallback: "%@ was added to your Places."),
+                              selected.title)
+        showAlert = true
+    }
+
     /// Floating control that lets the user switch between Standard, Satellite,
     /// and Hybrid imagery. Mirrors the app's floating-card design language.
     /// A subtle, non-nagging hint shown only while the device has no connectivity, so the app's
@@ -1051,12 +1234,59 @@ struct LocationSimulationView: View {
                               fallback: "You are offline. Live extras are paused. The map and teleport still work."))
     }
 
+    /// Why the "Places shown" choice is currently being ignored, or nil when it
+    /// isn't. Both cases are deliberate overrides, and both make the picker look
+    /// broken from the outside — you move the checkmark and the map doesn't change.
+    private var poiOverrideNote: String? {
+        if isDrawingPath {
+            return L("map.poi.hidden_for_route",
+                     fallback: "Places are hidden while a route is on the map")
+        }
+        if mapStyleMode == .satellite {
+            return L("map.poi.satellite_note",
+                     fallback: "Satellite imagery draws no place labels")
+        }
+        return nil
+    }
+
+    @ViewBuilder
+    private var poiPicker: some View {
+        Picker(L("map.poi.title", fallback: "Places shown"), selection: $mapPOIPresetRaw) {
+            ForEach(MapPOIPreset.allCases) { preset in
+                Label(preset.label, systemImage: preset.symbol).tag(preset.rawValue)
+            }
+        }
+    }
+
     private var mapStyleSwitcher: some View {
         Menu {
             Picker("Map style", selection: $mapStyleModeRaw) {
                 ForEach(MapStyleMode.allCases) { mode in
                     Label(mode.label, systemImage: mode.symbol).tag(mode.rawValue)
                 }
+            }
+
+            // Second section of the SAME menu rather than a second floating button:
+            // "what imagery" and "which places" are one question to the user, and the
+            // map already has as many controls on top of it as it can afford.
+            Divider()
+
+            // When the preset is being overridden, the reason goes in a SECTION
+            // HEADER — not a loose `Text`. A SwiftUI `Menu` is built into a `UIMenu`,
+            // which renders only Button/Toggle/Picker/Link/Menu/Divider/Section: a
+            // bare `Text` has no `UIMenuElement` to map to and is silently dropped.
+            // That mattered here more than anywhere, because the override is exactly
+            // when the control looks broken — you move the checkmark and the map
+            // doesn't change — so the one element carrying the explanation was the
+            // one element guaranteed not to appear.
+            if let note = poiOverrideNote {
+                Section {
+                    poiPicker
+                } header: {
+                    Text(note)
+                }
+            } else {
+                poiPicker
             }
         } label: {
             Image(systemName: mapStyleMode.symbol)
@@ -1077,7 +1307,13 @@ struct LocationSimulationView: View {
     /// tracking. Extracted from `body` so the ZStack stays within the type-checker's limits.
     @ViewBuilder private var onlineMap: some View {
         MapReader { proxy in
-            Map(position: $position) {
+            // `selection:` is what makes Apple's own POIs tappable at all. Without a
+            // selection binding every café, park and landmark MapKit draws is a dead
+            // pixel — it looks interactive and does nothing. With it (plus
+            // `.mapFeatureSelectionAccessory` below) we inherit Apple's full place
+            // card — name, category, hours, photos — for free, and add the two
+            // actions a spoofer actually wants on top.
+            Map(position: $position, selection: $mapFeatureSelection) {
                 if hasRouteContext {
                     if let routePolyline {
                         MapPolyline(routePolyline)
@@ -1100,7 +1336,8 @@ struct LocationSimulationView: View {
                         .tint(.red)
                 }
             }
-            .mapStyle(mapStyleMode.mapStyle)
+            .mapStyle(mapStyleMode.mapStyle(pointsOfInterest: mapPOICategories))
+            .wanderMapFeatureAccessory()
             .mapControls {
                 MapCompass()
             }
@@ -1204,6 +1441,13 @@ struct LocationSimulationView: View {
                             AddressSearchBar(
                                 placeholder: "Search, coordinates, or Plus Code",
                                 mapCenter: visibleCenter,
+                                // Rank autocomplete around where the user is PRETENDING
+                                // to be, not where the phone is sitting.
+                                searchAnchor: searchAnchor,
+                                // Only used to offer "Near me" — never as the default,
+                                // and only ever the pre-simulation snapshot, never a
+                                // live CoreLocation fix that a spoof may have written.
+                                realLocation: realLocationSnapshot,
                                 onPick: { coord, _ in applySelection(coord) },
                                 onActiveChange: { searchActive = $0 }
                             )
@@ -1212,6 +1456,8 @@ struct LocationSimulationView: View {
 
                             sharingModeToggle
                         }
+
+                        selectedFeatureRow
 
                         if isImportingCoordinates {
                             ProgressView("Importing coordinates…")
@@ -1342,7 +1588,11 @@ struct LocationSimulationView: View {
         .sheet(isPresented: $showRouteSearch) {
             RouteSearchSheet(
                 initialStart: routeStartSelection,
-                initialEnd: routeEndSelection
+                initialEnd: routeEndSelection,
+                anchor: searchAnchor,
+                // Same contract as the main search bar: the pre-simulation snapshot
+                // only, or nil so the "Near me" escape hatch simply isn't offered.
+                realLocation: realLocationSnapshot
             ) { startSelection, endSelection in
                 routeStartSelection = startSelection
                 routeEndSelection = endSelection
@@ -1381,6 +1631,12 @@ struct LocationSimulationView: View {
             currentLocation.request()
         }
         .onReceive(currentLocation.$coordinate.compactMap { $0 }) { c in
+            // Take the "real location" snapshot at most once, and only while nothing
+            // could be feeding CoreLocation a fake fix. After that it is frozen: a
+            // fix that arrives mid-spoof is the spoof target, not the device.
+            if realLocationSnapshot == nil, !mayBeReportingSpoofedLocation {
+                realLocationSnapshot = c
+            }
             if coordinate == nil && simulatedCoordinate == nil && !hasRouteContext {
                 position = .region(MKCoordinateRegion(center: c, latitudinalMeters: 2500, longitudinalMeters: 2500))
             }
@@ -1750,6 +2006,12 @@ struct LocationSimulationView: View {
                 .controlSize(.large)
                 .opacity((hasActiveSimulation || isBusy) ? 0.5 : 1)
             }
+
+            // Look Around — Apple's native street-level imagery. FREE, keyless, and costs
+            // us no Worker quota, so it goes to everyone; it just hides itself on the many
+            // coordinates Apple has no coverage for. Sits directly above the Google Street
+            // View button so the paid fallback reads as exactly that: a fallback.
+            LookAroundStrip(coordinate: coord)
 
             // Street View — Pro-only (it hits the paid Google Maps API). Shown to free users too
             // (with a lock affordance) so they discover it; tapping opens the paywall. The Maps key
@@ -2428,6 +2690,13 @@ private struct RouteSearchSheet: View {
 
     let initialStart: RouteSearchSelection?
     let initialEnd: RouteSearchSelection?
+    /// Where route endpoints should be searched from — the spoof target / pin, not
+    /// the device's real position.
+    let anchor: MapSearchAnchor?
+    /// Device coordinate captured BEFORE any simulation, or nil. Only ever used to
+    /// offer "Near me"; see `AddressSearchBar.realLocation` for why it must not be a
+    /// live CoreLocation fix.
+    let realLocation: CLLocationCoordinate2D?
     let onApply: (RouteSearchSelection, RouteSearchSelection) -> Void
 
     @StateObject private var startCompleter = LocationSearchCompleter()
@@ -2438,15 +2707,22 @@ private struct RouteSearchSheet: View {
     @State private var endSelection: RouteSearchSelection?
     @State private var isResolvingSelection = false
     @State private var errorMessage: String?
+    /// The user has asked for endpoints to be ranked around their real location
+    /// instead of the spoof target.
+    @State private var preferRealLocation = false
     @FocusState private var focusedField: RouteSearchField?
 
     init(
         initialStart: RouteSearchSelection?,
         initialEnd: RouteSearchSelection?,
+        anchor: MapSearchAnchor? = nil,
+        realLocation: CLLocationCoordinate2D? = nil,
         onApply: @escaping (RouteSearchSelection, RouteSearchSelection) -> Void
     ) {
         self.initialStart = initialStart
         self.initialEnd = initialEnd
+        self.anchor = anchor
+        self.realLocation = realLocation
         self.onApply = onApply
         _startQuery = State(initialValue: initialStart?.title ?? "")
         _endQuery = State(initialValue: initialEnd?.title ?? "")
@@ -2462,6 +2738,136 @@ private struct RouteSearchSheet: View {
             return endCompleter.results
         case .none:
             return []
+        }
+    }
+
+    /// Text currently being searched in the focused field, trimmed.
+    private var activeQuery: String {
+        switch focusedField {
+        case .start: return startQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .end:   return endQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .none:  return ""
+        }
+    }
+
+    /// True when the focused field's suggestions came from the unanchored retry.
+    private var activeFellBackToWorldwide: Bool {
+        switch focusedField {
+        case .start: return startCompleter.didFallBackToWorldwide
+        case .end:   return endCompleter.didFallBackToWorldwide
+        case .none:  return false
+        }
+    }
+
+    /// True when the user has explicitly widened the focused field to the whole world.
+    /// Read off the completer rather than kept as view state so it can't drift out of
+    /// sync when resolving a result resets one field's scope and not the other's.
+    private var activeForcedWorldwide: Bool {
+        switch focusedField {
+        case .start: return startCompleter.isForcedWorldwide
+        case .end:   return endCompleter.isForcedWorldwide
+        case .none:  return false
+        }
+    }
+
+    /// Widen (or re-anchor) both endpoint fields at once. A route has two ends and
+    /// they are almost always the same kind of question — a Tokyo→Osaka route is
+    /// out of region at BOTH ends.
+    private func setForceWorldwide(_ forced: Bool) {
+        startCompleter.setForceWorldwide(forced)
+        endCompleter.setForceWorldwide(forced)
+    }
+
+    private func scopeButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Wander.brand)
+    }
+
+    /// The anchor actually handed to both completers — the host's, unless the user
+    /// asked for their real location and we were given a trustworthy one.
+    private var effectiveAnchor: MapSearchAnchor? {
+        guard let anchor else { return nil }
+        guard preferRealLocation, let realLocation else { return anchor }
+        return MapSearchAnchor(
+            coordinate: realLocation,
+            name: L("search.anchor.real", fallback: "your real location"),
+            radiusMeters: anchor.radiusMeters,
+            isRealLocation: true
+        )
+    }
+
+    /// Show the explanation as soon as the user is typing against an anchor — NOT
+    /// only when results exist. An anchored search that returns nothing is precisely
+    /// when the user needs to be told where we looked and offered somewhere else;
+    /// gating this on a non-empty list hides the escape hatch at the only moment it
+    /// matters.
+    private var showsAnchorHeader: Bool {
+        effectiveAnchor != nil && !activeQuery.isEmpty
+    }
+
+    /// Which search produced the visible list. Same three sentences the main search
+    /// bar uses — a deliberate widening must never be reported as a failure to find
+    /// anything nearby.
+    private func anchorSentence(_ anchor: MapSearchAnchor) -> String {
+        if activeForcedWorldwide {
+            return L("search.results_anywhere", fallback: "Results from anywhere")
+        }
+        if activeFellBackToWorldwide {
+            return String(format: L("search.nothing_near",
+                                    fallback: "Nothing near %@ — showing results worldwide"),
+                          anchor.name)
+        }
+        return String(format: L("search.results_near", fallback: "Results near %@"), anchor.name)
+    }
+
+    @ViewBuilder
+    private var anchorHeader: some View {
+        if let anchor = effectiveAnchor {
+            HStack(spacing: 6) {
+                // Sentence combines into one VoiceOver element; the buttons stay their
+                // own, so the escape hatches are reachable.
+                HStack(spacing: 6) {
+                    Image(systemName: (activeForcedWorldwide || activeFellBackToWorldwide)
+                          ? "globe"
+                          : (anchor.isRealLocation ? "location.fill" : "mappin.and.ellipse"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(anchorSentence(anchor))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+                Spacer(minLength: 4)
+
+                if activeForcedWorldwide {
+                    scopeButton(L("search.scope.nearby", fallback: "Nearby")) {
+                        setForceWorldwide(false)
+                    }
+                } else {
+                    // The automatic retry only fires on an EMPTY anchored list, so a
+                    // required region that answers "Paris" with a local bakery would
+                    // otherwise trap a Tokyo→Paris route inside Tokyo.
+                    if !activeFellBackToWorldwide {
+                        scopeButton(L("search.scope.anywhere", fallback: "Anywhere")) {
+                            setForceWorldwide(true)
+                        }
+                    }
+                    if realLocation != nil {
+                        scopeButton(anchor.isRealLocation
+                                    ? L("search.near_target", fallback: "Near my pin")
+                                    : L("search.near_me", fallback: "Near me")) {
+                            preferRealLocation.toggle()
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -2499,41 +2905,53 @@ private struct RouteSearchSheet: View {
                 if isResolvingSelection {
                     ProgressView("Resolving location…")
                         .font(.footnote)
-                } else if !activeResults.isEmpty {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(Array(activeResults.enumerated()), id: \.element) { index, result in
-                                Button {
-                                    resolve(result)
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(result.title)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.primary)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                        if !result.subtitle.isEmpty {
-                                            Text(result.subtitle)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
-                                    }
-                                    .padding(.vertical, 10)
-                                    .padding(.horizontal, 12)
-                                }
-                                .buttonStyle(.plain)
+                } else {
+                    // The header is OUTSIDE the results check on purpose — see
+                    // `showsAnchorHeader`.
+                    if showsAnchorHeader { anchorHeader }
 
-                                if index < activeResults.count - 1 {
-                                    Divider()
+                    if !activeResults.isEmpty {
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                ForEach(Array(activeResults.enumerated()), id: \.element) { index, result in
+                                    Button {
+                                        resolve(result)
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(result.title)
+                                                .font(.subheadline)
+                                                .foregroundStyle(.primary)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                            if !result.subtitle.isEmpty {
+                                                Text(result.subtitle)
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                            }
+                                        }
+                                        .padding(.vertical, 10)
+                                        .padding(.horizontal, 12)
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    if index < activeResults.count - 1 {
+                                        Divider()
+                                    }
                                 }
                             }
                         }
+                        .frame(maxHeight: 260)
+                    } else if activeFellBackToWorldwide {
+                        // Both the anchored and the worldwide search came back with
+                        // nothing — say so, instead of a bare gap under the header.
+                        Text(L("search.no_matches", fallback: "No matching places."))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else if !showsAnchorHeader {
+                        Text("Search for a start and destination to build the route.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-                    .frame(maxHeight: 260)
-                } else {
-                    Text("Search for a start and destination to build the route.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
 
                 Spacer(minLength: 0)
@@ -2559,6 +2977,13 @@ private struct RouteSearchSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        // Both completers get the anchor before the first keystroke, so the very
+        // first suggestion list is already ranked around the spoof target — and both
+        // get re-pointed when the user flips to "Near me".
+        .task(id: effectiveAnchor?.regionKey) {
+            startCompleter.setAnchor(effectiveAnchor)
+            endCompleter.setAnchor(effectiveAnchor)
+        }
         .onAppear {
             if startSelection == nil {
                 focusedField = .start
@@ -2631,6 +3056,16 @@ private struct RouteSearchSheet: View {
     private func resolve(_ completion: MKLocalSearchCompletion) {
         let field = focusedField ?? .start
         let request = MKLocalSearch.Request(completion: completion)
+        // Skipped entirely when the suggestions came from the worldwide retry: that
+        // place is by definition not near the anchor, so biasing toward the anchor
+        // could only pull the pin somewhere the user didn't pick.
+        if let anchor = effectiveAnchor, !activeFellBackToWorldwide, !activeForcedWorldwide {
+            request.region = anchor.region
+            // `.default` here on purpose — the completion was already ranked inside
+            // this region, so the region only needs to disambiguate same-named places.
+            // Requiring it could make a tap resolve to nothing at all.
+            if #available(iOS 18.0, *) { request.regionPriority = .default }
+        }
         isResolvingSelection = true
         errorMessage = nil
 
@@ -2651,12 +3086,12 @@ private struct RouteSearchSheet: View {
                 case .start:
                     startSelection = selection
                     startQuery = title
-                    startCompleter.results = []
+                    startCompleter.clearResults()
                     focusedField = .end
                 case .end:
                     endSelection = selection
                     endQuery = title
-                    endCompleter.results = []
+                    endCompleter.clearResults()
                     focusedField = nil
                 }
             }

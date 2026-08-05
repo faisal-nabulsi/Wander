@@ -9,7 +9,11 @@
 //  coordinate mapped to the standard cooldown curve — so you know how long to
 //  wait before catching or spinning.
 //
-//  Data comes from the bundled Resources/pogo.json (shared with wander-desktop).
+//  Spots come from the LIVE directory (WanderHotspots → Worker /pogo/hotspots), which carries
+//  freshness metadata so a nerfed spot can be flagged without shipping a build. The bundled
+//  Resources/pogo.json (shared with wander-desktop) stays in the binary as the seed/fallback: it
+//  paints instantly on launch and is what an offline user — or a user whose first fetch has never
+//  succeeded — keeps seeing. Routes, game extras and community links are bundled-only.
 //
 
 import SwiftUI
@@ -18,12 +22,44 @@ import CoreLocation
 // MARK: - Data model
 
 /// A single curated point of interest.
+///
+/// The freshness fields (`status` / `lastVerified` / `ageDays` / `notes`) only come from the live
+/// directory, so they're optional: the bundled pogo.json has none of them and must keep decoding
+/// unchanged. A spot with no status simply shows no badge (see HotspotStatus in WanderHotspots).
 struct PoGoHotspot: Codable, Identifiable {
     let name: String
     let area: String
     let cat: String
     let lat: Double
     let lng: Double
+    /// "good" | "nerfed" | "unknown" — see `statusValue`.
+    let status: String?
+    /// ISO date the spot was last checked by a human, if ever.
+    let lastVerified: String?
+    /// Server-computed age of `lastVerified` in days.
+    let ageDays: Int?
+    /// Optional editorial note ("stops removed in the 2026 sweep").
+    let notes: String?
+
+    init(name: String,
+         area: String,
+         cat: String,
+         lat: Double,
+         lng: Double,
+         status: String? = nil,
+         lastVerified: String? = nil,
+         ageDays: Int? = nil,
+         notes: String? = nil) {
+        self.name = name
+        self.area = area
+        self.cat = cat
+        self.lat = lat
+        self.lng = lng
+        self.status = status
+        self.lastVerified = lastVerified
+        self.ageDays = ageDays
+        self.notes = notes
+    }
 
     var id: String { "\(name)|\(lat),\(lng)" }
     var coordinate: CLLocationCoordinate2D {
@@ -185,6 +221,10 @@ struct PoGoModeView: View {
     @State private var gameExtras: [String: [PoGoHotspot]] = [:]
     @State private var communityLinks: [String: CommunityLink] = [:]
     @State private var loadError: String?
+    // The live directory once it's landed (network or disk cache). nil = we're showing the bundled
+    // seed, which is also what an offline first run keeps showing forever — never an empty list.
+    @State private var directory: HotspotDirectory?
+    @State private var didLoadBundle = false
 
     // Cooldown is now owned by SimulationSession (single source of truth, app-wide + persistent).
     // This view just reads/renders session.cooldownActive / cooldownRemaining / lastJumpKm.
@@ -225,6 +265,9 @@ struct PoGoModeView: View {
     // cooldown when the user actually confirms the teleport there.
     @AppStorage("primaryTabSelection") private var primaryTab = AppFeature.location.id
     @ObservedObject private var session = SimulationSession.shared
+    // History + per-account clocks. The journal is the one that knows WHOSE cooldown is running, so
+    // every countdown on this screen is read through it rather than straight off the session.
+    @ObservedObject private var journal = CooldownJournal.shared
 
     private var pairingFileURL: URL { PairingFileStore.prepareURL() }
     private var pairingExists: Bool {
@@ -233,21 +276,30 @@ struct PoGoModeView: View {
         FileManager.default.fileExists(atPath: pairingFileURL.path) || GslocMode.enabled
     }
 
-    /// Hotspots grouped by category, in a stable order.
+    /// Hotspots grouped by category, in a stable order. Nerfed spots sink to the bottom of their
+    /// group (filter-append, so the surviving order stays exactly as the directory listed it) —
+    /// they're still tappable, just not what you see first.
     private var hotspotsByCategory: [(category: String, spots: [PoGoHotspot])] {
         let grouped = Dictionary(grouping: hotspots, by: { $0.cat })
         return grouped
-            .map { (category: $0.key, spots: $0.value) }
+            .map { (category: $0.key, spots: demoteNerfed($0.value)) }
             .sorted { $0.category < $1.category }
     }
 
     /// Curated spots for a NON-PoGo game: the shared popular play areas (PoGo-only category badges
-    /// genericized to "Popular spot") plus that game's flavored extras.
+    /// genericized to "Popular spot") plus that game's flavored extras. Freshness carries over —
+    /// a nerfed park is a worse Pikmin walk too.
     private var sharedDisplaySpots: [PoGoHotspot] {
         let shared = hotspots.map {
-            PoGoHotspot(name: $0.name, area: $0.area, cat: "Popular spot", lat: $0.lat, lng: $0.lng)
+            PoGoHotspot(name: $0.name, area: $0.area, cat: "Popular spot", lat: $0.lat, lng: $0.lng,
+                        status: $0.status, lastVerified: $0.lastVerified,
+                        ageDays: $0.ageDays, notes: $0.notes)
         }
-        return shared + (gameExtras[gamePreset.title] ?? [])
+        return demoteNerfed(shared) + (gameExtras[gamePreset.title] ?? [])
+    }
+
+    private func demoteNerfed(_ spots: [PoGoHotspot]) -> [PoGoHotspot] {
+        spots.filter { !$0.isNerfed } + spots.filter { $0.isNerfed }
     }
 
     var body: some View {
@@ -311,6 +363,8 @@ struct PoGoModeView: View {
 
                 cooldownSection
 
+                cooldownSuiteSection
+
                 longHaulSection
 
                 if gamePreset.usesTeleportCooldown {
@@ -361,13 +415,20 @@ struct PoGoModeView: View {
                 // its category badges (Spawn/Raid/Event) + the Hub; other games get the shared list
                 // plus a few flavored extras and a link to their live community tool.
                 if gamePreset == .pokemonGo {
-                    ForEach(hotspotsByCategory, id: \.category) { group in
+                    let groups = hotspotsByCategory
+                    ForEach(groups, id: \.category) { group in
                         Section {
                             ForEach(group.spots) { spot in
                                 hotspotRow(spot)
                             }
                         } header: {
                             Text(group.category)
+                        } footer: {
+                            // Where this list came from + how fresh it is — stated once, under the
+                            // last group, so it reads as a note about the whole directory.
+                            if group.category == groups.last?.category {
+                                Text(directoryNote)
+                            }
                         }
                     }
                 } else {
@@ -378,7 +439,7 @@ struct PoGoModeView: View {
                     } header: {
                         Text("Popular play areas")
                     } footer: {
-                        Text("Popular public spots that work for any location game. Tap to preview, then Teleport.")
+                        Text("Popular public spots that work for any location game. Tap to preview, then Teleport.\n\(directoryNote)")
                     }
 
                     if let link = communityLinks[gamePreset.title], let url = URL(string: link.url) {
@@ -435,6 +496,9 @@ struct PoGoModeView: View {
                 }
             }
             .onAppear(perform: loadData)
+            // Refresh off the main path: the list is already on screen from the bundled seed (or the
+            // cached directory) before this task even starts, so a slow/dead network costs nothing.
+            .task { await refreshDirectory() }
             // The cooldown itself (compute on teleport + 1 s countdown) is driven by
             // SimulationSession now — this view just observes the published state below.
             .alert(alertTitle, isPresented: $showAlert) {
@@ -456,12 +520,18 @@ struct PoGoModeView: View {
 
     // MARK: Cooldown UI
 
-    /// Seconds left on the shared app-wide cooldown (single source of truth: SimulationSession).
-    private var remainingSeconds: TimeInterval { session.cooldownRemaining }
+    /// Seconds left on the cooldown that applies to the SELECTED account: the app-wide one from
+    /// SimulationSession, or this account's own clock if that's longer (see displayedRemaining()).
+    ///
+    /// DISPLAY ONLY. It folds in hand-logged interactions, so it must never reach the opt-in teleport
+    /// block below — that one reads `session.cooldownRemaining`, the clock Wander observed itself.
+    private var remainingSeconds: TimeInterval { journal.displayedRemaining() }
 
     @ViewBuilder private var cooldownSection: some View {
-        if session.cooldownActive {
-            let remaining = session.cooldownRemaining
+        // `session.cooldownActive` is kept in the condition so the "cleared" state still shows for the
+        // moment the global timer hits zero, exactly as it did before per-account clocks existed.
+        if session.cooldownActive || remainingSeconds > 0 {
+            let remaining = remainingSeconds
             Section {
                 HStack(spacing: 12) {
                     Image(systemName: remaining > 0 ? "hourglass" : "checkmark.seal.fill")
@@ -495,9 +565,85 @@ struct PoGoModeView: View {
                 }
                 .padding(.vertical, 2)
             } header: {
-                Text("\(gamePreset.shortTitle) cooldown")
+                // Name the account once there's more than one, so a countdown can never be read as
+                // belonging to whichever account the user happens to be playing.
+                Text(journal.accounts.count > 1
+                     ? "\(gamePreset.shortTitle) cooldown · \(journal.active.name)"
+                     : "\(gamePreset.shortTitle) cooldown")
             }
         }
+    }
+
+    // MARK: Cooldown suite (journal / rulebook / accounts)
+
+    /// The three screens the countdown alone couldn't cover: what already happened, what starts the
+    /// timer in the first place, and which account is being timed. All informational — nothing here
+    /// stops a teleport, and the account picker only changes which clock is on screen.
+    ///
+    /// Hidden for the presets with no distance cooldown (Pikmin/Ingress), where a soft-ban journal
+    /// and a Pokémon GO rulebook would just be noise — their mechanics are covered by `mechanicNote`.
+    @ViewBuilder private var cooldownSuiteSection: some View {
+        if gamePreset.usesTeleportCooldown {
+            Section {
+                if journal.accounts.count > 1 {
+                    Picker(L("cooldown.accounts.active", fallback: "Account"),
+                           selection: Binding(get: { journal.activeAccountID },
+                                              set: { journal.selectAccount($0) })) {
+                        ForEach(journal.accounts) { account in
+                            Text(account.name).tag(account.id)
+                        }
+                    }
+                }
+
+                NavigationLink {
+                    CooldownJournalView()
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(L("cooldown.journal.title", fallback: "Cooldown journal"),
+                              systemImage: "list.bullet.rectangle")
+                        Text(journalSubtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                NavigationLink {
+                    CooldownRulebookView()
+                } label: {
+                    Label(L("cooldown.rulebook.title", fallback: "What starts the cooldown"),
+                          systemImage: "book")
+                }
+
+                NavigationLink {
+                    CooldownAccountsView()
+                } label: {
+                    HStack {
+                        Label(L("cooldown.accounts.title", fallback: "Accounts"),
+                              systemImage: "person.2")
+                        Spacer()
+                        Text(journal.active.name)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text(L("cooldown.suite.header", fallback: "Cooldown tools"))
+            } footer: {
+                Text(L("cooldown.suite.footer",
+                       fallback: "Teleports are logged for you. Spins, catches and raids aren't — Wander can't see inside the game — so log those yourself in the journal to keep the timer honest."))
+            }
+        }
+    }
+
+    /// The one useful thing to say about the journal from the outside: how much is in it, and what
+    /// the last thing that happened was.
+    private var journalSubtitle: String {
+        guard let last = journal.active.entries.first else {
+            return L("cooldown.suite.empty", fallback: "Nothing logged yet")
+        }
+        let count = journal.active.entries.count
+        return String(format: L("cooldown.suite.subtitle", fallback: "%d logged · last %@"),
+                      count, last.date.formatted(date: .omitted, time: .shortened))
     }
 
     // MARK: Long-haul advisory
@@ -548,6 +694,10 @@ struct PoGoModeView: View {
     /// a destination that's still inside the running cooldown fades back, but stays fully tappable.
     private static let blockedRowOpacity: Double = 0.55
 
+    /// Same rule for a spot the directory has marked nerfed: fade it back (with a "Nerfed" flag on
+    /// the row), but let anyone who still wants it tap it — the coordinates are perfectly valid.
+    private static let nerfedRowOpacity: Double = 0.5
+
     /// The shared sub-line every teleport-target row gets: what this jump would cost on the soft-ban
     /// curve, and what time it is at the destination. Both halves render nothing when they have
     /// nothing to say (no prior teleport, a preset with no cooldown, an unresolved time zone), so a
@@ -572,11 +722,12 @@ struct PoGoModeView: View {
             HStack(spacing: 12) {
                 Image(systemName: "mappin.circle.fill")
                     .font(.title3)
-                    .foregroundStyle(Wander.brand)
+                    .foregroundStyle(spot.isNerfed ? Color.secondary : Wander.brand)
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(spot.name).font(.body).foregroundStyle(.primary)
                     Text(spot.area).font(.caption).foregroundStyle(.secondary)
+                    freshnessLine(spot)
                     destinationAnnotations(spot.coordinate)
                 }
                 Spacer()
@@ -586,10 +737,53 @@ struct PoGoModeView: View {
                     .foregroundStyle(pairingExists ? Wander.brand : .secondary)
             }
             .contentShape(Rectangle())
-            .opacity(isCooldownBlocked(spot.coordinate) ? Self.blockedRowOpacity : 1)
+            // Two independent reasons to fade a row (too-soon jump, nerfed spot); take the dimmer
+            // of the two rather than stacking them into an unreadable row.
+            .opacity(rowOpacity(spot))
         }
         .buttonStyle(.plain)
         .disabled(!pairingExists)
+    }
+
+    private func rowOpacity(_ spot: PoGoHotspot) -> Double {
+        let cooldown = isCooldownBlocked(spot.coordinate) ? Self.blockedRowOpacity : 1
+        return min(cooldown, spot.isNerfed ? Self.nerfedRowOpacity : 1)
+    }
+
+    /// The freshness signals from the live directory: trust status and how long ago a human last
+    /// checked the spot. Renders nothing for a plain unverified spot (every bundled one, and any
+    /// live spot the directory hasn't rated), so the offline list looks exactly as it always did.
+    @ViewBuilder private func freshnessLine(_ spot: PoGoHotspot) -> some View {
+        let age = spot.verifiedAgeText
+        if spot.statusValue != .unknown || age != nil {
+            HStack(spacing: 6) {
+                switch spot.statusValue {
+                case .nerfed:
+                    // The entire point of the directory: say it out loud rather than quietly
+                    // leaving a dud park in the list looking as good as the rest.
+                    Label("Nerfed", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.orange)
+                case .good:
+                    Label("Verified", systemImage: "checkmark.seal.fill")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.green)
+                case .unknown:
+                    EmptyView()
+                }
+                if let age {
+                    Text(age)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                if spot.isNerfed, let notes = spot.notes, !notes.isEmpty {
+                    Text("• \(notes)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
     }
 
     private func routeRow(_ route: PoGoRoute) -> some View {
@@ -640,10 +834,19 @@ struct PoGoModeView: View {
 
         // Optional hard block: if enabled, refuse to teleport while a cooldown
         // is still counting down (rather than only warning). Reads the shared session cooldown.
-        if blockUntilCooldownEnds, session.cooldownActive, remainingSeconds > 0 {
+        //
+        // DELIBERATELY the session's clock, not `remainingSeconds` / `journal.displayedRemaining()`.
+        // This is the one place in the cooldown suite that can refuse an action, so it may only ever
+        // be driven by cooldowns Wander OBSERVED itself. The journal's remainder also contains
+        // hand-typed, unverifiable numbers — one tap on "Caught something" restarts the account clock
+        // — and a journal entry must never be able to talk the app out of a teleport. The journal's
+        // per-account state is persisted while `SimulationSession.lastTeleportCoordinate` is not, so
+        // wiring this to the journal would additionally block the first jump after every relaunch,
+        // which the session (having no origin to measure from) charges nothing for.
+        if blockUntilCooldownEnds, session.cooldownActive, session.cooldownRemaining > 0 {
             present(
                 title: "Cooldown Active",
-                message: "Wait \(timeString(remainingSeconds)) before teleporting again. Turn off \"Block until cooldown ends\" to override."
+                message: "Wait \(timeString(session.cooldownRemaining)) before teleporting again. Turn off \"Block until cooldown ends\" to override."
             )
             return
         }
@@ -661,8 +864,13 @@ struct PoGoModeView: View {
 
     // MARK: Loading
 
+    /// Bundled seed first (synchronous, tiny, always present), then the last cached copy of the live
+    /// directory if we have one. Both are instant — the network never gates the first paint.
     private func loadData() {
-        guard hotspots.isEmpty && routes.isEmpty else { return }
+        // Tracked with an explicit flag rather than "is the list empty?": the live directory can land
+        // first and fill `hotspots`, which used to make this bail and leave routes/extras/links empty.
+        guard !didLoadBundle else { return }
+        didLoadBundle = true
         guard let url = Bundle.main.url(forResource: "pogo", withExtension: "json") else {
             loadError = "pogo.json not found in the app bundle."
             return
@@ -670,7 +878,11 @@ struct PoGoModeView: View {
         do {
             let data = try Data(contentsOf: url)
             let decoded = try JSONDecoder().decode(PoGoData.self, from: data)
-            hotspots = decoded.hotspots
+            // Seed the spots ONLY while we have nothing better — if the live directory beat us here,
+            // the bundled copy is the older list and must not clobber it.
+            if directory == nil {
+                hotspots = decoded.hotspots
+            }
             routes = decoded.routes
             gameExtras = decoded.gameExtras ?? [:]
             communityLinks = decoded.communityLinks ?? [:]
@@ -678,7 +890,51 @@ struct PoGoModeView: View {
         } catch {
             loadError = "Could not load PoGo data: \(error.localizedDescription)"
         }
+
+        if let cached = WanderHotspots.cachedDirectory() {
+            apply(cached)
+        }
     }
+
+    /// Background refresh, throttled inside the service to a few hours. A nil result means "nothing
+    /// new" — not due, or offline — and we simply keep whatever list is already on screen.
+    private func refreshDirectory() async {
+        if let fresh = await WanderHotspots.refreshIfNeeded() {
+            apply(fresh)
+        }
+    }
+
+    private func apply(_ directory: HotspotDirectory) {
+        self.directory = directory
+        hotspots = directory.hotspots
+    }
+
+    /// One honest line about where the spots came from. Says "built-in" when we're on the bundled
+    /// seed so a user who's never been online doesn't read a stale list as freshly verified.
+    private var directoryNote: String {
+        guard let directory else {
+            return "Built-in spots. They'll update from Wander's live directory next time you're online."
+        }
+        var note = "From Wander's live spot directory"
+        if let updatedAt = directory.updatedAt {
+            note += ", updated \(Self.directoryDateFormatter.string(from: updatedAt))"
+        }
+        note += "."
+        if directory.fromCache {
+            note += " Showing your last downloaded copy."
+        }
+        return note
+    }
+
+    private static let directoryDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        // The feed's updatedAt is a bare editorial date parsed as UTC — render it in UTC too, or a
+        // user west of Greenwich sees it shifted a day earlier than what the directory actually says.
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        return f
+    }()
 
     // MARK: Helpers
 

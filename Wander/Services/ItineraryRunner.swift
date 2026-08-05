@@ -191,7 +191,9 @@ final class ItineraryRunner: ObservableObject {
         // this one choke-point (mirrors WalkModeView.step()'s per-tick re-assert).
         LocationSimulationCommandQueue.suppressResends = true
         LocationSimulationCommandQueue.shared.async {
-            _ = simulate_location(DeviceConnectionContext.targetIPAddress, target.latitude, target.longitude, path)
+            _ = simulate_location_logged(DeviceConnectionContext.targetIPAddress,
+                                         target.latitude, target.longitude, path,
+                                         source: .itinerary)
         }
     }
 

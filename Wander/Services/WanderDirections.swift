@@ -15,13 +15,25 @@ import CoreLocation
 enum WanderDirections {
     private static let baseURL = "https://wander-payments.wanderlocation.workers.dev"
 
-    /// One leg of a transit journey: a walking segment or a ride on a named line. Populated only for
-    /// `mode: "transit"` (empty for drive/walk/cycle), so the app can show "walk → bus 51B → BART".
+    /// One step of a journey: a walking segment, a stretch of driving, or a ride on a named line.
+    ///
+    /// The Worker now returns `steps` for EVERY travel mode (it used to be transit-only) and each
+    /// step carries its OWN encoded polyline, which is what lets the map draw a Google-Maps-style
+    /// multi-leg route — a walk portion in one colour, the drive in another. `coordinates` is that
+    /// polyline already decoded; it is EMPTY when the server is an older build that doesn't send
+    /// per-step geometry, or when the server's size guard dropped this step's polyline because the
+    /// step was very short (both are reported honestly rather than faked, and the caller falls back
+    /// to the whole-route polyline).
     struct RouteStep: Identifiable {
         let id = UUID()
-        let mode: String          // "WALK" | "TRANSIT"
+        let mode: String          // "WALK" | "DRIVE" | "BICYCLE" | "TRANSIT"
+        /// The Routes-API travel mode for this step. Same value as `mode` — kept as its own field
+        /// because that is the key the Worker documents, and `mode` predates it.
+        let travelMode: String
         let durationSeconds: Double
         let distanceMeters: Double
+        /// This step's own geometry, decoded from its encoded polyline. Empty when unavailable.
+        let coordinates: [CLLocationCoordinate2D]
         let line: String          // e.g. "51B", "Richmond" (transit steps only)
         let vehicle: String       // "BUS" | "SUBWAY" | "HEAVY_RAIL" | "TRAM" | "RAIL" | "FERRY" | …
         let headsign: String      // where the vehicle is headed
@@ -35,7 +47,46 @@ enum WanderDirections {
         let distanceMeters: Double
         let durationSeconds: Double
         let points: [CLLocationCoordinate2D]
-        let steps: [RouteStep]    // transit breakdown; empty for other modes
+        /// Per-step breakdown for this route (alternatives carry their own). Empty when the server
+        /// doesn't send steps for this mode — the caller degrades to the single `points` line.
+        let steps: [RouteStep]
+    }
+
+    // MARK: - Encoded polyline
+
+    /// Decode a Google "encoded polyline algorithm" string into coordinates.
+    ///
+    /// The Worker deliberately leaves per-step geometry ENCODED (decoding it server-side would
+    /// multiply the payload several times over), so the decode lives here. Malformed input yields
+    /// whatever decoded cleanly rather than throwing — a partially-drawn leg is recoverable, a
+    /// crash in the routing path is not.
+    static func decodePolyline(_ encoded: String) -> [CLLocationCoordinate2D] {
+        guard !encoded.isEmpty else { return [] }
+        var out: [CLLocationCoordinate2D] = []
+        var lat = 0, lon = 0
+        let bytes = Array(encoded.utf8)
+        var i = 0
+        while i < bytes.count {
+            // Each value is a chunked, ASCII-offset, zig-zag encoded varint.
+            func nextValue() -> Int? {
+                var result = 0, shift = 0
+                while i < bytes.count {
+                    let b = Int(bytes[i]) - 63
+                    i += 1
+                    guard b >= 0 else { return nil }
+                    result |= (b & 0x1F) << shift
+                    shift += 5
+                    if b < 0x20 { return (result & 1) != 0 ? ~(result >> 1) : (result >> 1) }
+                    if shift > 30 { return nil }   // corrupt: bail rather than spin
+                }
+                return nil
+            }
+            guard let dLat = nextValue(), let dLon = nextValue() else { break }
+            lat += dLat
+            lon += dLon
+            out.append(CLLocationCoordinate2D(latitude: Double(lat) / 1e5, longitude: Double(lon) / 1e5))
+        }
+        return out
     }
 
     enum Outcome {
@@ -100,9 +151,17 @@ enum WanderDirections {
                         p.count == 2 ? CLLocationCoordinate2D(latitude: p[0], longitude: p[1]) : nil
                     }
                     let steps: [RouteStep] = (r["steps"] as? [[String: Any]] ?? []).map { s in
-                        RouteStep(mode: s["mode"] as? String ?? "WALK",
-                                  durationSeconds: (s["durationSeconds"] as? NSNumber)?.doubleValue ?? 0,
+                        // `travelMode` and `staticDuration` are the newer keys; `mode` and
+                        // `durationSeconds` are the originals. Read both so this client works
+                        // against a server that has NOT been updated yet.
+                        let modeStr = (s["travelMode"] as? String) ?? (s["mode"] as? String) ?? "WALK"
+                        let dur = (s["staticDuration"] as? NSNumber)?.doubleValue
+                            ?? (s["durationSeconds"] as? NSNumber)?.doubleValue ?? 0
+                        return RouteStep(mode: s["mode"] as? String ?? modeStr,
+                                  travelMode: modeStr,
+                                  durationSeconds: dur,
                                   distanceMeters: (s["distanceMeters"] as? NSNumber)?.doubleValue ?? 0,
+                                  coordinates: decodePolyline(s["polyline"] as? String ?? ""),
                                   line: s["line"] as? String ?? "",
                                   vehicle: s["vehicle"] as? String ?? "",
                                   headsign: s["headsign"] as? String ?? "",

@@ -9,7 +9,7 @@
 //
 //  Data file: offline_places.tsv (bundled). Tab-separated, one entry per line:
 //      name \t lat \t lng \t subtitle \t aliases
-//  ~34k lines, importance-sorted: ~62 world landmarks first, then ~34k cities by population DESC.
+//  ~77k lines, importance-sorted: ~62 world landmarks first, then the cities by population DESC.
 //  So an earlier line is a better match. 'aliases' is a ';'-separated list of already-lowercased,
 //  ASCII-folded alternate names (may be empty).
 //
@@ -93,6 +93,49 @@ enum OfflineGeocoder {
         return (name: hit.name, coordinate: hit.coordinate, subtitle: hit.subtitle)
     }
 
+    /// REVERSE lookup: the nearest gazetteer entry to a coordinate, or nil when nothing is close
+    /// enough to mean anything. Used by `PlaceLabelService` when Apple's geocoder can't answer
+    /// (offline, or rate-limited), so a coordinate can still be described in words.
+    ///
+    /// Deliberately runs over the SAME `entries` table `resolve` uses. A second reader with its
+    /// own parse would double the resident cost of a 3.5 MB / 76,768-row file for the life of the
+    /// process; this way the reverse path is free if the forward path already loaded, and loads
+    /// the one shared copy if it didn't.
+    ///
+    /// Call this OFF the main actor: the first call may parse the bundled table, and the scan is
+    /// linear over every row.
+    ///
+    /// - Parameter maxDistanceMetres: beyond this the answer stops being useful — a hit 300 km
+    ///   away would name a city the user is nowhere near, and no label at all beats a wrong one.
+    static func nearest(
+        to coordinate: CLLocationCoordinate2D,
+        maxDistanceMetres: Double = 120_000
+    ) -> (name: String, coordinate: CLLocationCoordinate2D, subtitle: String)? {
+        let list = entries
+        guard !list.isEmpty, CLLocationCoordinate2DIsValid(coordinate) else { return nil }
+
+        // Equirectangular approximation: at these distances the error is metres, and it's one
+        // multiply per row instead of a haversine over 77k rows.
+        let metresPerDegreeLat = 111_320.0
+        let metresPerDegreeLng = 111_320.0 * cos(coordinate.latitude * .pi / 180)
+
+        var bestIndex = -1
+        var bestSquared = Double.greatestFiniteMagnitude
+        for (index, entry) in list.enumerated() {
+            let dy = (entry.coordinate.latitude - coordinate.latitude) * metresPerDegreeLat
+            let dx = (entry.coordinate.longitude - coordinate.longitude) * metresPerDegreeLng
+            let squared = dx * dx + dy * dy
+            if squared < bestSquared {
+                bestSquared = squared
+                bestIndex = index
+            }
+        }
+
+        guard bestIndex >= 0, bestSquared.squareRoot() <= maxDistanceMetres else { return nil }
+        let hit = list[bestIndex]
+        return (name: hit.name, coordinate: hit.coordinate, subtitle: hit.subtitle)
+    }
+
     // MARK: - Matching
 
     /// The best tier this entry achieves for `query` (0 = no match). Keys are the folded name plus
@@ -171,7 +214,9 @@ enum OfflineGeocoder {
         }
 
         var result: [Entry] = []
-        result.reserveCapacity(34_100)
+        // Sized to the shipped file (76,768 rows). A stale, too-small hint costs a run of
+        // array reallocations + copies on the one parse, so keep it in step with the data.
+        result.reserveCapacity(77_000)
 
         // Split on newlines; tolerate a trailing blank line.
         raw.enumerateLines { line, _ in

@@ -43,6 +43,13 @@ struct GslocQuickControlsCard: View {
                             : "Re-push your current spot — then flush with Location Services.") {
                 if let t = GslocMode.currentTargetSnapshot {
                     GslocMode.push(latitude: t.lat, longitude: t.lng)
+                    // Logged HERE rather than by `simulate_location_logged`, because this is the one
+                    // write in the app that never touches `simulate_location` at all — it hands the
+                    // coordinate straight to the gs-loc rewriter. Without this line a PoGo session
+                    // driven from these controls would leave no trace in the spoof timeline.
+                    // Fire-and-forget, like every other call into the recorder.
+                    SpoofTimelineRecorder.record(latitude: t.lat, longitude: t.lng,
+                                                 source: .gsloc, accepted: true)
                 }
             }
             controlRow(icon: "location.fill.viewfinder",

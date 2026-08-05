@@ -16,6 +16,212 @@ private struct RouteWaypoint: Identifiable {
     var coordinate: CLLocationCoordinate2D
 }
 
+// MARK: - Coloured legs
+//
+// A route is not one line, it is a sequence of PORTIONS — walk to the car, drive, walk again —
+// and Google Maps' whole readability trick is that each portion has its own colour and its own
+// time. `RouteLeg` is that portion. Legs come from the Worker's per-step polylines (each step
+// carries its own encoded geometry); when the server is an older build that doesn't send them,
+// the whole route degrades to a single leg in the trip's own mode colour, which is exactly the
+// pre-existing behaviour with a better colour.
+
+/// What one portion of a route is travelled by. Deliberately its own type rather than reusing
+/// `RouteTransportMode`: that enum is the trip the USER picked, this is what a single leg of the
+/// answer turned out to be (a "transit" trip is mostly walking legs).
+private enum RouteLegMode {
+    case walk
+    case drive
+    case cycle
+    case transit
+    case other
+
+    /// Map a Routes-API travel mode ("WALK" / "DRIVE" / "BICYCLE" / "TRANSIT") onto a leg mode.
+    static func from(travelMode raw: String) -> RouteLegMode {
+        switch raw.uppercased() {
+        case "WALK", "WALKING":            return .walk
+        case "DRIVE", "DRIVING", "CAR":    return .drive
+        case "BICYCLE", "BICYCLING", "CYCLE", "CYCLING": return .cycle
+        case "TRANSIT":                    return .transit
+        default:                           return .other
+        }
+    }
+
+    /// The leg mode a whole-trip transport mode collapses to, used when there are no per-step
+    /// legs (an Apple route, a multi-stop trip, or an un-updated server).
+    static func from(_ mode: RouteTransportMode) -> RouteLegMode {
+        switch mode {
+        case .drive:   return .drive
+        case .walk:    return .walk
+        case .cycle:   return .cycle
+        case .transit: return .transit
+        case .plane:   return .other
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .walk:    return L("route.leg.walk", fallback: "Walk")
+        case .drive:   return L("route.leg.drive", fallback: "Drive")
+        case .cycle:   return L("route.leg.cycle", fallback: "Cycle")
+        case .transit: return L("route.leg.transit", fallback: "Ride")
+        case .other:   return L("route.leg.travel", fallback: "Travel")
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .walk:    return "figure.walk"
+        case .drive:   return "car.fill"
+        case .cycle:   return "bicycle"
+        case .transit: return "tram.fill"
+        case .other:   return "arrow.triangle.turn.up.right.diamond.fill"
+        }
+    }
+
+    /// The line colour, taken from the design tokens (WanderStyle) rather than raw SwiftUI
+    /// colours so the route reads as part of the same app in both appearances.
+    var color: Color {
+        switch self {
+        case .walk:    return RouteLegPalette.walk
+        case .drive:   return RouteLegPalette.drive
+        case .cycle:   return RouteLegPalette.cycle
+        case .transit: return RouteLegPalette.transit
+        case .other:   return RouteLegPalette.other
+        }
+    }
+
+    /// The darker outline drawn UNDER the line. Without it a mid-tone stroke disappears into
+    /// satellite imagery and busy street maps — the casing is what makes the route read as a
+    /// route instead of as another road.
+    var casing: Color {
+        switch self {
+        case .walk:    return RouteLegPalette.walkCasing
+        case .drive:   return RouteLegPalette.driveCasing
+        case .cycle:   return RouteLegPalette.cycleCasing
+        case .transit: return RouteLegPalette.transitCasing
+        case .other:   return RouteLegPalette.otherCasing
+        }
+    }
+}
+
+/// The leg colours, DERIVED from the design tokens rather than picked by eye.
+///
+/// Every value here is a transform of a `Wander` token, which is the point: the route inherits
+/// the app's palette (including its light/dark behaviour, since the transforms run inside a
+/// dynamic `UIColor` and re-resolve per trait collection) instead of introducing a fifth set of
+/// hard-coded map colours. Transit is the brand hue rotated toward violet because there is no
+/// sixth token and a transit ride sitting next to a drive leg must not be the same blue.
+///
+/// Computed once as `static let`s — these are read on every map redraw.
+private enum RouteLegPalette {
+    static let walk = Wander.good
+    static let drive = Wander.brand
+    static let cycle = Wander.caution
+    /// POSITIVE rotation, and the sign is the whole point. Wander.brand is hue ~210°; rotating
+    /// DOWN by 0.11 turn lands on ~170° (teal), which is within ~15° of the walk token (~155°) —
+    /// i.e. indistinguishable from the leg it always sits next to on a "walk → ride → walk"
+    /// journey. Rotating UP by 0.11 turn lands on ~250° (violet), which is what the comment
+    /// above always meant and what actually separates the two.
+    static let transit = hueShifted(Wander.brand, by: 0.11)
+    static let other = Wander.inactive
+
+    static let walkCasing = darkened(walk)
+    static let driveCasing = darkened(drive)
+    static let cycleCasing = darkened(cycle)
+    static let transitCasing = darkened(transit)
+    static let otherCasing = darkened(other)
+    /// The outline under an UNSELECTED alternative. Same derivation as every other casing (the
+    /// inactive token, darkened) rather than a raw black, so it tracks the palette in both
+    /// appearances instead of being a fifth hard-coded map colour.
+    static let alternativeCasing = darkened(other).opacity(0.55)
+
+    /// Same colour, ~45% of the brightness: a casing has to be the SAME hue as its line or the
+    /// outline reads as a second road running alongside.
+    private static func darkened(_ color: Color) -> Color {
+        Color(UIColor { traits in
+            let resolved = UIColor(color).resolvedColor(with: traits)
+            var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            guard resolved.getHue(&h, saturation: &s, brightness: &b, alpha: &a) else {
+                return resolved   // greyscale/pattern colour: leave it alone rather than guess
+            }
+            return UIColor(hue: h, saturation: min(s * 1.1, 1), brightness: b * 0.45, alpha: a)
+        })
+    }
+
+    /// Rotate a token's hue by `delta` turns, keeping its saturation, brightness and its
+    /// light/dark adaptation.
+    private static func hueShifted(_ color: Color, by delta: CGFloat) -> Color {
+        Color(UIColor { traits in
+            let resolved = UIColor(color).resolvedColor(with: traits)
+            var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            guard resolved.getHue(&h, saturation: &s, brightness: &b, alpha: &a) else {
+                return resolved
+            }
+            var shifted = h + delta
+            if shifted < 0 { shifted += 1 }
+            if shifted > 1 { shifted -= 1 }
+            return UIColor(hue: shifted, saturation: min(s * 1.05, 1), brightness: b, alpha: a)
+        })
+    }
+}
+
+/// One portion of a route: a stretch travelled by a single mode, with its own geometry, its own
+/// duration and its own distance.
+private struct RouteLeg: Identifiable {
+    /// Assignable, with a fresh UUID by default, so a leg that is REBUILT on every body pass (the
+    /// fallback whole-route leg) can keep one id for its whole life. A new id per evaluation makes
+    /// MapKit tear down and re-add the overlay on every camera frame.
+    var id: UUID = UUID()
+    let mode: RouteLegMode
+    /// The DRAWN RUNS of this portion — normally one, but more than one when the server omitted a
+    /// step's polyline part-way through (see `buildRouteLegs`). Each run is drawn as its own
+    /// polyline so no line is ever drawn across a hole in the geometry. Runs always have ≥2 points.
+    let paths: [[CLLocationCoordinate2D]]
+    let duration: TimeInterval
+    let distanceMeters: Double
+    /// Optional line name for a transit ride ("51B"), so the chip can say "Bus 51B" not "Ride".
+    var line: String = ""
+
+    /// Every point of the portion, in order. For FITTING A REGION only (a bounding box doesn't care
+    /// that the runs are disjoint) — never for drawing, which is what `paths` is for.
+    var coordinates: [CLLocationCoordinate2D] { paths.flatMap { $0 } }
+
+    /// Has geometry we can draw or zoom to. False when the server omitted every polyline in this
+    /// portion — the leg is still listed with its honest time, it just isn't a place on the map.
+    var isDrawable: Bool { !paths.isEmpty }
+
+    /// Where a label for this leg sits — the middle of its LONGEST run, so the badge lands on the
+    /// substantial part of the portion rather than on a 20 m stub of it. `nil` when nothing about
+    /// this portion was drawn.
+    var midpoint: CLLocationCoordinate2D? {
+        guard let longest = paths.max(by: { $0.count < $1.count }), !longest.isEmpty else { return nil }
+        return longest[longest.count / 2]
+    }
+
+    var title: String {
+        if mode == .transit && !line.isEmpty { return line }
+        return mode.title
+    }
+
+    /// The id of the synthesised "the whole route is one portion" leg. Constant for the process,
+    /// because that leg is re-created from scratch every time the view's body runs.
+    static let wholeRouteID = UUID()
+}
+
+/// One line of the "Journey" list under the map: a ride on a named service, or a folded run of
+/// walking. Identified by its POSITION in the list rather than a fresh UUID, because the list is
+/// rebuilt on every body pass and new ids each time would make SwiftUI replace every row.
+private struct JourneyRow: Identifiable {
+    let id: Int
+    let icon: String
+    let title: String
+    /// Where the ride is headed / which stops it runs between. Transit rows only.
+    let detail: String
+    var duration: TimeInterval
+    var distanceMeters: Double
+    let isTransit: Bool
+}
+
 /// One candidate route for the "2–3 options" picker (Google-Maps style). Populated only for
 /// point-to-point trips (start + end, no intermediate stops), since neither Apple's alternate
 /// routes nor Google's `computeAlternativeRoutes` combine with intermediate waypoints.
@@ -27,6 +233,73 @@ private struct RouteOption: Identifiable {
     let label: String                // e.g. "I-80 W" (Apple) or "via US-101" (Google) — may be ""
     /// Transit only: the walk / bus / rail legs for this option (empty for drive/walk/cycle).
     var steps: [WanderDirections.RouteStep] = []
+    /// The ordered, mode-coloured portions of this route. Empty when the server sent no per-step
+    /// geometry — the caller then draws the single whole-route line instead.
+    var legs: [RouteLeg] = []
+}
+
+/// Fold a step list into drawable legs: consecutive steps of the SAME mode merge into one portion
+/// (a drive is fifty turn-by-turn steps, not fifty legs), while each transit ride stays its own leg
+/// because a transfer is a thing the user has to know about.
+///
+/// Steps whose polyline the server omitted keep their time and distance and simply contribute no
+/// geometry, so the breakdown stays honest ("Walk 4 min" is still true) even when that portion
+/// can't be drawn.
+///
+/// THE GAP RULE. The Worker's size guard deliberately drops the polyline of the shortest steps
+/// (STEP_POLY_LADDER climbs 20 m → 750 m until the payload fits) and those decode to `[]`. If the
+/// merge simply concatenated coordinates across one of those, the portion would run a STRAIGHT
+/// CHORD from the end of the last drawn step to the start of the next — and since the leg lines are
+/// painted OVER the correct whole-route line, that chord is a dark shortcut cutting the corner. On a
+/// long route where the ladder has climbed to 300 m or 750 m it is hundreds of metres of line going
+/// somewhere the route does not.
+///
+/// So an omitted polyline BREAKS THE RUN rather than the portion: the step's time and distance still
+/// count toward the portion, and the next step that has geometry starts a new run inside the SAME
+/// leg. That keeps the drawing honest without turning one drive into five "Drive" chips in the
+/// breakdown row — a hole in the geometry is not a change of transport.
+private func buildRouteLegs(from steps: [WanderDirections.RouteStep]) -> [RouteLeg] {
+    guard !steps.isEmpty else { return [] }
+    var legs: [RouteLeg] = []
+    // True when geometry has been lost since the last drawn point — i.e. appending to the run in
+    // progress would draw across a hole.
+    var gapSinceLastPoint = false
+    for step in steps {
+        let mode = RouteLegMode.from(travelMode: step.travelMode)
+        let line = step.mode == "TRANSIT" || mode == .transit ? step.line : ""
+        let run = step.coordinates.count > 1 ? step.coordinates : []
+        // A transit ride is always its own leg (a transfer is a thing the user must know about);
+        // otherwise consecutive steps of one mode are one portion.
+        let startsNewLeg = mode == .transit || legs.last?.mode != mode
+
+        if startsNewLeg {
+            legs.append(RouteLeg(mode: mode,
+                                 paths: run.isEmpty ? [] : [run],
+                                 duration: step.durationSeconds,
+                                 distanceMeters: step.distanceMeters,
+                                 line: line))
+        } else {
+            let last = legs[legs.count - 1]
+            var paths = last.paths
+            if !run.isEmpty {
+                if !gapSinceLastPoint, var current = paths.last {
+                    current.append(contentsOf: run)   // contiguous with what we've drawn so far
+                    paths[paths.count - 1] = current
+                } else {
+                    paths.append(run)                 // across a hole: a new run, never a chord
+                }
+            }
+            legs[legs.count - 1] = RouteLeg(id: last.id,
+                                            mode: mode,
+                                            paths: paths,
+                                            duration: last.duration + step.durationSeconds,
+                                            distanceMeters: last.distanceMeters + step.distanceMeters,
+                                            line: last.line)
+        }
+        // Drawn geometry closes the gap; an omitted polyline opens one.
+        gapSinceLastPoint = step.coordinates.isEmpty
+    }
+    return legs
 }
 
 private enum RouteSpeedMode: String, CaseIterable, Identifiable {
@@ -147,6 +420,20 @@ private func greatCirclePath(from a: CLLocationCoordinate2D,
 
 struct RouteModeView: View {
     @State private var waypoints: [RouteWaypoint] = []
+
+    // MARK: Optimize stop order
+    //
+    // Reorders the user's EXISTING pins into the shortest loop. It never invents, fetches or
+    // suggests a stop — the output is a permutation of the input, which is why the whole feature is
+    // local maths with no network call anywhere near it.
+    /// The order the stops were in before the last Optimize, kept so the change can be undone.
+    @State private var preOptimizeWaypoints: [RouteWaypoint]?
+    /// The exact pin order Optimize produced. Undo is offered only while the list still matches it,
+    /// which is one check instead of remembering to invalidate the snapshot in the ten other places
+    /// that add, delete, import, reverse or replace waypoints.
+    @State private var optimizedOrderIDs: [UUID] = []
+    @State private var optimizeBeforeMeters: Double = 0
+    @State private var optimizeAfterMeters: Double = 0
     @State private var routeCoordinates: [CLLocationCoordinate2D] = []
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
     // When true the camera keeps the moving pin on screen — but preserves YOUR zoom level and
@@ -174,6 +461,27 @@ struct RouteModeView: View {
     /// Empty for multi-stop / great-circle routes (the single previewed path is used directly).
     @State private var routeAlternatives: [RouteOption] = []
     @State private var selectedRouteIndex = 0
+    /// The leg the user tapped in the breakdown row. Drawn thicker on the map and outlined in the
+    /// row, so "which bit is that?" has an answer in both places at once.
+    @State private var focusedLegID: UUID?
+    /// The DESTINATION's time zone, held purely for the ARRIVAL CLOCK. A duration ("42 min") is
+    /// arithmetic the user has to do; "arrives 14:32" is the number they actually wanted. Falls
+    /// back to the device clock when the lookup hasn't landed (or failed), never to nothing.
+    ///
+    /// Deliberately a plain `TimeZone` from CLGeocoder rather than the shared `LocationInfoService`:
+    /// that service starts a repeating 10-second clock timer and publishes `now`, a value this
+    /// screen never reads — but every publish invalidates the whole RouteModeView body, forever, on
+    /// a screen that also re-evaluates on every map camera frame. The arrival clock needs one
+    /// number that changes only when the destination does.
+    @State private var destinationTimeZone: TimeZone?
+    /// The coordinate `destinationTimeZone` describes — the debounce anchor, and the guard that
+    /// stops a slow lookup landing on a route the user has already cleared or changed.
+    @State private var destinationClockCoordinate: CLLocationCoordinate2D?
+    /// A lookup is out for `destinationClockCoordinate`; don't start a second one for it.
+    @State private var destinationClockInFlight = false
+    /// Whether to draw the system's own location dot. Gated on permission the app ALREADY holds,
+    /// matching the offline map: a dot is not worth spending the one location prompt on.
+    @State private var showUserDot = MapLocationAuthWatcher.shared.isAuthorized
     @AppStorage("useMph") private var useMph = false
     @AppStorage("jitterEnabled") private var jitterEnabled = true
     // PoGo (gs-loc) mode only steers a STATIC network fix — a moving route silently fails there (real GPS
@@ -332,38 +640,19 @@ struct RouteModeView: View {
 
     private var map: some View {
         Map(position: $cameraPosition) {
-            ForEach(Array(waypoints.enumerated()), id: \.element.id) { index, wp in
-                Marker(waypointLabel(index), coordinate: wp.coordinate)
-                    .tint(index == 0 ? .green : (index == waypoints.count - 1 ? .red : .orange))
-            }
-            // Draw the unselected alternatives faded and the chosen one bold, so the picker
-            // selection is visible on the map (Google-Maps style). Falls back to the single
-            // previewed path for multi-stop / great-circle routes.
-            if routeAlternatives.count > 1 {
-                ForEach(Array(routeAlternatives.enumerated()), id: \.element.id) { idx, opt in
-                    if idx != selectedRouteIndex && opt.coordinates.count > 1 {
-                        MapPolyline(coordinates: opt.coordinates)
-                            .stroke(.gray.opacity(0.5), lineWidth: 4)
-                    }
-                }
-                if routeAlternatives.indices.contains(selectedRouteIndex),
-                   routeAlternatives[selectedRouteIndex].coordinates.count > 1 {
-                    MapPolyline(coordinates: routeAlternatives[selectedRouteIndex].coordinates)
-                        .stroke(.blue, lineWidth: 5)
-                }
-            } else if routeCoordinates.count > 1 {
-                MapPolyline(coordinates: routeCoordinates)
-                    .stroke(.blue, lineWidth: 4)
-            }
-            if let currentPosition {
-                Annotation("You", coordinate: currentPosition) {
-                    ZStack {
-                        Circle().fill(.blue.opacity(0.25)).frame(width: 34, height: 34)
-                        Circle().fill(.blue).frame(width: 16, height: 16)
-                            .overlay(Circle().stroke(.white, lineWidth: 2))
-                    }
-                }
-            }
+            waypointMarkers
+            alternativeCasings
+            alternativeLines
+            selectedRouteLine
+            legLines
+            legDurationLabels
+            alternativeChoiceLabels
+            liveLocationAnnotations
+        }
+        .wanderAnimation(WanderMotion.quick, on: selectedRouteIndex)
+        .wanderFeedback(.selection, on: selectedRouteIndex)
+        .onReceive(NotificationCenter.default.publisher(for: MapLocationAuthWatcher.didChange)) { _ in
+            showUserDot = MapLocationAuthWatcher.shared.isAuthorized
         }
         .onMapCameraChange(frequency: .continuous) { context in
             // The crosshair is lifted up (below) so the bottom controls card can't cover it. The drop
@@ -384,6 +673,290 @@ struct RouteModeView: View {
             if isDriving { followButton }
         }
         .ignoresSafeArea()
+    }
+
+    // MARK: - Map content
+    //
+    // Split into small builders on purpose: one 80-line `Map { }` closure is both unreadable and a
+    // type-checker hazard, and the DRAW ORDER matters — every casing must be laid down before any
+    // coloured line, or one leg's outline paints over its neighbour's fill.
+
+    @MapContentBuilder private var waypointMarkers: some MapContent {
+        ForEach(Array(waypoints.enumerated()), id: \.element.id) { index, wp in
+            Marker(waypointLabel(index), coordinate: wp.coordinate)
+                .tint(index == 0 ? .green : (index == waypoints.count - 1 ? .red : .orange))
+        }
+    }
+
+    /// Dark outlines for every alternative that ISN'T selected. Drawn as their own pass so a
+    /// later alternative's casing can't cover an earlier one's line.
+    @MapContentBuilder private var alternativeCasings: some MapContent {
+        ForEach(Array(routeAlternatives.enumerated()), id: \.element.id) { idx, opt in
+            if idx != selectedRouteIndex && opt.coordinates.count > 1 {
+                MapPolyline(coordinates: opt.coordinates)
+                    .stroke(RouteLegPalette.alternativeCasing, style: Self.lineStyle(7))
+            }
+        }
+    }
+
+    /// The unselected alternatives themselves — muted, but now tappable via their labels below.
+    @MapContentBuilder private var alternativeLines: some MapContent {
+        ForEach(Array(routeAlternatives.enumerated()), id: \.element.id) { idx, opt in
+            if idx != selectedRouteIndex && opt.coordinates.count > 1 {
+                MapPolyline(coordinates: opt.coordinates)
+                    .stroke(Wander.inactive.opacity(0.9), style: Self.lineStyle(4))
+            }
+        }
+    }
+
+    /// The selected route as ONE line: its casing plus a fill in the trip's dominant mode colour.
+    /// The per-leg colours paint over this; it stays visible exactly where a leg has no geometry
+    /// (an older server, or a step whose polyline the size guard dropped), so the route never has
+    /// a hole in it.
+    @MapContentBuilder private var selectedRouteLine: some MapContent {
+        if displayedCoordinates.count > 1 {
+            MapPolyline(coordinates: displayedCoordinates)
+                .stroke(primaryLegMode.casing, style: Self.lineStyle(9.5))
+            MapPolyline(coordinates: displayedCoordinates)
+                .stroke(primaryLegMode.color, style: Self.lineStyle(5.5))
+        }
+    }
+
+    /// The coloured portions: walk green, drive blue, cycle amber, transit violet — each over its
+    /// own darker casing so it reads on satellite imagery. One polyline per RUN, not per leg: a
+    /// portion whose geometry the server broke up is drawn as the pieces it actually has.
+    @MapContentBuilder private var legLines: some MapContent {
+        ForEach(drawableLegs) { leg in
+            ForEach(Array(leg.paths.enumerated()), id: \.offset) { _, path in
+                MapPolyline(coordinates: path)
+                    .stroke(leg.mode.casing, style: Self.lineStyle(legWidth(leg) + 4))
+            }
+        }
+        ForEach(drawableLegs) { leg in
+            ForEach(Array(leg.paths.enumerated()), id: \.offset) { _, path in
+                MapPolyline(coordinates: path)
+                    .stroke(leg.mode.color, style: Self.lineStyle(legWidth(leg)))
+            }
+        }
+    }
+
+    /// "12 min" sitting on the portion it belongs to. Only for genuinely multi-leg routes — a
+    /// single-mode drive already has its time in the summary line, and a badge per turn would be
+    /// noise, not information.
+    @MapContentBuilder private var legDurationLabels: some MapContent {
+        ForEach(labelledLegs) { leg in
+            if let mid = leg.midpoint {
+                Annotation("", coordinate: mid, anchor: .center) {
+                    legDurationBadge(leg)
+                }
+                .annotationTitles(.hidden)
+            }
+        }
+    }
+
+    /// The thing that turns "there's a grey line" into a choice: every alternative gets a tappable
+    /// chip with its time and distance, the quickest one is marked, and tapping selects it.
+    ///
+    /// Hidden once a drive is running, matching the controls card and the options list. `selectRoute`
+    /// rewrites `routeCoordinates`/`routeExpectedTime`; playback itself is safe (startDrive snapshots
+    /// its samples before the loop), but a mid-drive tap would leave the drawn line, the summary and
+    /// the next Preview describing a different route from the one being injected.
+    @MapContentBuilder private var alternativeChoiceLabels: some MapContent {
+        ForEach(Array(routeAlternatives.enumerated()), id: \.element.id) { idx, opt in
+            if !isDriving, routeAlternatives.count > 1, let anchor = optionLabelAnchor(opt, index: idx) {
+                Annotation("", coordinate: anchor, anchor: .center) {
+                    routeChoiceBadge(idx: idx, opt: opt)
+                }
+                .annotationTitles(.hidden)
+            }
+        }
+    }
+
+    /// Two different dots, and the difference matters. `UserAnnotation` is the SYSTEM's idea of
+    /// where the device is — while a spoof is running CoreLocation hands every app the SPOOFED
+    /// fix, so this dot is live confirmation that the spoof took. The brand pin is where THIS
+    /// view's playback has pushed the route to; the two sitting on top of each other is the
+    /// picture of a working drive.
+    @MapContentBuilder private var liveLocationAnnotations: some MapContent {
+        if showUserDot {
+            UserAnnotation()
+        }
+        if let currentPosition {
+            Annotation(L("route.pin.you", fallback: "You"), coordinate: currentPosition) {
+                ZStack {
+                    Circle().fill(Wander.brand.opacity(0.22)).frame(width: 34, height: 34)
+                    Circle().fill(Wander.brand).frame(width: 15, height: 15)
+                        .overlay(Circle().stroke(.white, lineWidth: 2.5))
+                        .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                }
+            }
+        }
+    }
+
+    private static func lineStyle(_ width: CGFloat) -> StrokeStyle {
+        StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
+    }
+
+    /// Tapping a portion in the breakdown row swells its line, which is the confirmation that the
+    /// zoom that just happened belongs to the chip you touched.
+    private func legWidth(_ leg: RouteLeg) -> CGFloat {
+        focusedLegID == leg.id ? 8 : 5.5
+    }
+
+    private func legDurationBadge(_ leg: RouteLeg) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: leg.mode.icon).font(.system(size: 9, weight: .bold))
+            Text(shortDurationText(leg.duration)).font(.caption2.weight(.bold)).monospacedDigit()
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(leg.mode.color, in: Capsule())
+        .overlay(Capsule().stroke(.white.opacity(0.9), lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.28), radius: 3, y: 1)
+        .scaleEffect(focusedLegID == leg.id ? 1.12 : 1)
+        .wanderAnimation(WanderMotion.quick, on: focusedLegID)
+        .allowsHitTesting(false)
+    }
+
+    /// A route option's on-map chip. The selected one is filled in the brand colour; the rest are
+    /// quiet cards that say what you'd get by tapping them.
+    private func routeChoiceBadge(idx: Int, opt: RouteOption) -> some View {
+        let isSelected = idx == selectedRouteIndex
+        return Button {
+            selectRoute(idx)
+        } label: {
+            VStack(spacing: 1) {
+                HStack(spacing: 4) {
+                    if idx == fastestRouteIndex && routeAlternatives.count > 1 {
+                        Image(systemName: "bolt.fill").font(.system(size: 9, weight: .bold))
+                    }
+                    Text(routeOptionPrimary(idx: idx, opt: opt))
+                        .font(.caption.weight(.bold)).monospacedDigit()
+                }
+                if opt.distanceMeters > 0 {
+                    Text(routeDistanceLabel(opt.distanceMeters))
+                        .font(.system(size: 9, weight: .semibold)).monospacedDigit()
+                        .opacity(0.85)
+                }
+            }
+            .foregroundStyle(isSelected ? .white : Color.primary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(isSelected ? AnyShapeStyle(Wander.brand) : AnyShapeStyle(.regularMaterial),
+                        in: Capsule())
+            .overlay(Capsule().stroke(isSelected ? .white.opacity(0.9) : Wander.hairline, lineWidth: 1.5))
+            .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+            .scaleEffect(isSelected ? 1.06 : 1)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(routeChoiceAccessibilityLabel(idx: idx, opt: opt))
+    }
+
+    private func routeChoiceAccessibilityLabel(idx: Int, opt: RouteOption) -> String {
+        var parts = [routeOptionPrimary(idx: idx, opt: opt)]
+        if opt.distanceMeters > 0 { parts.append(routeDistanceLabel(opt.distanceMeters)) }
+        if idx == fastestRouteIndex { parts.append(L("route.fastest", fallback: "Fastest")) }
+        if idx == selectedRouteIndex { parts.append(L("route.selected", fallback: "Selected")) }
+        return parts.joined(separator: ", ")
+    }
+
+    // MARK: - Leg derivation
+
+    private var selectedOption: RouteOption? {
+        routeAlternatives.indices.contains(selectedRouteIndex) ? routeAlternatives[selectedRouteIndex] : nil
+    }
+
+    /// The whole-route geometry currently on screen — the selected alternative's, or the single
+    /// previewed path for multi-stop / great-circle trips.
+    private var displayedCoordinates: [CLLocationCoordinate2D] {
+        if let opt = selectedOption, opt.coordinates.count > 1 { return opt.coordinates }
+        return routeCoordinates
+    }
+
+    /// The portions of the route on screen. When the server sent no per-step geometry the whole
+    /// trip is one leg in the picked mode's colour — the old single-line behaviour, just coloured.
+    private var displayedLegs: [RouteLeg] {
+        if let opt = selectedOption, !opt.legs.isEmpty { return opt.legs }
+        guard routeCoordinates.count > 1 else { return [] }
+        // Stable id: this leg is rebuilt on every body pass, and the body runs on every camera
+        // frame (`.onMapCameraChange(.continuous)` writes state). A fresh UUID here would make
+        // MapKit drop and re-add a thousands-of-points overlay while the user is still panning.
+        return [RouteLeg(id: RouteLeg.wholeRouteID,
+                         mode: RouteLegMode.from(transportMode),
+                         paths: [routeCoordinates],
+                         duration: routeExpectedTime,
+                         distanceMeters: 0)]
+    }
+
+    /// The legs that get their own coloured polyline. A ONE-portion route is deliberately excluded:
+    /// `selectedRouteLine` has already drawn exactly that geometry in exactly that colour, so
+    /// drawing it again is two redundant overlays (four lines in total) for no visible difference.
+    /// The per-leg pass only earns its keep when there is more than one colour to show.
+    private var drawableLegs: [RouteLeg] {
+        let legs = displayedLegs
+        guard legs.count > 1 else { return [] }
+        return legs.filter(\.isDrawable)
+    }
+
+    /// Legs worth badging on the map. Capped so a transit journey with a dozen hops doesn't bury
+    /// the map under chips, and skipped entirely for a single-portion route.
+    private var labelledLegs: [RouteLeg] {
+        let legs = displayedLegs
+        guard legs.count > 1 else { return [] }
+        return Array(legs.filter { $0.duration > 0 && $0.midpoint != nil }
+                         .sorted { $0.duration > $1.duration }
+                         .prefix(6))
+    }
+
+    /// The mode the trip is mostly made of — what the whole-route fill under the legs is coloured.
+    private var primaryLegMode: RouteLegMode {
+        let legs = displayedLegs
+        guard !legs.isEmpty else { return RouteLegMode.from(transportMode) }
+        var totals: [Int: TimeInterval] = [:]
+        for leg in legs { totals[legKey(leg.mode), default: 0] += max(leg.duration, 1) }
+        let bestKey = totals.max { $0.value < $1.value }?.key
+        return legMode(forKey: bestKey ?? legKey(RouteLegMode.from(transportMode)))
+    }
+
+    // RouteLegMode isn't Hashable (it has no payload but adding conformance for one dictionary is
+    // noise); these two map it to a stable integer for the tally above.
+    private func legKey(_ mode: RouteLegMode) -> Int {
+        switch mode {
+        case .walk: return 0
+        case .drive: return 1
+        case .cycle: return 2
+        case .transit: return 3
+        case .other: return 4
+        }
+    }
+
+    private func legMode(forKey key: Int) -> RouteLegMode {
+        switch key {
+        case 0: return .walk
+        case 1: return .drive
+        case 2: return .cycle
+        case 3: return .transit
+        default: return .other
+        }
+    }
+
+    /// The quickest option, so "Fastest" is a measurement instead of a guess about ordering.
+    /// `nil` when no option reports a time (great-circle / re-paced modes).
+    private var fastestRouteIndex: Int? {
+        let timed = routeAlternatives.enumerated().filter { $0.element.expectedTime > 0 }
+        guard timed.count > 1 else { return nil }
+        return timed.min { $0.element.expectedTime < $1.element.expectedTime }?.offset
+    }
+
+    /// Where an option's chip sits. Each option gets a DIFFERENT fraction along its own line so
+    /// two routes that share most of their geometry don't stack their labels on one pixel.
+    private func optionLabelAnchor(_ opt: RouteOption, index: Int) -> CLLocationCoordinate2D? {
+        guard opt.coordinates.count > 1 else { return nil }
+        let fractions: [Double] = [0.5, 0.33, 0.67, 0.42]
+        let f = fractions[index % fractions.count]
+        let i = min(max(Int(Double(opt.coordinates.count - 1) * f), 0), opt.coordinates.count - 1)
+        return opt.coordinates[i]
     }
 
     /// Toggles camera-follow during a drive. On → tracks the pin (fixed zoom). Off → the map
@@ -479,6 +1052,8 @@ struct RouteModeView: View {
                 }
 
                 routeSummaryLine
+
+                legBreakdownRow
 
                 transitBreakdown
 
@@ -766,6 +1341,12 @@ struct RouteModeView: View {
                     Text(localized: "route.stops", fallback: "Stops")
                         .font(.caption).foregroundStyle(.secondary)
                     Spacer()
+                    if waypoints.count >= 4 {
+                        Button { optimizeStopOrder() } label: {
+                            Label(L("route.optimize", fallback: "Optimize"), systemImage: "wand.and.stars")
+                                .font(.caption)
+                        }
+                    }
                     Button { reverseWaypoints() } label: {
                         Label(L("route.reverse", fallback: "Reverse"), systemImage: "arrow.up.arrow.down")
                             .font(.caption)
@@ -791,11 +1372,172 @@ struct RouteModeView: View {
                 .frame(height: min(CGFloat(waypoints.count) * 44 + 8, 200))
                 .scrollContentBackground(.hidden)
 
-                Text(localized: "route.reorder_hint",
-                     fallback: "Drag to reorder your stops — the route follows the new order.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                if canUndoOptimize {
+                    optimizeResultRow
+                } else {
+                    Text(localized: "route.reorder_hint",
+                         fallback: "Drag to reorder your stops — the route follows the new order.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
             }
         }
+    }
+
+    /// The before/after receipt for an Optimize, with its Undo. Shown INSTEAD of the drag hint
+    /// because the one thing the user needs to know right now is what just changed and how to take
+    /// it back — and because a reorder they didn't ask for would be unnerving without the numbers.
+    private var optimizeResultRow: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Label(String(format: L("route.optimize.result", fallback: "Loop %@ → %@"),
+                             distanceText(optimizeBeforeMeters), distanceText(optimizeAfterMeters)),
+                      systemImage: "wand.and.stars")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Wander.brand)
+                Text(String(format: L("route.optimize.saved", fallback: "%@ shorter — your stops, reordered. Nothing was added."),
+                            distanceText(max(optimizeBeforeMeters - optimizeAfterMeters, 0))))
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Button(L("route.optimize.undo", fallback: "Undo")) { undoOptimize() }
+                .buttonStyle(.bordered)
+                .font(.caption)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Optimize stop order (nearest neighbour + 2-opt)
+
+    /// Undo stays available only while the list is EXACTLY what Optimize produced. Any edit after
+    /// that — a drag, a delete, a new pin — makes "put it back" meaningless, and silently restoring
+    /// a stale snapshot would throw away work the user did in between.
+    private var canUndoOptimize: Bool {
+        preOptimizeWaypoints != nil && waypoints.map(\.id) == optimizedOrderIDs
+    }
+
+    /// Ceiling on how many stops we'll reorder. 2-opt is O(n²) per pass on the main thread, and past
+    /// a few dozen points this stops being "a handful of stops" anyway — an imported GPX track is an
+    /// ordered path, not a set of errands, and shuffling it would destroy the route it recorded.
+    private static let optimizeStopLimit = 40
+
+    /// Reorder the user's own pins into the shortest closed loop. The FIRST pin stays put: it's
+    /// where they start, and a "shortest loop" that also relocates the front door isn't the same
+    /// trip. Measured as a loop (…last → first) because a farming route gets walked round again.
+    private func optimizeStopOrder() {
+        guard waypoints.count >= 4 else {
+            // Three or fewer pins is the same loop length in every order — there is nothing to win,
+            // and reshuffling would look like the button did something arbitrary.
+            alertText = L("route.optimize.too_few",
+                          fallback: "Add at least four stops — with three or fewer, every order is the same loop.")
+            return
+        }
+        guard waypoints.count <= Self.optimizeStopLimit else {
+            alertText = String(format: L("route.optimize.too_many",
+                                         fallback: "Optimize handles up to %d stops. This looks like an imported path, and reordering it would scramble the route it traces."),
+                               Self.optimizeStopLimit)
+            return
+        }
+
+        let coords = waypoints.map(\.coordinate)
+        let before = loopDistanceMeters(coords)
+        let order = twoOptImproved(nearestNeighbourOrder(coords), coords: coords)
+        let after = loopDistanceMeters(order.map { coords[$0] })
+
+        // A metre of "improvement" is floating-point noise, not a gain worth rewriting the list for.
+        guard after < before - 1 else {
+            alertText = L("route.optimize.already_best",
+                          fallback: "These stops are already in the shortest loop order.")
+            return
+        }
+
+        preOptimizeWaypoints = waypoints
+        optimizeBeforeMeters = before
+        optimizeAfterMeters = after
+        // A permutation of the SAME waypoint values — this is the line that guarantees the feature
+        // can only ever reorder what the user already had.
+        waypoints = order.map { waypoints[$0] }
+        optimizedOrderIDs = waypoints.map(\.id)
+        routeCoordinates = []; routeAlternatives = []
+        routeExpectedTime = 0
+        if let region = region(fitting: waypoints.map(\.coordinate)) {
+            cameraPosition = .region(region)
+        }
+        Haptics.medium()
+    }
+
+    /// Put the stops back exactly as they were before the last Optimize.
+    private func undoOptimize() {
+        guard let previous = preOptimizeWaypoints else { return }
+        waypoints = previous
+        preOptimizeWaypoints = nil
+        optimizedOrderIDs = []
+        routeCoordinates = []; routeAlternatives = []
+        routeExpectedTime = 0
+        Haptics.light()
+    }
+
+    /// Straight-line length of the closed tour (…last → back to first). Deliberately great-circle
+    /// rather than road distance: this runs on every 2-opt candidate — thousands of evaluations —
+    /// and MKDirections is a network call. The ordering it produces is what matters; the real road
+    /// distance still comes from Preview afterwards.
+    private func loopDistanceMeters(_ coords: [CLLocationCoordinate2D]) -> Double {
+        guard coords.count > 2, let first = coords.first else { return pathDistanceMeters(coords) }
+        return pathDistanceMeters(coords + [first])
+    }
+
+    private func legMeters(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {
+        CLLocation(latitude: a.latitude, longitude: a.longitude)
+            .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
+    }
+
+    /// Greedy first pass: from the start pin, always hop to the closest stop not yet visited. Rough
+    /// on its own (the last few legs can be long), but it's a good starting tour for 2-opt to fix.
+    private func nearestNeighbourOrder(_ coords: [CLLocationCoordinate2D]) -> [Int] {
+        var remaining = Array(coords.indices.dropFirst())   // index 0 is the fixed start
+        var order = [0]
+        var current = 0
+        while !remaining.isEmpty {
+            var bestSlot = 0
+            var bestDistance = Double.greatestFiniteMagnitude
+            for (slot, candidate) in remaining.enumerated() {
+                let d = legMeters(coords[current], coords[candidate])
+                if d < bestDistance { bestDistance = d; bestSlot = slot }
+            }
+            current = remaining.remove(at: bestSlot)
+            order.append(current)
+        }
+        return order
+    }
+
+    /// 2-opt: repeatedly un-cross the tour by reversing a stretch of it whenever that shortens the
+    /// two edges at its ends. This is what removes the long "oh, I forgot that one" leg greedy
+    /// nearest-neighbour always leaves behind. Index 0 is never moved (the start stays the start).
+    private func twoOptImproved(_ initial: [Int], coords: [CLLocationCoordinate2D]) -> [Int] {
+        var order = initial
+        let n = order.count
+        guard n >= 4 else { return order }
+        var improved = true
+        var passes = 0
+        // Pass cap: 2-opt converges in a handful of passes at this size, and a cap means a
+        // pathological set of points can't spin on the main thread while the UI waits.
+        while improved && passes < 20 {
+            improved = false
+            passes += 1
+            for i in 1..<(n - 1) {
+                for j in (i + 1)..<n {
+                    let a = coords[order[i - 1]], b = coords[order[i]]
+                    let c = coords[order[j]], d = coords[order[(j + 1) % n]]   // wraps: closed loop
+                    let currentLegs = legMeters(a, b) + legMeters(c, d)
+                    let swappedLegs = legMeters(a, c) + legMeters(b, d)
+                    if swappedLegs + 0.01 < currentLegs {
+                        order[i...j].reverse()
+                        improved = true
+                    }
+                }
+            }
+        }
+        return order
     }
 
     private func stopRowLabel(index: Int, coordinate: CLLocationCoordinate2D) -> String {
@@ -833,7 +1575,12 @@ struct RouteModeView: View {
     private func clearAll() {
         waypoints = []
         routeCoordinates = []; routeAlternatives = []
+        focusedLegID = nil
         currentPosition = nil
+        // Drop the destination clock too — an arrival time for a route that no longer exists is
+        // the kind of stale number people trust by accident.
+        destinationTimeZone = nil
+        destinationClockCoordinate = nil
     }
 
     /// Load a GPX / KML / GeoJSON / CSV file's coordinates as waypoints (parity with Android/desktop).
@@ -875,15 +1622,138 @@ struct RouteModeView: View {
     @ViewBuilder private var routeSummaryLine: some View {
         let v = routeSummaryValues()
         if v.eta > 0 || v.dist > 0 {
-            HStack(spacing: 16) {
-                if v.eta > 0 { Label(etaText(v.eta), systemImage: "clock.fill") }
-                if v.dist > 0 { Label(distanceText(v.dist), systemImage: "arrow.triangle.turn.up.right.diamond.fill") }
-                Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 16) {
+                    if v.eta > 0 {
+                        Label(etaText(v.eta), systemImage: "clock.fill").wanderTick(Int(v.eta))
+                    }
+                    if v.dist > 0 { Label(distanceText(v.dist), systemImage: "arrow.triangle.turn.up.right.diamond.fill") }
+                    Spacer(minLength: 0)
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Wander.brand)
+                // The clock the user actually cares about: not "42 minutes" but "you land at 14:32",
+                // in the DESTINATION's wall clock when we know it.
+                if let arrival = arrivalText(v.eta) {
+                    Label(arrival, systemImage: "flag.checkered")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
             }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Wander.brand)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// One formatter, not one per call. `arrivalText` runs for the summary line AND once per route
+    /// option per body pass, and the body re-runs on every map camera frame — a fresh DateFormatter
+    /// each time is one of the more expensive allocations in Foundation.
+    /// `autoupdatingCurrent` so a 12h/24h change still takes effect without a relaunch.
+    private static let arrivalFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.dateStyle = .none
+        f.timeStyle = .short
+        return f
+    }()
+
+    /// "arrives 14:32 local" — the arrival wall-clock, formatted in the DESTINATION's time zone
+    /// once the lookup lands, and in the device's until then (labelled honestly, so it never claims
+    /// to be local time it doesn't have). Returns nil when there's no ETA.
+    private func arrivalText(_ eta: TimeInterval) -> String? {
+        guard eta > 0 else { return nil }
+        let arrival = Date().addingTimeInterval(eta)
+        let device = TimeZone.current
+        let zone = destinationTimeZone ?? device
+
+        let formatter = Self.arrivalFormatter
+        if formatter.timeZone != zone { formatter.timeZone = zone }
+        let clock = formatter.string(from: arrival)
+
+        // "local" is only added when the destination genuinely keeps a different clock — compared
+        // AT THE ARRIVAL INSTANT so a DST boundary between here and there is respected.
+        let differs = destinationTimeZone != nil
+            && zone.secondsFromGMT(for: arrival) != device.secondsFromGMT(for: arrival)
+        return differs
+            ? String(format: L("route.arrives_local", fallback: "arrives %@ local"), clock)
+            : String(format: L("route.arrives", fallback: "arrives %@"), clock)
+    }
+
+    /// Compact duration for an on-map badge or a breakdown chip: "4 min", "1h 12m".
+    private func shortDurationText(_ seconds: TimeInterval) -> String {
+        let mins = max(1, Int((seconds / 60).rounded()))
+        return mins >= 60 ? String(format: "%dh %dm", mins / 60, mins % 60) : "\(mins) min"
+    }
+
+    // MARK: - Portion breakdown ("Walk 4 min → Drive 12 min → Walk 6 min")
+
+    /// The Google-Maps line under the map. Every portion is a chip in its own leg colour, arrows
+    /// between them, and tapping one zooms the map to exactly that stretch — which is the only
+    /// way a user can check "wait, where is the walking bit?" without guessing at the line.
+    @ViewBuilder private var legBreakdownRow: some View {
+        let legs = displayedLegs
+        if legs.count > 1 {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(localized: "route.portions", fallback: "Portions")
+                    .font(.caption).foregroundStyle(.secondary)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(Array(legs.enumerated()), id: \.element.id) { idx, leg in
+                            legChip(leg)
+                            if idx < legs.count - 1 {
+                                Image(systemName: "arrow.right")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .scrollClipDisabled()
+                Text(localized: "route.portions.hint",
+                     fallback: "Tap a portion to zoom the map to it.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func legChip(_ leg: RouteLeg) -> some View {
+        let focused = focusedLegID == leg.id
+        return Button {
+            focusLeg(leg)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: leg.mode.icon).font(.caption2.weight(.bold))
+                Text("\(leg.title) \(shortDurationText(leg.duration))")
+                    .font(.caption.weight(.semibold)).monospacedDigit()
+            }
+            .foregroundStyle(leg.mode.color)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(leg.mode.color.opacity(focused ? 0.26 : 0.14), in: Capsule())
+            .overlay(Capsule().stroke(leg.mode.color.opacity(focused ? 0.9 : 0), lineWidth: 1.5))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!leg.isDrawable)
+        .opacity(leg.isDrawable ? 1 : 0.55)
+        .accessibilityLabel("\(leg.title), \(shortDurationText(leg.duration))")
+    }
+
+    /// Frame one portion of the route. Tapping the same chip again releases the focus and reframes
+    /// the whole route, so the control is a toggle rather than a one-way trip into a zoomed map.
+    private func focusLeg(_ leg: RouteLeg) {
+        guard leg.isDrawable else { return }
+        withAnimation(WanderMotion.layout) {
+            if focusedLegID == leg.id {
+                focusedLegID = nil
+                if let region = region(fitting: displayedCoordinates) { cameraPosition = .region(region) }
+            } else {
+                focusedLegID = leg.id
+                if let region = region(fitting: leg.coordinates) { cameraPosition = .region(region) }
+            }
+        }
+        Haptics.selection()
     }
 
     /// ETA + distance for the summary line: the selected alternative's numbers, or — for a single
@@ -922,32 +1792,38 @@ struct RouteModeView: View {
         return total
     }
 
-    /// Transit journey breakdown — one row per leg (walk / bus / train / ferry …) with its mode
-    /// icon, the line, and the time. Shown only for a transit route that returned steps, and
-    /// reflects the currently-selected alternative so it matches the highlighted line on the map.
+    /// Transit journey breakdown — one row per RIDE, plus a folded row for each stretch on foot,
+    /// with its mode icon, the line, and the time. Reflects the currently-selected alternative so
+    /// it matches the highlighted line on the map.
+    ///
+    /// Shown ONLY when the route actually contains a transit ride. The Worker now returns steps
+    /// for EVERY travel mode (it was transit-only when this section was first written), so a 30 km
+    /// cycle route or an avoid-tolls drive arrives with ~200 turn-by-turn steps that carry no
+    /// `vehicle` — a row per step would render two hundred identical "Transit" lines with tram
+    /// icons under a bicycle route. `journeyRows` gates on a real ride AND folds the runs of
+    /// non-transit steps into single rows, so this list stays the handful of entries it describes.
     @ViewBuilder private var transitBreakdown: some View {
-        let steps = routeAlternatives.indices.contains(selectedRouteIndex)
-            ? routeAlternatives[selectedRouteIndex].steps : []
-        if !steps.isEmpty {
+        let rows = journeyRows
+        if !rows.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 Text(L("route.journey", fallback: "Journey"))
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                ForEach(steps) { step in
+                ForEach(rows) { row in
                     HStack(spacing: 10) {
-                        Image(systemName: transitIcon(step))
+                        Image(systemName: row.icon)
                             .font(.footnote.weight(.semibold))
-                            .foregroundStyle(step.mode == "WALK" ? Color.secondary : Wander.brand)
+                            .foregroundStyle(row.isTransit ? Wander.brand : Color.secondary)
                             .frame(width: 22)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(transitTitle(step)).font(.footnote.weight(.medium))
-                            let sub = transitSubtitle(step)
+                            Text(row.title).font(.footnote.weight(.medium))
+                            let sub = journeySubtitle(row)
                             if !sub.isEmpty {
                                 Text(sub).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                             }
                         }
                         Spacer(minLength: 4)
-                        if step.durationSeconds > 0 {
-                            Text("\(max(1, Int((step.durationSeconds / 60).rounded()))) min")
+                        if row.duration > 0 {
+                            Text("\(max(1, Int((row.duration / 60).rounded()))) min")
                                 .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
                         }
                     }
@@ -955,6 +1831,61 @@ struct RouteModeView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Is this step an actual ride on a service, as opposed to a turn instruction?
+    private func isTransitStep(_ s: WanderDirections.RouteStep) -> Bool {
+        s.travelMode.uppercased() == "TRANSIT" || s.mode.uppercased() == "TRANSIT"
+    }
+
+    /// The selected option's steps folded into journey rows: every transit ride keeps its own row
+    /// (a transfer is information the user needs), and every run of non-transit steps between rides
+    /// collapses into ONE row carrying that run's total time and distance. Empty — so the whole
+    /// section disappears — when the route contains no ride at all, i.e. every drive, walk and
+    /// cycle route, which is what stops a 200-step bicycle route rendering as a transit journey.
+    private var journeyRows: [JourneyRow] {
+        // Cheap gate first: only a transit REQUEST can come back with transit steps, and this
+        // property is re-read on every body pass — which on this screen means every map camera
+        // frame. No scan of a 200-step drive's steps array just to conclude there are no rides.
+        guard transportMode == .transit else { return [] }
+        let steps = routeAlternatives.indices.contains(selectedRouteIndex)
+            ? routeAlternatives[selectedRouteIndex].steps : []
+        guard steps.contains(where: isTransitStep) else { return [] }
+
+        var rows: [JourneyRow] = []
+        for step in steps {
+            if isTransitStep(step) {
+                rows.append(JourneyRow(id: rows.count,
+                                       icon: transitIcon(step),
+                                       title: transitTitle(step),
+                                       detail: transitSubtitle(step),
+                                       duration: step.durationSeconds,
+                                       distanceMeters: step.distanceMeters,
+                                       isTransit: true))
+            } else if var last = rows.last, !last.isTransit {
+                last.duration += step.durationSeconds
+                last.distanceMeters += step.distanceMeters
+                rows[rows.count - 1] = last
+            } else {
+                let mode = RouteLegMode.from(travelMode: step.travelMode)
+                rows.append(JourneyRow(id: rows.count,
+                                       icon: mode.icon,
+                                       title: mode.title,
+                                       detail: "",
+                                       duration: step.durationSeconds,
+                                       distanceMeters: step.distanceMeters,
+                                       isTransit: false))
+            }
+        }
+        return rows
+    }
+
+    /// A ride's row says where it is going; an on-foot row says how far it is — in the user's own
+    /// unit, via the same formatter the summary line uses.
+    private func journeySubtitle(_ row: JourneyRow) -> String {
+        if row.isTransit { return row.detail }
+        guard row.distanceMeters > 0 else { return "" }
+        return distanceText(row.distanceMeters)
     }
 
     private func transitIcon(_ s: WanderDirections.RouteStep) -> String {
@@ -1001,7 +1932,11 @@ struct RouteModeView: View {
         routeNotice = nil
         routeAlternatives = []
         selectedRouteIndex = 0
+        focusedLegID = nil
         defer { isComputing = false }
+        // Kick the destination time-zone lookup off now so the arrival clock is ready by the time
+        // the route lands, rather than flickering from device time to local a second later.
+        refreshDestinationClock()
 
         // PLANE flies a great-circle track (no road snapping). Only draw a route for a trip long
         // enough to actually fly — otherwise say "no route available" instead of a fake line.
@@ -1056,13 +1991,17 @@ struct RouteModeView: View {
             )
             switch res {
             case .success(let routes):
+                // `legs` are built from each route's OWN per-step polylines — this is what makes
+                // the map show "walk, then drive, then walk" in three colours. An older server
+                // that sends no steps yields no legs, and the single whole-route line is drawn.
                 let opts = routes
                     .filter { $0.points.count >= 2 }
                     .map { RouteOption(coordinates: $0.points,
                                        expectedTime: $0.durationSeconds,
                                        distanceMeters: $0.distanceMeters,
                                        label: $0.summary,
-                                       steps: $0.steps) }
+                                       steps: $0.steps,
+                                       legs: buildRouteLegs(from: $0.steps)) }
                 if opts.isEmpty {
                     routeCoordinates = []; routeAlternatives = []; routeNotice = "No route available for this trip."
                 } else {
@@ -1138,20 +2077,61 @@ struct RouteModeView: View {
     private func applyAlternatives(_ opts: [RouteOption]) {
         routeAlternatives = opts
         selectedRouteIndex = 0
+        focusedLegID = nil
         guard let first = opts.first else { routeCoordinates = []; routeAlternatives = []; return }
         routeCoordinates = first.coordinates
         routeExpectedTime = first.expectedTime
         let all = opts.flatMap { $0.coordinates }
         if let region = region(fitting: all) { cameraPosition = .region(region) }
+        refreshDestinationClock()
     }
 
     /// Pick a different option — swap the active path + ETA so Preview/Drive use it.
+    /// Animated with the app's standard curve: switching routes redraws every line on the map at
+    /// once, and an instant swap reads as a glitch rather than as a choice.
     private func selectRoute(_ i: Int) {
         guard routeAlternatives.indices.contains(i) else { return }
-        selectedRouteIndex = i
-        let opt = routeAlternatives[i]
-        routeCoordinates = opt.coordinates
-        routeExpectedTime = opt.expectedTime
+        withAnimation(WanderMotion.quick) {
+            selectedRouteIndex = i
+            focusedLegID = nil
+            let opt = routeAlternatives[i]
+            routeCoordinates = opt.coordinates
+            routeExpectedTime = opt.expectedTime
+        }
+    }
+
+    /// Ask for the DESTINATION's time zone so the arrival clock is the destination's wall clock.
+    ///
+    /// One reverse-geocode, debounced to ~1 km (a time zone does not change inside a city block)
+    /// and dropped if the destination moved while it was in flight. Failure is silent: the arrival
+    /// line falls back to the device clock and simply doesn't claim to be local.
+    private func refreshDestinationClock() {
+        guard let destination = waypoints.last?.coordinate ?? routeCoordinates.last else { return }
+        // Already answered for this spot, or already asking about it (computeRoute kicks the lookup
+        // off early and applyAlternatives asks again once the route lands — that is one geocode,
+        // not two).
+        if let anchor = destinationClockCoordinate,
+           abs(anchor.latitude - destination.latitude) < 0.01,
+           abs(anchor.longitude - destination.longitude) < 0.01,
+           destinationTimeZone != nil || destinationClockInFlight {
+            return
+        }
+        destinationClockCoordinate = destination
+        destinationClockInFlight = true
+        let location = CLLocation(latitude: destination.latitude, longitude: destination.longitude)
+        Task { @MainActor in
+            let geocoder = CLGeocoder()
+            let zone = try? await geocoder.reverseGeocodeLocation(location).first?.timeZone
+            // Only touch shared state if this is STILL the destination we're describing — the user
+            // may have cleared the route or dropped a new end point while the lookup was out, and a
+            // late answer must not clear a newer lookup's in-flight flag or overwrite its zone.
+            guard let anchor = destinationClockCoordinate,
+                  anchor.latitude == destination.latitude,
+                  anchor.longitude == destination.longitude else { return }
+            destinationClockInFlight = false
+            guard let zone else { return }
+            destinationTimeZone = zone
+        }
     }
 
     /// The selectable list of 2–3 route options (shown only when more than one exists).
@@ -1168,13 +2148,19 @@ struct RouteModeView: View {
                             HStack(spacing: 6) {
                                 Text(routeOptionPrimary(idx: idx, opt: opt))
                                     .font(.subheadline.weight(idx == selectedRouteIndex ? .semibold : .regular))
-                                if idx == 0 && routeAlternatives.count > 1 {
-                                    Text(L("route.fastest", fallback: "Fastest"))
+                                // "Fastest" is now measured, not assumed from ordering — Apple
+                                // and Google both return routes in their own preferred order,
+                                // which is not always the quickest one.
+                                if idx == fastestRouteIndex {
+                                    Label(L("route.fastest", fallback: "Fastest"), systemImage: "bolt.fill")
                                         .font(.caption2.weight(.semibold))
                                         .padding(.horizontal, 6).padding(.vertical, 1)
                                         .background(Wander.brand.opacity(0.15), in: Capsule())
                                         .foregroundStyle(Wander.brand)
                                 }
+                            }
+                            if let arrival = arrivalText(opt.expectedTime) {
+                                Text(arrival).font(.caption2).foregroundStyle(.secondary)
                             }
                             if !opt.label.isEmpty {
                                 Text(opt.label).font(.caption).foregroundStyle(.secondary).lineLimit(1)

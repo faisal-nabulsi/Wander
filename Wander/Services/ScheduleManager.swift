@@ -219,7 +219,9 @@ final class ScheduleManager: ObservableObject {
             : coordinate
         let target = CoarseLocation.apply(jittered)
         LocationSimulationCommandQueue.shared.async {
-            _ = simulate_location(DeviceConnectionContext.targetIPAddress, target.latitude, target.longitude, path)
+            _ = simulate_location_logged(DeviceConnectionContext.targetIPAddress,
+                                         target.latitude, target.longitude, path,
+                                         source: .schedule)
         }
     }
 

@@ -297,7 +297,9 @@ enum WanderLocationIntent {
         guard FileManager.default.fileExists(atPath: path) || GslocMode.enabled else { return false }
         let code: Int32 = await withCheckedContinuation { cont in
             LocationSimulationCommandQueue.shared.async {
-                let c = simulate_location(DeviceConnectionContext.targetIPAddress, coord.latitude, coord.longitude, path)
+                let c = simulate_location_logged(DeviceConnectionContext.targetIPAddress,
+                                                 coord.latitude, coord.longitude, path,
+                                                 source: .shortcut)
                 cont.resume(returning: c)
             }
         }

@@ -79,8 +79,13 @@ final class RealGPSSeeder: NSObject, ObservableObject, CLLocationManagerDelegate
             // Bail if a Stop/Clear landed during the async real-GPS fetch, so this one-shot can't
             // re-freeze at the real location after a clear.
             if LocationSimulationCommandQueue.suppressResends { return }
-            _ = simulate_location(DeviceConnectionContext.targetIPAddress,
-                                  real.latitude, real.longitude, pairingFilePath)
+            // Tagged `.priming` for the spoof timeline: this is the device's REAL position, pushed as
+            // plumbing, not somewhere the user chose to appear. Logged undifferentiated it would draw
+            // a line from home to the target and read as a 2 a.m. road trip that never happened, so
+            // the ledger stores it and every path, distance and segment leaves it out.
+            _ = simulate_location_logged(DeviceConnectionContext.targetIPAddress,
+                                         real.latitude, real.longitude, pairingFilePath,
+                                         source: .priming)
         }
     }
 

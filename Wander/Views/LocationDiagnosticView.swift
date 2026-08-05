@@ -119,6 +119,10 @@ final class LocationDiagnostic: NSObject, ObservableObject, CLLocationManagerDel
 
 struct LocationDiagnosticView: View {
     @StateObject private var diag = LocationDiagnostic()
+    /// Shared reverse-geocoding cache. This screen is the first adopter: raw degrees are
+    /// exactly what a diagnostic should print, but "is that the right CITY?" is the first
+    /// question anyone asks of them, and reading it takes a map.
+    @ObservedObject private var places = PlaceLabelService.shared
     @Environment(\.dismiss) private var dismiss
     @State private var copied = false
 
@@ -131,6 +135,21 @@ struct LocationDiagnosticView: View {
                 }
 
                 if let r = diag.reading {
+                    Section("Where that is") {
+                        // Words for the coordinate above. Nil until the geocoder answers —
+                        // no spinner and no placeholder name, because a diagnostic that
+                        // guesses is worse than one that stays quiet.
+                        if let place = places.label(for: CLLocationCoordinate2D(latitude: r.lat, longitude: r.lng)) {
+                            row(place.isApproximate ? "Nearest known place" : "Place", place.title)
+                            if let detail = place.detail {
+                                row("Detail", detail)
+                            }
+                        } else {
+                            Text("Looking up the name for these coordinates. It may stay blank — the name is a nicety; the numbers below are the diagnostic.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+
                     Section("What Pokémon GO receives") {
                         row("Latitude", String(format: "%.6f", r.lat))
                         row("Longitude", String(format: "%.6f", r.lng))
@@ -179,6 +198,13 @@ struct LocationDiagnosticView: View {
             }
             .onAppear { diag.start() }
             .onDisappear { diag.stop() }
+            // Fire-and-forget: the store dedupes per ~110 m cell, so asking on every
+            // update costs a dictionary lookup and never a request.
+            .onChange(of: diag.updates) {
+                if let r = diag.reading {
+                    places.resolve(lat: r.lat, lng: r.lng)
+                }
+            }
         }
     }
 

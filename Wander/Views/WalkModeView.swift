@@ -7,10 +7,27 @@
 //  pushed. Each tick advances the coordinate and re-sends it through the same
 //  DVT LocationSimulation engine the Map screen uses.
 //
+//  The hands-free patterns (auto-walk, Roam, Orbit) are NOT separate movement engines: they
+//  only decide what heading the tick should aim at — exactly the job the stick does when a
+//  hand is on it. Everything downstream (HumanizedMotion, the speed governor, the distance
+//  counter, the single-writer suppression) is the one code path in `step()`.
+//
 
 import SwiftUI
 import MapKit
 import CoreLocation
+
+/// A hands-free shape the avatar walks by itself, with no destination to arrive at.
+///
+/// Kept as one piece of state rather than a pile of independent flags because these are mutually
+/// exclusive by nature — you cannot be roaming an area and orbiting a pin at the same time, and a
+/// pair of booleans would let that contradiction exist.
+private enum AutoPattern {
+    /// Wander continuously INSIDE `radius` metres of `center`, turning back before the edge.
+    case roam(center: CLLocationCoordinate2D, radius: Double)
+    /// Walk laps around `center` at `radius` metres, optionally pausing `dwellSeconds` per lap.
+    case orbit(center: CLLocationCoordinate2D, radius: Double, clockwise: Bool, dwellSeconds: Double)
+}
 
 struct WalkModeView: View {
     // 1 Hz: matches a real GPS receiver's fix cadence and halves how many location injects hit the
@@ -72,6 +89,51 @@ struct WalkModeView: View {
     // Hands-free destination: when set, the avatar walks itself here (autonomous ⇒ full realism,
     // incl. micro-pauses) until it arrives. Grabbing the joystick cancels it.
     @State private var autoWalkTarget: CLLocationCoordinate2D?
+
+    // MARK: Hands-free patterns (Roam / Orbit)
+    //
+    // Both run through `step()` like every other mode: they choose this tick's INTENDED heading and
+    // hand it to the same HumanizedMotion instance, which adds the pace wobble, heading drift and
+    // micro-pauses. Nothing here moves the coordinate itself and nothing here sends a fix — that
+    // stays in one place, so this view remains the single location writer during a run.
+    @State private var pattern: AutoPattern?
+    /// The course Roam is currently walking. Steered gradually (see `roamBearing`) rather than
+    /// re-randomised per tick, because a heading that jumps every second isn't a walk, it's static.
+    @State private var roamCourse: Double = 0
+    /// The course Roam is turning TOWARD, and how many ticks until it picks another one. A person
+    /// wandering a park holds a direction for tens of seconds, not for one.
+    @State private var roamCourseTarget: Double = 0
+    @State private var roamTicksToTurn: Int = 0
+    /// Radians of arc Orbit has covered since its last dwell — i.e. how far around this lap we are.
+    /// Measured as arc rather than by watching the avatar re-cross a start bearing, which the
+    /// humanized heading drift would trip early or miss entirely.
+    @State private var orbitLapArc: Double = 0
+    /// Ticks left of an Orbit dwell (standing at the pin). Counted in ticks, not a deadline, so a
+    /// backgrounded/stalled tick loop can't silently shorten the pause.
+    @State private var dwellTicksLeft: Int = 0
+
+    /// Pattern settings are preferences, not session state: someone farming a lured stop wants the
+    /// same 40 m orbit tomorrow. Stored in metres/seconds so switching km/mi can't move them.
+    @AppStorage("roamRadiusMeters") private var roamRadius: Double = 250
+    @AppStorage("orbitRadiusMeters") private var orbitRadius: Double = 40
+    @AppStorage("orbitDwellSeconds") private var orbitDwellSeconds: Double = 0
+    @AppStorage("orbitClockwise") private var orbitClockwise = true
+    /// Collapsed by default so the joystick screen looks exactly as it did for anyone not farming.
+    @State private var showHandsFree = false
+    /// The user's own saved spots, so Orbit can circle "the lured stop I bookmarked" instead of
+    /// only whatever pin happens to be under the avatar right now.
+    @StateObject private var savedPlaces = SavedPlacesStore()
+
+    /// How close to the boundary Roam starts easing back inward, as a fraction of the radius.
+    /// Starting at 60% leaves the whole outer third of the circle as turning room, which is what
+    /// keeps the turn a curve instead of a screensaver bounce off a wall.
+    private static let roamTurnInFrom: Double = 0.6
+    /// Base turn rate, plus the extra allowed right at the edge. A stroll changes direction slowly;
+    /// the edge boost exists so containment still holds at driving speeds, where the same 40 m of
+    /// turning room passes in three seconds instead of twenty.
+    private static let roamTurnRate: Double = 25 * .pi / 180        // rad/s
+    private static let roamTurnRateAtEdge: Double = 65 * .pi / 180  // rad/s, added on top
+
     // Slow keep-alive counter for when the stick is centered mid-walk. Because we suppress the Map
     // tab's teleport resend for the whole walk (so it can't re-inject the old teleport point and
     // rubber-band us backward → PoGo Error 12), WE must re-assert the current point every few
@@ -118,6 +180,10 @@ struct WalkModeView: View {
     /// on release, so without this "Lock heading" would have nothing to pin a moment later.
     @State private var lastStickBearing: Double?
     @State private var lastStickFraction: Double = 1
+    /// The heading the last tick actually walked, whichever mode chose it. Only "Lock heading" reads
+    /// it: locking out of a Roam/Orbit run has to continue the course that's visibly being walked,
+    /// and the knob is centred in those modes so the stick history would pin something stale.
+    @State private var lastWalkedHeading: Double?
 
     @State private var showAlert = false
     @State private var alertTitle = ""
@@ -169,6 +235,7 @@ struct WalkModeView: View {
             }
             .onAppear {
                 currentLocation.request()
+                savedPlaces.reload()   // the user's own spots, offered as Orbit centres
                 // Roll the daily bucket here too, not just while moving: opening the tab the morning
                 // after a farm run must read "Today 0", not yesterday's total.
                 rollDailyBucketIfNeeded()
@@ -176,6 +243,11 @@ struct WalkModeView: View {
                 // (step() re-asserts suppressResends) and resume keeping the fix warm — otherwise the
                 // stopped timer would leave the joystick dead until the user hit Stop and restarted.
                 if isWalking { startTimer() }
+            }
+            // Keep the Orbit centre list in step with the Places tab / sync, so a spot saved a
+            // minute ago is offerable without leaving and re-entering the tab.
+            .onReceive(NotificationCenter.default.publisher(for: .placesDidChange)) { _ in
+                savedPlaces.reload()
             }
             .onReceive(currentLocation.$coordinate.compactMap { $0 }) { c in
                 if coordinate == nil && !isWalking {
@@ -187,6 +259,19 @@ struct WalkModeView: View {
 
     private var mapLayer: some View {
         Map(position: $cameraPosition) {
+            // The pattern's playing field, drawn because "stay inside 250 m of here" is meaningless
+            // until you can see where that is — and because seeing the avatar curve away from the
+            // ring is the only way to trust that it won't wander off across town unattended.
+            if let field = patternField {
+                MapCircle(center: field.center, radius: field.radius)
+                    .foregroundStyle(Wander.brand.opacity(0.12))
+                    .stroke(Wander.brand.opacity(0.65), lineWidth: 2)
+                Annotation(L("joystick.pattern.center", fallback: "Centre"), coordinate: field.center) {
+                    Image(systemName: "smallcircle.filled.circle")
+                        .font(.footnote)
+                        .foregroundStyle(Wander.brand)
+                }
+            }
             if let coordinate {
                 Annotation("You", coordinate: coordinate) {
                     ZStack {
@@ -254,16 +339,24 @@ struct WalkModeView: View {
                     }
                     headingLockRow
                     farmSection
-                    // Hands-free auto-walk: pick a place and Wander walks there itself at the set
-                    // speed, using realistic motion. Grab the joystick anytime to take over.
-                    if autoWalkTarget != nil {
-                        Label(L("joystick.autowalk.active", fallback: "Auto-walking to your destination…"),
-                              systemImage: "figure.walk.motion")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    // Roam / Orbit take the same seat as auto-walk — all three are "the app is
+                    // walking, not you" — so a running pattern replaces the picker rather than
+                    // sitting beside it offering a second hands-free mode to start.
+                    if pattern != nil {
+                        patternActiveRow
                     } else {
-                        AddressSearchBar(placeholder: L("joystick.autowalk.search", fallback: "Auto-walk to a place…")) { coord, _ in
-                            startAutoWalk(to: coord)
+                        handsFreeSection
+                        // Hands-free auto-walk: pick a place and Wander walks there itself at the set
+                        // speed, using realistic motion. Grab the joystick anytime to take over.
+                        if autoWalkTarget != nil {
+                            Label(L("joystick.autowalk.active", fallback: "Auto-walking to your destination…"),
+                                  systemImage: "figure.walk.motion")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            AddressSearchBar(placeholder: L("joystick.autowalk.search", fallback: "Auto-walk to a place…")) { coord, _ in
+                                startAutoWalk(to: coord)
+                            }
                         }
                     }
                     WanderPrimaryButton(title: "Stop", icon: Wander.Icon.stop, role: .destructive) {
@@ -277,6 +370,10 @@ struct WalkModeView: View {
                 .disabled(gslocMode)
                 .opacity(gslocMode ? 0.5 : 1)
             }
+            // The card hugs its content, so the collapsed screen is unchanged; it only grows (and
+            // becomes scrollable) once the hands-free section is expanded and the radius/dwell rows
+            // are on screen. Without this the expanded group would push the Stop button off-screen.
+            .hugScrollCard(maxHeight: UIScreen.main.bounds.height * 0.55)
         }
     }
 
@@ -443,6 +540,183 @@ struct WalkModeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    // MARK: - Hands-free pattern UI (Roam / Orbit)
+
+    /// The circle a running pattern is bound to, for the map overlay. nil when nothing is running.
+    private var patternField: (center: CLLocationCoordinate2D, radius: Double)? {
+        switch pattern {
+        case .roam(let center, let radius): return (center, radius)
+        case .orbit(let center, let radius, _, _): return (center, radius)
+        case nil: return nil
+        }
+    }
+
+    /// What's running, in words. The state has to be spelled out: the knob sits centred while a
+    /// pattern walks (nobody's touching it), which on its own reads as "stopped".
+    private var patternStatusText: String {
+        switch pattern {
+        case .roam(_, let radius):
+            return String(format: L("joystick.roam.active", fallback: "Roaming inside %@ — hands-free"),
+                          radiusText(radius))
+        case .orbit(_, let radius, let clockwise, let dwell):
+            let direction = clockwise
+                ? L("joystick.orbit.cw", fallback: "clockwise")
+                : L("joystick.orbit.ccw", fallback: "anticlockwise")
+            let base = String(format: L("joystick.orbit.active", fallback: "Orbiting at %@, %@"),
+                              radiusText(radius), direction)
+            guard dwell > 0 else { return base }
+            return base + String(format: L("joystick.orbit.active_dwell", fallback: " • %d s pause each lap"),
+                                 Int(dwell))
+        case nil:
+            return ""
+        }
+    }
+
+    /// Status plus the gentle exit while a pattern runs. "Park here" is deliberately NOT the red
+    /// Stop: someone who parked on a lured stop to farm wants to keep the spot when they're done,
+    /// and Stop clears the spoof entirely.
+    private var patternActiveRow: some View {
+        HStack(spacing: 8) {
+            Label(patternStatusText, systemImage: dwellTicksLeft > 0 ? "pause.circle.fill" : "circle.dashed")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Wander.brand)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button(L("joystick.pattern.park", fallback: "Park here")) { parkInPlace() }
+                .buttonStyle(.borderedProminent)
+                .tint(Wander.brand)
+                .font(.caption)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Roam + Orbit setup, collapsed by default so the joystick screen is unchanged for anyone who
+    /// isn't farming. Mirrors the Route tab's "More options" disclosure.
+    private var handsFreeSection: some View {
+        DisclosureGroup(isExpanded: $showHandsFree) {
+            VStack(alignment: .leading, spacing: 12) {
+                roamControls
+                Divider()
+                orbitControls
+            }
+            .padding(.top, 6)
+        } label: {
+            Label(L("joystick.handsfree", fallback: "Hands-free — roam an area, orbit a spot"),
+                  systemImage: "figure.walk.motion")
+                .font(.subheadline.weight(.medium))
+        }
+        .tint(Wander.brand)
+    }
+
+    private var roamControls: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L("joystick.roam.title", fallback: "Roam this area"))
+                .font(.caption.weight(.semibold))
+            radiusChips(Self.roamRadiusChoices, selected: roamRadius) { roamRadius = $0 }
+            Text(L("joystick.roam.hint",
+                   fallback: "Walks a wandering path around your current spot and never leaves the circle. Uses the speed above and stops on your distance goal."))
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                startRoam()
+            } label: {
+                Label(L("joystick.roam.start", fallback: "Start roaming"), systemImage: "arrow.triangle.turn.up.right.circle")
+                    .frame(maxWidth: .infinity).frame(height: 28)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .tint(Wander.brand)
+        }
+    }
+
+    private var orbitControls: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L("joystick.orbit.title", fallback: "Orbit a spot"))
+                .font(.caption.weight(.semibold))
+            radiusChips(Self.orbitRadiusChoices, selected: orbitRadius) { orbitRadius = $0 }
+            HStack(spacing: 6) {
+                Text(L("joystick.orbit.dwell", fallback: "Pause each lap"))
+                    .font(.caption).foregroundStyle(.secondary)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(Self.orbitDwellChoices, id: \.self) { seconds in
+                            Button(seconds == 0
+                                   ? L("joystick.orbit.dwell.none", fallback: "None")
+                                   : "\(Int(seconds))s") {
+                                orbitDwellSeconds = seconds
+                                Haptics.selection()
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(abs(orbitDwellSeconds - seconds) < 0.5 ? Wander.brand : nil)
+                            .font(.caption)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            Toggle(isOn: $orbitClockwise) {
+                Text(L("joystick.orbit.clockwise", fallback: "Clockwise"))
+                    .font(.caption)
+            }
+            .tint(Wander.brand)
+            Text(L("joystick.orbit.hint",
+                   fallback: "Circles the pin so distance keeps accruing while you stay in range of it — pick one of your saved spots, or circle where you're standing."))
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Menu {
+                Button(L("joystick.orbit.center_here", fallback: "Around this spot")) { startOrbit(center: nil) }
+                if !savedPlaces.saved.isEmpty {
+                    Section(L("places.saved", fallback: "Saved")) {
+                        // Only the user's OWN bookmarks — this list never suggests somewhere to go.
+                        ForEach(savedPlaces.saved) { place in
+                            Button(place.name) { startOrbit(center: place.coordinate) }
+                        }
+                    }
+                }
+            } label: {
+                Label(L("joystick.orbit.start", fallback: "Start orbit"), systemImage: "circle.dashed")
+                    .frame(maxWidth: .infinity).frame(height: 28)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .tint(Wander.brand)
+        }
+    }
+
+    /// Radius chips shared by Roam and Orbit. The VALUES are metres either way — only the labels
+    /// convert — so switching km/mi can't silently resize somebody's saved farming circle.
+    private func radiusChips(_ choices: [Double], selected: Double,
+                             onPick: @escaping (Double) -> Void) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(choices, id: \.self) { meters in
+                    Button(radiusText(meters)) {
+                        onPick(meters)
+                        Haptics.selection()
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(abs(selected - meters) < 1 ? Wander.brand : nil)
+                    .font(.caption)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private static let roamRadiusChoices: [Double] = [100, 250, 500, 1000]
+    private static let orbitRadiusChoices: [Double] = [20, 40, 80, 150]
+    private static let orbitDwellChoices: [Double] = [0, 10, 30, 60]
+
+    /// A radius in the unit the user reads in. Feet below a quarter-mile: "0.02 mi" is a useless
+    /// way to describe a 40 m orbit.
+    private func radiusText(_ meters: Double) -> String {
+        if useMph {
+            let miles = meters / 1609.34
+            return miles < 0.25 ? "\(Int((meters * 3.28084).rounded())) ft" : String(format: "%.2f mi", miles)
+        }
+        return meters >= 1000 ? String(format: "%.1f km", meters / 1000) : "\(Int(meters)) m"
+    }
+
     private var joystick: some View {
         ZStack {
             Circle()
@@ -487,8 +761,10 @@ struct WalkModeView: View {
                                 lastStickFraction = Double(mag)
                             }
                             // Taking the stick cancels a hands-free walk and returns to steering.
-                            if autoWalkTarget != nil {
+                            if autoWalkTarget != nil || pattern != nil {
                                 autoWalkTarget = nil
+                                pattern = nil
+                                dwellTicksLeft = 0
                                 motion = HumanizedMotion(context: .steered)
                             }
                             // Same idiom for the heading lock: a hand back on the stick means the
@@ -563,8 +839,11 @@ struct WalkModeView: View {
         releaseKeepAlive()
         isWalking = false
         autoWalkTarget = nil
+        pattern = nil
+        dwellTicksLeft = 0
         lockedHeading = nil
         lastStickBearing = nil
+        lastWalkedHeading = nil
         knobOffset = .zero
         coordinate = nil          // back to "set a new start" state
         // Session counters belong to the run that just ended; the daily total deliberately survives
@@ -595,11 +874,41 @@ struct WalkModeView: View {
         // and rubber-band us back to the old point — the cause of PoGo's "Failed to detect (12)".
         LocationSimulationCommandQueue.suppressResends = true
 
-        // Pick this tick's intended heading + speed from whichever mode is active.
+        // Pick this tick's intended heading + speed from whichever mode is active. Every branch
+        // ends at the SAME humanized step below — a mode chooses a direction, it never moves the
+        // avatar itself, so there is exactly one movement engine and one writer.
         let baseBearing: Double
         let targetSpeed: Double
         var remaining = Double.greatestFiniteMagnitude
-        if let target = autoWalkTarget {
+        // Hoisted above the mode switch because Orbit has to aim with the SAME ceiling the step is
+        // walked under (see below for what the clamp is and why it can't be turned off).
+        let clampPreset: GamePreset? = gameSpeedWarn ? gamePreset : nil
+        if let pattern {
+            // Roam / Orbit: the shape is the user's, the heading is ours. Speed stays the slider's,
+            // so the Walk/Run/Drive presets and the game speed guardrail below still apply.
+            switch pattern {
+            case .roam(let center, let radius):
+                baseBearing = roamBearing(from: coord, center: center, radius: radius)
+            case .orbit(let center, let radius, let clockwise, let dwellSeconds):
+                if dwellTicksLeft > 0 {
+                    // Standing at the pin for this lap's dwell. Same treatment as a centred stick:
+                    // the map resend is suppressed for the whole run, so keep the CURRENT fix warm
+                    // ourselves on the slow cadence or iOS drops the spoof while we pause.
+                    dwellTicksLeft -= 1
+                    idleTicks += 1
+                    if idleTicks >= idleResendEveryTicks {
+                        idleTicks = 0
+                        send(coord)
+                    }
+                    return
+                }
+                baseBearing = orbitBearing(from: coord, center: center, radius: radius,
+                                           clockwise: clockwise, dwellSeconds: dwellSeconds,
+                                           governedSpeed: SpeedGovernor.clampSpeedMps(speedMps, preset: clampPreset))
+            }
+            targetSpeed = speedMps
+            idleTicks = 0
+        } else if let target = autoWalkTarget {
             remaining = distanceMeters(coord, target)
             if remaining < 3 { arriveAutoWalk(at: target); return }   // close enough → done
             baseBearing = bearingRad(from: coord, to: target)
@@ -652,14 +961,14 @@ struct WalkModeView: View {
         let (spd, wanderHeading) = motion.next(targetSpeed: targetSpeed, baseHeading: baseBearing,
                                                dt: tickInterval, allowPause: !onFinalApproach)
         let heading = onFinalApproach ? baseBearing : wanderHeading
+        lastWalkedHeading = heading
         // HARD speed clamp (ALWAYS ON, not user-disableable): cap the per-tick advance so the
         // effective ground speed can never exceed a ban-triggering ceiling — even if the slider (or
         // the humanized pace variance) pushed it higher. Applies to both joystick and auto-walk. If
         // the user opted into a game context (gameSpeedWarn) we cap at THAT game's community-cited
         // safe speed; otherwise SpeedGovernor uses its absolute ~35 km/h fallback. Either way the cap
         // is applied every tick. The soft `gameSpeedWarn` above still fires as a nudge; this is the
-        // safety net that can't be turned off.
-        let clampPreset: GamePreset? = gameSpeedWarn ? gamePreset : nil
+        // safety net that can't be turned off. (`clampPreset` is resolved above the mode switch.)
         let cappedSpd = SpeedGovernor.clampSpeedMps(spd, preset: clampPreset)
         var distance = autoWalkTarget != nil ? min(cappedSpd * tickInterval, remaining) : cappedSpd * tickInterval
         // Distance goal: shorten the LAST step so we land on the number instead of sailing past it.
@@ -669,16 +978,35 @@ struct WalkModeView: View {
         let goalRemaining = goalMeters > 0
             ? max(goalMeters - goalProgressMeters, 0)
             : Double.greatestFiniteMagnitude
-        let goalHit = distance >= goalRemaining
-        if goalHit { distance = goalRemaining }
+        let goalStep = distance >= goalRemaining
+        if goalStep { distance = goalRemaining }
 
         let metersPerDegLat = 111_320.0
         let dLat = (distance * cos(heading)) / metersPerDegLat
         let lonScale = max(cos(coord.latitude * .pi / 180), 0.000001)
         let dLon = (distance * sin(heading)) / (metersPerDegLat * lonScale)
 
+        let stepFrom = coord
         coord.latitude += dLat
         coord.longitude += dLon
+        // Roam containment backstop. The steering in `roamBearing` is what MAKES the turn look
+        // human, but it's a soft guarantee — a big enough speed against a small enough circle can
+        // out-run any turn rate. This is the hard one: the avatar slides along the boundary for the
+        // second or two the turn needs instead of stepping outside the area the user drew.
+        if case .roam(let center, let radius)? = pattern {
+            coord = clampedInside(coord, center: center, radius: radius)
+        }
+        // Count what we ACTUALLY moved, not what we intended: a clamped step is shorter than the
+        // humanized engine asked for, and the distance counter is the number a farmer checks
+        // against the game's.
+        let applied = distanceMeters(stepFrom, coord)
+        // …and only call the goal DONE if the step we actually walked closed the gap. Under Roam the
+        // containment clamp can trim that last step, and announcing "goal reached" while the counter
+        // still reads short of the target breaks the one invariant this feature sells ("Stop at 5 km"
+        // must read 5.00 km). The half-metre slack absorbs planar-vs-geodesic rounding between the
+        // step we computed and the distance we measured — without it an unclamped final step could
+        // land a few centimetres short and leave the goal chasing a remainder that never closes.
+        let goalHit = goalStep && applied >= goalRemaining - 0.5
         coordinate = coord            // clean humanized path: display + next-tick anchor
         recenter(on: coord)
         // Scatter only the REPORTED fix by a few metres of receiver error, so consecutive points
@@ -688,13 +1016,13 @@ struct WalkModeView: View {
         // trigger), so send the clean point for small steps. A goal-completing step is also sent
         // clean: we park on it, and the hold we hand back re-asserts this exact coordinate — a
         // scattered final fix would leave the parked point 2 m off the one we counted.
-        let reported = (MotionRealism.isEnabled && distance > 2.5 && !goalHit) ? HumanizedMotion.gpsNoise(coord) : coord
+        let reported = (MotionRealism.isEnabled && applied > 2.5 && !goalHit) ? HumanizedMotion.gpsNoise(coord) : coord
         send(reported)
         // Adventure Sync: mirror this simulated step into Health (no-op unless opted
         // in). Derived from the ACTUAL per-tick movement, at a human cadence.
         AdventureSyncManager.shared.recordSimulatedMovement(to: coord)
         // Count what we actually moved, then land the goal if this was the step that finished it.
-        accumulateDistance(distance)
+        accumulateDistance(applied)
         if goalHit { completeDistanceGoal() }
     }
 
@@ -755,6 +1083,206 @@ struct WalkModeView: View {
         )
     }
 
+    // MARK: - Roam / Orbit (unattended patterns)
+
+    /// Start wandering inside `roamRadius` metres of where the avatar stands right now. That pin is
+    /// the centre precisely BECAUSE the user already chose it (searched it, dropped it, teleported
+    /// to it) — asking them to pick a second one would be asking the same question twice.
+    private func startRoam() {
+        guard let coordinate else { return }
+        guard beginHandsFreeRun() else { return }
+        // Seed the course from wherever the stick last pointed, so "push, then start roaming" heads
+        // off the way the user was already facing instead of snapping to due north.
+        roamCourse = lastStickBearing ?? Double.random(in: 0..<(2 * .pi))
+        roamCourseTarget = roamCourse
+        roamTicksToTurn = 0
+        pattern = .roam(center: coordinate, radius: max(roamRadius, 50))
+        launchHandsFreeRun(from: coordinate)
+    }
+
+    /// Start circling a pin. `center` nil ⇒ circle where the avatar is standing; otherwise circle
+    /// one of the user's OWN saved spots, moving the start pin there first (the same thing setting a
+    /// start point does — no new location is invented, it's a bookmark they made).
+    private func startOrbit(center: CLLocationCoordinate2D?) {
+        let target = center ?? coordinate
+        guard let target else { return }
+        guard beginHandsFreeRun() else { return }
+        if center != nil {
+            // Circling a saved spot RELOCATES the avatar — possibly across continents — before the
+            // first step, so it is a teleport and has to be booked as one. Without this the soft-ban
+            // countdown reads "clear" the instant after a long jump (jump-then-interact is exactly
+            // what gets accounts flagged, and orbiting a bookmarked lured stop is the whole point of
+            // this button), the NEXT teleport would measure its cooldown from the stale pre-orbit
+            // point, and a free user would get the jump unmetered. Same bookkeeping every other
+            // instantaneous relocation does — see MapSelectionView.performSimulateInner / glideTeleport.
+            coordinate = target
+            SimulationSession.shared.noteTeleport(to: target)
+            if !License.shared.isLicensed { TrialManager.shared.chargeTeleport() }
+            // Re-show the advisory: beginHandsFreeRun() only saw the PRE-jump cooldown, and the
+            // cooldown that actually matters is the one this jump just armed.
+            noteCooldownIfActive()
+        }
+        orbitLapArc = 0
+        dwellTicksLeft = 0
+        pattern = .orbit(center: target,
+                         radius: max(orbitRadius, 10),
+                         clockwise: orbitClockwise,
+                         dwellSeconds: max(orbitDwellSeconds, 0))
+        // Starting from the centre is normal (you're standing on the lured stop): the first few
+        // ticks walk out to the ring and it starts circling from there — no teleport onto the rim.
+        launchHandsFreeRun(from: target)
+    }
+
+    /// The gates every hands-free run has to pass, in one place: pairing file, licence/trial, and
+    /// the non-blocking cooldown advisory. Returns false when the run must not start.
+    private func beginHandsFreeRun() -> Bool {
+        guard pairingFilePath() != nil else {
+            alert("Pairing file required", "Import a pairing file in Settings before simulating location.")
+            coordinate = nil
+            return false
+        }
+        if !License.shared.isLicensed && !TrialManager.shared.canUse(.joystick) {
+            showPaywall = true
+            return false
+        }
+        // Advisory only (never blocks): remind about a running soft-ban cooldown before we move.
+        noteCooldownIfActive()
+        return true
+    }
+
+    /// Take over the location stream and start ticking. Mirrors `startAutoWalk` exactly — same
+    /// keep-alive hold, same single-writer suppression, same autonomous gait — because these are
+    /// the same kind of run: the app is walking and the phone is in a pocket.
+    private func launchHandsFreeRun(from origin: CLLocationCoordinate2D) {
+        autoWalkTarget = nil       // one hands-free mode at a time
+        lockedHeading = nil
+        knobOffset = .zero         // defensive: ensure step() takes the pattern path, not the stick
+        holdKeepAlive()
+        isWalking = true
+        // Own the stream: suppress the Map tab's stale teleport resend for the duration (see start()).
+        LocationSimulationCommandQueue.suppressResends = true
+        // Moving writer now — stand the stationary snap-back watcher down (see start()).
+        SimulationSession.shared.movementModeDidBecomeActiveWriter()
+        motion = HumanizedMotion(context: .autonomous)   // hands-free ⇒ full realism incl. micro-pauses
+        SimulationSession.shared.started()
+        beginDistanceSession()
+        AdventureSyncManager.shared.beginWalk()
+        send(origin)
+        recenter(on: origin)
+        startTimer()
+        Haptics.medium()
+    }
+
+    /// Roam's heading for this tick: hold a course for a while, then pick another — and lean back
+    /// toward the middle as the edge approaches, so the turn is a curve a person could walk rather
+    /// than the hard reflection of a screensaver.
+    private func roamBearing(from coord: CLLocationCoordinate2D,
+                             center: CLLocationCoordinate2D,
+                             radius: Double) -> Double {
+        let inward = bearingRad(from: coord, to: center)
+        let distanceOut = distanceMeters(coord, center) / max(radius, 1)
+
+        // Hold a course for 20–45 s at a time. A heading re-rolled every tick would average out to
+        // standing still and jitter the trace; holding one is what makes it read as "going somewhere".
+        if roamTicksToTurn <= 0 {
+            roamTicksToTurn = max(1, Int(Double.random(in: 20...45) / tickInterval))
+            roamCourseTarget = roamCourse + Double.random(in: -1.2...1.2)   // ±~70°
+        } else {
+            roamTicksToTurn -= 1
+        }
+
+        // 0 in the middle of the circle, ramping to 1 at the boundary: how much of the course is
+        // "head back inside" versus wherever we were going.
+        let edge = min(max((distanceOut - Self.roamTurnInFrom) / (1 - Self.roamTurnInFrom), 0), 1)
+        if edge > 0.9 {
+            // Committed to turning back. Re-aim the HELD course inward too (not just this tick's
+            // blend), or the moment we're back inside the old outward course would take us straight
+            // at the boundary again and the walk would pinball along the rim.
+            roamCourseTarget = inward + Double.random(in: -0.5...0.5)
+            roamTicksToTurn = max(1, Int(Double.random(in: 20...45) / tickInterval))
+        }
+
+        let desired = blendedHeading(roamCourseTarget, toward: inward, fraction: edge)
+        let turnRate = Self.roamTurnRate + Self.roamTurnRateAtEdge * edge
+        roamCourse = turned(roamCourse, toward: desired, maxDelta: turnRate * tickInterval)
+        return roamCourse
+    }
+
+    /// Orbit's heading for this tick: aim at the next point ALONG the ring rather than at a fixed
+    /// tangent. Aiming at the true ring is self-correcting — the humanized heading drift pushes the
+    /// avatar a metre or two off the circle every few seconds, and a tangent-only heading would
+    /// integrate that error into a slow spiral outward.
+    private func orbitBearing(from coord: CLLocationCoordinate2D,
+                              center: CLLocationCoordinate2D,
+                              radius: Double,
+                              clockwise: Bool,
+                              dwellSeconds: Double,
+                              governedSpeed: Double) -> Double {
+        let here = bearingRad(from: center, to: coord)
+        // Arc this tick's step covers, from the speed the step will ACTUALLY be walked at — i.e.
+        // after the hard speed governor, not the raw slider. With the Drive preset (50 km/h) against
+        // the ~35 km/h ceiling the two disagree by ~43%, and aiming at a ring point further round
+        // than the avatar can reach makes every tick cut a chord inside the circle (traced radius
+        // visibly under the chosen one) while `orbitLapArc` runs ~43% fast, firing the per-lap dwell
+        // before a lap has happened. The presets still change how fast the laps go round — up to the
+        // ceiling — not the shape of the circle.
+        let arc = (governedSpeed * tickInterval) / max(radius, 5)
+        let next = here + (clockwise ? arc : -arc)
+
+        // Lap accounting for the dwell. Counted as arc travelled rather than by watching the avatar
+        // re-cross its start bearing, which the humanized drift would trip a few degrees early or
+        // skip entirely on a fast lap.
+        if dwellSeconds > 0 {
+            orbitLapArc += arc
+            if orbitLapArc >= 2 * .pi {
+                orbitLapArc -= 2 * .pi
+                dwellTicksLeft = max(1, Int(dwellSeconds / tickInterval))
+            }
+        }
+        return bearingRad(from: coord, to: point(from: center, bearing: next, meters: radius))
+    }
+
+    /// Pull a coordinate back onto the boundary circle if it stepped outside. Projecting along the
+    /// bearing from the centre makes the avatar SLIDE along the edge for the second the turn needs,
+    /// which is far less conspicuous than a bounce and can't overshoot into a jump.
+    private func clampedInside(_ c: CLLocationCoordinate2D,
+                               center: CLLocationCoordinate2D,
+                               radius: Double) -> CLLocationCoordinate2D {
+        guard distanceMeters(c, center) > radius else { return c }
+        return point(from: center, bearing: bearingRad(from: center, to: c), meters: radius)
+    }
+
+    /// The point `meters` away from `c` on `bearing`, in the same planar convention the rest of this
+    /// view moves in (0 = north, +east) so a stepped point and an aimed point can't disagree.
+    private func point(from c: CLLocationCoordinate2D, bearing: Double, meters: Double) -> CLLocationCoordinate2D {
+        let metersPerDegLat = 111_320.0
+        let lonScale = max(cos(c.latitude * .pi / 180), 0.000001)
+        return CLLocationCoordinate2D(
+            latitude: c.latitude + (meters * cos(bearing)) / metersPerDegLat,
+            longitude: c.longitude + (meters * sin(bearing)) / (metersPerDegLat * lonScale)
+        )
+    }
+
+    /// Interpolate between two headings along the SHORT arc. Naively averaging radians turns a
+    /// 350°→10° blend into a 180° detour, which on the map is the avatar spinning on the spot.
+    private func blendedHeading(_ from: Double, toward to: Double, fraction: Double) -> Double {
+        from + shortestAngle(from: from, to: to) * min(max(fraction, 0), 1)
+    }
+
+    /// Turn `from` toward `to` by at most `maxDelta` radians — the rate limiter that makes a change
+    /// of direction a turn instead of an instant pivot.
+    private func turned(_ from: Double, toward to: Double, maxDelta: Double) -> Double {
+        from + min(max(shortestAngle(from: from, to: to), -maxDelta), maxDelta)
+    }
+
+    /// Signed shortest angular difference, wrapped into ±π.
+    private func shortestAngle(from: Double, to: Double) -> Double {
+        var delta = (to - from).truncatingRemainder(dividingBy: 2 * .pi)
+        if delta > .pi { delta -= 2 * .pi }
+        if delta < -.pi { delta += 2 * .pi }
+        return delta
+    }
+
     // MARK: - Distance goal (farm mode)
 
     /// Distance still owed on the current goal, measured from where the counter stood when the goal
@@ -808,20 +1336,31 @@ struct WalkModeView: View {
         Haptics.selection()
     }
 
-    /// The goal was reached on this tick: stop moving but STAY here. This is the auto-walk arrival
-    /// landing (settle, hand the warm-hold back to the Map tab's resend), not the red Stop button's
-    /// teardown — the whole point of farming to a spot is that you keep the spot.
+    /// The goal was reached on this tick: stop moving but STAY here.
     private func completeDistanceGoal() {
+        parkInPlace()
+        goalCompleted = true
+        Haptics.medium()
+    }
+
+    /// Stop moving and stay exactly where we are. This is the auto-walk arrival landing (settle,
+    /// hand the warm-hold back to the Map tab's resend), not the red Stop button's teardown — the
+    /// whole point of farming to a spot is that you keep the spot.
+    ///
+    /// Shared by the distance goal and the hands-free patterns' "Park here", because both mean the
+    /// same thing to the user and a second near-copy of this teardown is how one of them ends up
+    /// forgetting to release the keep-alive.
+    private func parkInPlace() {
         AdventureSyncManager.shared.endWalk()
         autoWalkTarget = nil
+        pattern = nil
+        dwellTicksLeft = 0
         releaseHeadingLock(resetGait: false)
         releaseKeepAlive()
         isWalking = false
         knobOffset = .zero
         idleTicks = 0
-        goalCompleted = true
         stopTimer()
-        Haptics.medium()
         if let c = coordinate {
             NotificationCenter.default.post(
                 name: .holdLocationRequested, object: nil,
@@ -923,6 +1462,11 @@ struct WalkModeView: View {
             // because that's the pace auto-walk was already holding.
             bearing = bearingRad(from: here, to: target)
             fraction = 1
+        } else if pattern != nil, let walked = lastWalkedHeading {
+            // Same hand-off out of a Roam/Orbit run: the course being walked IS the direction the
+            // user means. Locking here means "stop going round in circles and carry straight on".
+            bearing = walked
+            fraction = 1
         } else if let last = lastStickBearing {
             bearing = last
             fraction = lastStickFraction
@@ -940,10 +1484,13 @@ struct WalkModeView: View {
         }
         lockedHeading = bearing
         lockedFraction = max(fraction, 0.05)   // a barely-nudged stick shouldn't lock in a crawl
-        // One hands-free mode at a time. When we got here from a live auto-walk this is a hand-off,
-        // not a cancellation: the lock carries on along the exact course the trip was walking, so
-        // the avatar keeps going in a straight line — it just no longer stops at the destination.
+        // One hands-free mode at a time. When we got here from a live auto-walk (or a Roam/Orbit
+        // run) this is a hand-off, not a cancellation: the lock carries on along the exact course
+        // that was being walked, so the avatar keeps going in a straight line — it just no longer
+        // stops at the destination or turns back at the boundary.
         autoWalkTarget = nil
+        pattern = nil
+        dwellTicksLeft = 0
         // Set the gait AFTER start(), which seeds a steered one. Hands-free ⇒ `.autonomous`: the
         // full realism package, micro-pauses included. Locking the heading must not also lock out
         // the wobble — a perfectly straight, perfectly paced line is exactly what gets flagged.

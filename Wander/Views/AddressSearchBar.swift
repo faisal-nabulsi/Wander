@@ -11,33 +11,360 @@ import MapKit
 import CoreLocation
 import UIKit
 
+/// Where a place search should be centred, and what to call that place out loud.
+///
+/// This exists because MapKit's default is exactly wrong for this app. An
+/// `MKLocalSearchCompleter` with no region set ranks results around where the
+/// PHONE PHYSICALLY IS. In a spoofer that is the one place the user is not
+/// interested in: teleport to Tokyo, search "coffee", and without an anchor you
+/// get a café near the user's couch. Every search surface therefore hands the
+/// completer an explicit anchor and says so on screen.
+struct MapSearchAnchor: Equatable {
+    let coordinate: CLLocationCoordinate2D
+    /// What to show in the "results near …" header. A place name once one is
+    /// known, otherwise an honest role ("your pin", "the map view").
+    let name: String
+    /// Roughly how far around `coordinate` results should be preferred — a 100 km
+    /// box at the default.
+    ///
+    /// Sized for "the metro area I am pretending to be in", not for the pin itself.
+    /// The region is a hard filter (`regionPriority = .required`), so too tight a box
+    /// turns an ordinary search for the next town over into a miss; too wide and
+    /// "coffee" stops meaning coffee near here. Anything genuinely outside it is
+    /// caught by `AnchoredPlaceCompleter`'s worldwide retry, so this number only
+    /// decides how often the user is told the search widened — not whether far-away
+    /// places are findable at all.
+    var radiusMeters: CLLocationDistance = 50_000
+    /// True when this anchor is the device's REAL location rather than the spoof
+    /// target. Drives which way the "search near …" escape hatch points.
+    var isRealLocation: Bool = false
+
+    var region: MKCoordinateRegion {
+        MKCoordinateRegion(
+            center: coordinate,
+            latitudinalMeters: radiusMeters * 2,
+            longitudinalMeters: radiusMeters * 2
+        )
+    }
+
+    /// Identity used to decide whether the completer's region actually needs
+    /// re-applying. Coarse on purpose (~1 km): panning the map a few metres must
+    /// not restart the autocomplete query on every frame.
+    var regionKey: String {
+        String(format: "%.2f,%.2f,%.0f,%d",
+               coordinate.latitude, coordinate.longitude, radiusMeters, isRealLocation ? 1 : 0)
+    }
+
+    static func == (lhs: MapSearchAnchor, rhs: MapSearchAnchor) -> Bool {
+        lhs.regionKey == rhs.regionKey && lhs.name == rhs.name
+    }
+}
+
+/// Best-effort human name for an anchor coordinate, so the header can say
+/// "results near Shibuya" instead of "results near your pin".
+///
+/// Deliberately tiny and heavily gated: CLGeocoder is a shared, rate-limited
+/// resource that Places and the destination-clock labels also draw on. One lookup
+/// per ~1 km cell, cached for the life of the process, only started when a search
+/// field is actually focused. A miss is not an error — the caller keeps its own
+/// honest fallback name.
 @MainActor
-final class AddressSearchCompleter: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
-    @Published var results: [MKLocalSearchCompletion] = []
-    private let completer = MKLocalSearchCompleter()
+final class SearchAnchorNames: ObservableObject {
+    static let shared = SearchAnchorNames()
+    private init() {}
+
+    @Published private(set) var names: [String: String] = [:]
+    /// Cells we have already asked about and got nothing usable for — including
+    /// outright failures. A miss is cached exactly like a hit, because the entire
+    /// point of this class is to spend as little of the shared, rate-limited
+    /// CLGeocoder budget as possible: without a negative entry, a cell that fails
+    /// once re-fires a request every time a search field is focused, forever,
+    /// against the same budget the caching exists to protect.
+    private var misses: Set<String> = []
+    private var inFlight: Set<String> = []
+    /// Insertion order of decided cells (hit or miss) so the cache can be capped.
+    /// Per entry this is tiny, but "for the life of the process" plus a user who
+    /// pans a lot is still unbounded growth.
+    private var order: [String] = []
+    private static let maxEntries = 64
+    private let geocoder = CLGeocoder()
+
+    static func key(_ coordinate: CLLocationCoordinate2D) -> String {
+        String(format: "%.2f,%.2f", coordinate.latitude, coordinate.longitude)
+    }
+
+    func name(for coordinate: CLLocationCoordinate2D) -> String? {
+        names[Self.key(coordinate)]
+    }
+
+    func resolve(_ coordinate: CLLocationCoordinate2D) {
+        let key = Self.key(coordinate)
+        guard names[key] == nil, !misses.contains(key), !inFlight.contains(key) else { return }
+        inFlight.insert(key)
+        Task { [weak self] in
+            guard let self else { return }
+            let placemarks = try? await geocoder.reverseGeocodeLocation(
+                CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+            )
+            inFlight.remove(key)
+            // Neighbourhood first, then city, then country — whichever is the most
+            // specific thing that actually came back.
+            let resolved = placemarks?.first.flatMap { placemark in
+                placemark.subLocality
+                    ?? placemark.locality
+                    ?? placemark.administrativeArea
+                    ?? placemark.country
+            }
+            record(key, name: (resolved?.isEmpty == false) ? resolved : nil)
+        }
+    }
+
+    /// Commit a decision for `key` — a name, or `nil` meaning "there is no name for
+    /// this cell, stop asking" — and evict the oldest decisions past the cap.
+    private func record(_ key: String, name: String?) {
+        if let name {
+            names[key] = name
+        } else {
+            misses.insert(key)
+        }
+        order.append(key)
+        while order.count > Self.maxEntries {
+            let oldest = order.removeFirst()
+            names.removeValue(forKey: oldest)
+            misses.remove(oldest)
+        }
+    }
+}
+
+/// Autocomplete that ranks results around a chosen place instead of around the
+/// phone — with a worldwide escape hatch when that place has no answer.
+///
+/// Two completers, not one, and the reason is the whole design:
+///
+/// * `anchored` uses `regionPriority = .required`, which MapKit takes literally —
+///   a result that is not inside the region is not returned AT ALL. That is
+///   exactly right for "coffee" (rank it around Shibuya, not the user's couch) and
+///   exactly wrong for "Eiffel Tower" typed while the pin sits in Tokyo, which is
+///   the app's PRIMARY flow: teleporting somewhere far away. Required alone would
+///   hand the user an empty dropdown with no way out.
+/// * `worldwide` is a second, permanently unanchored completer. When the anchored
+///   one comes back empty for a query the user is actually typing, the same text
+///   is re-asked with no region at all and `didFallBackToWorldwide` goes true so
+///   the UI can say so out loud rather than silently widening the search.
+///
+/// The automatic retry is not enough on its own, which is why `setForceWorldwide`
+/// exists. It only fires on ZERO results, and a required region very often returns
+/// something rather than nothing: type "Paris" against a Tokyo anchor and MapKit is
+/// happy to offer a Shibuya bakery called "Paris Croissant". The list is non-empty,
+/// the retry never runs, and the actual city — the thing the user is trying to
+/// teleport to — is unreachable through the only place-name path the app has. So the
+/// user gets a switch as well as a safety net.
+///
+/// A second completer rather than re-pointing the first one is deliberate: it
+/// removes any dependence on whether re-assigning an unchanged `queryFragment`
+/// restarts a search, and a late reply from the completer we are no longer
+/// listening to is dropped by identity instead of racing the region swap.
+@MainActor
+final class AnchoredPlaceCompleter: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
+    @Published private(set) var results: [MKLocalSearchCompletion] = []
+    /// True when `results` came from the unanchored retry because the anchor had
+    /// nothing. Drives the honest header — never silently widen a search.
+    @Published private(set) var didFallBackToWorldwide = false
+    /// True while the user has explicitly ASKED to search the whole world. Kept
+    /// separate from `didFallBackToWorldwide` because one is a choice and the other
+    /// is a rescue: the header must not tell someone who deliberately widened the
+    /// search that there was "nothing near" their pin.
+    @Published private(set) var isForcedWorldwide = false
+
+    private let anchored = MKLocalSearchCompleter()
+    private let worldwide = MKLocalSearchCompleter()
+    private var anchor: MapSearchAnchor?
+    /// The last query the anchored completer answered, and what it answered with.
+    ///
+    /// This is what makes the worldwide switch two-way. Coming back from worldwide to
+    /// the anchor with the SAME text otherwise depends on whether re-assigning an
+    /// unchanged `queryFragment` restarts a search — undocumented, and if it doesn't,
+    /// the user lands on a permanently empty list. Replaying the answer we already had
+    /// makes the return instant and certain; a fresh reply, if one comes, just
+    /// overwrites it with the same thing.
+    private var anchoredFragment: String?
+    private var anchoredResults: [MKLocalSearchCompletion] = []
+    /// Region identity currently applied, so re-applying an unchanged region can't
+    /// restart an in-flight query.
+    private var appliedRegionKey: String?
+    /// Latest text the user has typed, trimmed.
+    private var query = ""
+    /// The query the anchored completer drew a blank on. While the user keeps
+    /// EXTENDING that text we stay worldwide, so refining "Eiffel Tow" → "Eiffel
+    /// Tower" doesn't pay for a doomed anchored round-trip on every keystroke.
+    /// Cleared the moment the text stops matching, or the anchor changes.
+    private var worldwidePrefix: String?
 
     override init() {
         super.init()
-        completer.delegate = self
-        completer.resultTypes = [.address, .pointOfInterest]
+        for completer in [anchored, worldwide] {
+            completer.delegate = self
+            completer.resultTypes = [.address, .pointOfInterest]
+        }
+        worldwide.region = MKCoordinateRegion(MKMapRect.world)
+        if #available(iOS 18.0, *) { worldwide.regionPriority = .default }
     }
 
-    func update(_ query: String) {
-        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            results = []
-            completer.queryFragment = ""
+    /// Point the completer at `anchor`. `nil` restores MapKit's own behaviour
+    /// (whole world, device-biased ranking) for callers that have no anchor.
+    func setAnchor(_ newAnchor: MapSearchAnchor?) {
+        let key = newAnchor?.regionKey
+        guard key != appliedRegionKey else { return }
+        appliedRegionKey = key
+        anchor = newAnchor
+        if let newAnchor {
+            anchored.region = newAnchor.region
+            // `.required`, not `.default`: `.default` treats the region as a mere
+            // hint and MapKit is free to fall back to device-local results, which
+            // is the exact bug this class exists for. The cost of taking it
+            // literally — no answer for a far-away place — is paid by the
+            // worldwide retry in `ingest`, not by the user.
+            if #available(iOS 18.0, *) { anchored.regionPriority = .required }
         } else {
-            completer.queryFragment = query
+            anchored.region = MKCoordinateRegion(MKMapRect.world)
+            if #available(iOS 18.0, *) { anchored.regionPriority = .default }
+        }
+        // Whatever the anchored completer last said was about a different region.
+        anchoredFragment = nil
+        anchoredResults = []
+        // An explicit "search anywhere" outlives a pan or a teleport — it is a
+        // statement about the SEARCH, not about the map. Re-anchoring underneath it
+        // would silently drag the user back into the region they just stepped out of.
+        guard !isForcedWorldwide else { return }
+        // A new anchor is a new question: ask it anchored first, even if the last
+        // one had fallen back.
+        worldwidePrefix = nil
+        didFallBackToWorldwide = false
+        // Re-run whatever is already typed against the new region, otherwise the
+        // list keeps showing results ranked for the previous anchor.
+        if !query.isEmpty { anchored.queryFragment = query }
+    }
+
+    /// Turn the anchor off (or back on) by hand.
+    ///
+    /// The escape hatch for the case the automatic retry cannot see: a required
+    /// region that returns SOMETHING irrelevant rather than nothing. Without this the
+    /// only way to reach a far-away place would be to hope the anchor draws a
+    /// complete blank.
+    func setForceWorldwide(_ forced: Bool) {
+        guard forced != isForcedWorldwide else { return }
+        isForcedWorldwide = forced
+        guard !query.isEmpty else {
+            worldwidePrefix = forced ? "" : nil
+            results = []
+            didFallBackToWorldwide = false
+            return
+        }
+        if forced {
+            worldwidePrefix = query
+            results = []
+            didFallBackToWorldwide = true
+            worldwide.queryFragment = query
+            return
+        }
+        worldwidePrefix = nil
+        didFallBackToWorldwide = false
+        if anchoredFragment == query {
+            // We already know what the anchor says about this exact text. An empty
+            // answer is the same dead end the automatic retry exists for, so route it
+            // straight back out rather than showing a blank list under an anchored
+            // header.
+            if anchoredResults.isEmpty, anchor != nil {
+                startWorldwideRetry()
+            } else {
+                results = anchoredResults
+            }
+            return
+        }
+        results = []
+        anchored.queryFragment = query
+    }
+
+    /// Drop the current suggestions and stop both completers. Used when a result is
+    /// taken (the question has been answered) or the field is emptied.
+    ///
+    /// Also drops an explicit "search anywhere": that widening was about the question
+    /// just answered, and the honest default for the NEXT one is the anchor again.
+    func clearResults() {
+        results = []
+        didFallBackToWorldwide = false
+        isForcedWorldwide = false
+        worldwidePrefix = nil
+        anchoredFragment = nil
+        anchoredResults = []
+        query = ""
+        anchored.queryFragment = ""
+        worldwide.queryFragment = ""
+    }
+
+    func update(query newQuery: String) {
+        let trimmed = newQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        query = trimmed
+        guard !trimmed.isEmpty else {
+            clearResults()
+            return
+        }
+        if isForcedWorldwide {
+            worldwidePrefix = trimmed
+            worldwide.queryFragment = trimmed
+        } else if let prefix = worldwidePrefix, trimmed.hasPrefix(prefix) {
+            worldwide.queryFragment = trimmed
+        } else {
+            worldwidePrefix = nil
+            didFallBackToWorldwide = false
+            anchored.queryFragment = trimmed
         }
     }
 
     nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        let r = completer.results
-        Task { @MainActor in self.results = r }
+        let incoming = completer.results
+        // Identity only — the completer object itself is main-actor state and must
+        // not be touched from here.
+        let id = ObjectIdentifier(completer)
+        Task { @MainActor in self.ingest(incoming, from: id) }
     }
 
     nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
-        Task { @MainActor in self.results = [] }
+        let id = ObjectIdentifier(completer)
+        // A failure is treated as "no results", which routes it through the same
+        // worldwide retry: a network blip near the anchor shouldn't dead-end.
+        Task { @MainActor in self.ingest([], from: id) }
+    }
+
+    private func ingest(_ incoming: [MKLocalSearchCompletion], from id: ObjectIdentifier) {
+        let isWorldwide = (id == ObjectIdentifier(worldwide))
+        // Exactly one of the two completers is "live" at a time; a late reply from
+        // the other belongs to a question we have already stopped asking.
+        guard isWorldwide == (worldwidePrefix != nil) else { return }
+
+        if !isWorldwide {
+            // Remember the anchor's answer so switching back from worldwide can
+            // replay it instead of betting on a re-query.
+            anchoredFragment = query
+            anchoredResults = incoming
+        }
+
+        if !isWorldwide, incoming.isEmpty, !query.isEmpty, anchor != nil {
+            // The anchored search has no answer here. Ask the world instead of
+            // handing back a blank dropdown with no explanation.
+            startWorldwideRetry()
+            return
+        }
+
+        results = incoming
+        didFallBackToWorldwide = isWorldwide
+    }
+
+    /// Hand the current text to the unanchored completer and mark it as the live one.
+    private func startWorldwideRetry() {
+        worldwidePrefix = query
+        results = []
+        worldwide.queryFragment = query
     }
 }
 
@@ -47,12 +374,32 @@ struct AddressSearchBar: View {
     /// Full Plus Codes and plain coordinates don't need it. Typically the
     /// current map center.
     var mapCenter: CLLocationCoordinate2D? = nil
+    /// Where autocomplete and place lookup should be centred — normally the current
+    /// spoof target or pin. `nil` keeps MapKit's untouched (device-biased) behaviour,
+    /// which is correct for hosts that have no target yet.
+    var searchAnchor: MapSearchAnchor? = nil
+    /// The device's REAL coordinate, if the host already has one. Only used to offer
+    /// "search near me instead" — never as the default anchor.
+    ///
+    /// CONTRACT: this must be a coordinate captured BEFORE any simulation started.
+    /// While a spoof is live, CoreLocation reports the FAKE position to this app too
+    /// (that is precisely what the "Check my spoof" card relies on), so a freshly
+    /// fetched device coordinate would be the spoof target wearing a "your real
+    /// location" label — a lie in the one feature whose whole job is map honesty.
+    /// Hosts that cannot guarantee a pre-simulation snapshot must pass `nil`, which
+    /// hides the toggle entirely.
+    var realLocation: CLLocationCoordinate2D? = nil
     var onPick: (CLLocationCoordinate2D, String) -> Void
     /// Fires true while the field is focused OR showing results, so a host can get out of the way
     /// (e.g. hide a floating top card that would otherwise cover the results list).
     var onActiveChange: ((Bool) -> Void)? = nil
 
-    @StateObject private var completer = AddressSearchCompleter()
+    @StateObject private var completer = AnchoredPlaceCompleter()
+    @ObservedObject private var anchorNames = SearchAnchorNames.shared
+    /// True once the user has explicitly asked for results near their real location
+    /// instead of the spoof target. Resets when the anchor itself changes, so a new
+    /// teleport doesn't inherit a stale "near me".
+    @State private var preferRealLocation = false
     @State private var query = ""
     @FocusState private var focused: Bool
     /// True when the clipboard PROBABLY holds something worth offering to paste.
@@ -69,6 +416,137 @@ struct AddressSearchBar: View {
     /// look up. It deliberately LAGS `parsedTarget` — see `targetRow`.
     @State private var settledClockKey: String?
 
+    /// The anchor actually handed to MapKit: the host's target unless the user has
+    /// asked for their real location AND the host gave us one to use.
+    private var effectiveAnchor: MapSearchAnchor? {
+        guard let searchAnchor else { return nil }
+        guard preferRealLocation, let realLocation else {
+            // Upgrade the host's honest role name ("your pin") to a real place name
+            // once one has been geocoded for this cell. Until then the role name
+            // stands — it is never wrong, only vaguer.
+            guard let resolved = anchorNames.name(for: searchAnchor.coordinate) else { return searchAnchor }
+            return MapSearchAnchor(
+                coordinate: searchAnchor.coordinate,
+                name: resolved,
+                radiusMeters: searchAnchor.radiusMeters,
+                isRealLocation: searchAnchor.isRealLocation
+            )
+        }
+        return MapSearchAnchor(
+            coordinate: realLocation,
+            name: anchorNames.name(for: realLocation)
+                ?? L("search.anchor.real", fallback: "your real location"),
+            radiusMeters: searchAnchor.radiusMeters,
+            isRealLocation: true
+        )
+    }
+
+    /// The text actually being searched, trimmed.
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Whether the results panel should be on screen at all.
+    ///
+    /// Crucially this is NOT "are there results". An anchored search that returns
+    /// nothing is the moment the user most needs to be told where we were looking
+    /// and offered somewhere else to look — a blank dropdown explains neither. The
+    /// panel therefore also opens on an empty result set, as long as there is an
+    /// anchor to explain and text to explain it about. Skipped when the text parses
+    /// as a coordinate, because the "Go to …" row above has already answered.
+    private var showsResultsPanel: Bool {
+        if !completer.results.isEmpty { return true }
+        return effectiveAnchor != nil && !trimmedQuery.isEmpty && parsedTarget == nil
+    }
+
+    /// Small, honest header above the results list: which place these results are
+    /// ranked around, plus the one-tap way to rank them around somewhere else.
+    /// Shown only when there is something to explain — an anchored search — so the
+    /// five hosts that pass no anchor look exactly as they did before.
+    /// Which of the three searches produced the list on screen, said plainly.
+    /// Quietly widening the region — or quietly keeping it — would leave the user
+    /// reading Tokyo-ranked results under a Paris pin with no idea why.
+    private func anchorSentence(_ anchor: MapSearchAnchor) -> String {
+        if completer.isForcedWorldwide {
+            return L("search.results_anywhere", fallback: "Results from anywhere")
+        }
+        if completer.didFallBackToWorldwide {
+            return String(format: L("search.nothing_near",
+                                    fallback: "Nothing near %@ — showing results worldwide"),
+                          anchor.name)
+        }
+        return String(format: L("search.results_near", fallback: "Results near %@"), anchor.name)
+    }
+
+    @ViewBuilder
+    private var anchorHeader: some View {
+        if let anchor = effectiveAnchor {
+            HStack(spacing: 6) {
+                // Icon + sentence read as ONE VoiceOver element; the escape-hatch
+                // buttons stay separate, focusable ones. Combining the whole row
+                // would bury the only controls that change where we're searching.
+                HStack(spacing: 6) {
+                    Image(systemName: (completer.isForcedWorldwide || completer.didFallBackToWorldwide)
+                          ? "globe"
+                          : (anchor.isRealLocation ? "location.fill" : "mappin.and.ellipse"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(anchorSentence(anchor))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+                Spacer(minLength: 4)
+
+                if completer.isForcedWorldwide {
+                    // Only one control while unanchored: come back. "Near me" would be
+                    // offering to swap between two anchors when none is in use.
+                    scopeButton(L("search.scope.nearby", fallback: "Nearby")) {
+                        completer.setForceWorldwide(false)
+                    }
+                } else {
+                    // Hidden once the automatic retry has already gone worldwide —
+                    // the button would do nothing the list hasn't done for itself.
+                    if !completer.didFallBackToWorldwide {
+                        scopeButton(L("search.scope.anywhere", fallback: "Anywhere")) {
+                            completer.setForceWorldwide(true)
+                        }
+                    }
+                    if realLocation != nil {
+                        scopeButton(anchor.isRealLocation
+                                    ? L("search.near_target", fallback: "Near my pin")
+                                    : L("search.near_me", fallback: "Near me")) {
+                            preferRealLocation.toggle()
+                            // Name whichever side we just switched TO, so the header can
+                            // stop saying "your real location" once a locality is known.
+                            if preferRealLocation, let realLocation {
+                                SearchAnchorNames.shared.resolve(realLocation)
+                            } else if let searchAnchor {
+                                SearchAnchorNames.shared.resolve(searchAnchor.coordinate)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+        }
+    }
+
+    private func scopeButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Wander.brand)
+    }
+
     var body: some View {
         VStack(spacing: 6) {
             HStack(spacing: 8) {
@@ -78,11 +556,11 @@ struct AddressSearchBar: View {
                     .autocorrectionDisabled()
                     .focused($focused)
                     .submitLabel(.search)
-                    .onChange(of: query) { _, newValue in completer.update(newValue) }
+                    .onChange(of: query) { _, newValue in completer.update(query: newValue) }
                 if !query.isEmpty {
                     Button {
                         query = ""
-                        completer.update("")
+                        completer.clearResults()
                     } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                     }
@@ -117,8 +595,9 @@ struct AddressSearchBar: View {
                 pasteRow
             }
 
-            if !completer.results.isEmpty {
+            if showsResultsPanel {
                 VStack(spacing: 0) {
+                    anchorHeader
                     ForEach(completer.results.prefix(6), id: \.self) { result in
                         Button { resolve(result) } label: {
                             VStack(alignment: .leading, spacing: 2) {
@@ -134,13 +613,40 @@ struct AddressSearchBar: View {
                         .buttonStyle(.plain)
                         Divider()
                     }
+                    // Only once BOTH searches have come back empty — never during the
+                    // gap between keystroke and reply, where a flashing "no matches"
+                    // would be wrong more often than right.
+                    if completer.results.isEmpty, completer.didFallBackToWorldwide {
+                        Text(L("search.no_matches", fallback: "No matching places."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
+                    }
                 }
                 .padding(.horizontal, 10)
+                .padding(.bottom, completer.results.isEmpty ? 4 : 0)
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
             }
         }
+        // Keep the completer pointed at the current anchor. `.task(id:)` re-runs when
+        // the anchor's coarse identity changes (a teleport, a "near me" flip), not on
+        // every pan — see `MapSearchAnchor.regionKey`.
+        .task(id: effectiveAnchor?.regionKey) {
+            completer.setAnchor(effectiveAnchor)
+        }
+        // A new target means the previous "near me" choice was about a different trip.
+        .onChange(of: searchAnchor?.regionKey) { _, _ in
+            preferRealLocation = false
+        }
         .onChange(of: focused) { _, isFocused in
-            if isFocused { probeClipboard() }
+            if isFocused {
+                probeClipboard()
+                // Only now is it worth spending a geocode: the user is actually
+                // searching, so a real place name in the header earns its cost.
+                if let searchAnchor { SearchAnchorNames.shared.resolve(searchAnchor.coordinate) }
+                if preferRealLocation, let realLocation { SearchAnchorNames.shared.resolve(realLocation) }
+            }
             reportActive()
         }
         .onChange(of: completer.results.count) { _, _ in reportActive() }
@@ -156,9 +662,12 @@ struct AddressSearchBar: View {
         }
     }
 
-    /// Active = the user is searching: focused, or there are results / a parsed target to show.
+    /// Active = the user is searching: focused, or there is a panel / parsed target
+    /// on screen. Uses `showsResultsPanel` rather than "are there results", so the
+    /// explain-only panel (anchor header with an empty list) also gets clear air
+    /// instead of being slid under the floating info card.
     private func reportActive() {
-        onActiveChange?(focused || !completer.results.isEmpty || parsedTarget != nil)
+        onActiveChange?(focused || showsResultsPanel || parsedTarget != nil)
     }
 
     /// One row for a parsed coordinate, styled like the place-search rows below it.
@@ -223,7 +732,7 @@ struct AddressSearchBar: View {
     private func commit(_ target: ResolvedTarget) {
         onPick(target.coordinate, target.name)
         query = ""
-        completer.update("")
+        completer.clearResults()
         focused = false
         // `clipboardMayHoldTarget` deliberately survives: it describes what is on the
         // clipboard, which a teleport didn't change, so re-focusing still offers it.
@@ -558,13 +1067,26 @@ struct AddressSearchBar: View {
 
     private func resolve(_ completion: MKLocalSearchCompletion) {
         let request = MKLocalSearch.Request(completion: completion)
+        // No region at all when the list came from the worldwide retry: the tapped
+        // place is by definition NOT near the anchor, and biasing the lookup back
+        // toward it is how "Eiffel Tower" resolves to a bistro in Tokyo.
+        if let anchor = effectiveAnchor,
+           !completer.didFallBackToWorldwide, !completer.isForcedWorldwide {
+            request.region = anchor.region
+            // `.default`, NOT `.required`, on purpose. The completion the user tapped
+            // was already ranked inside this region, so the region's job here is only
+            // to disambiguate identical names ("Springfield"). Making it required
+            // would let a result that sits just outside the box resolve to nothing —
+            // a tap that does nothing at all, which is worse than a slightly-off pin.
+            if #available(iOS 18.0, *) { request.regionPriority = .default }
+        }
         MKLocalSearch(request: request).start { response, _ in
             guard let item = response?.mapItems.first else { return }
             let coordinate = item.placemark.coordinate
             Task { @MainActor in onPick(coordinate, completion.title) }
         }
         query = ""
-        completer.update("")
+        completer.clearResults()
         focused = false
     }
 }

@@ -7,6 +7,11 @@ import SwiftUI
 
 @main
 struct WanderApp: App {
+    // Home-screen quick actions (long-press the icon) are delivered to the app/scene delegate — a
+    // SwiftUI-lifecycle app has no `onOpenURL` equivalent for them — so the adaptor is the only way
+    // to receive one. The delegate does nothing but hand the tapped item's wander:// link to
+    // MainTabView.handleURL; see WanderQuickActionDelegate.
+    @UIApplicationDelegateAdaptor(WanderQuickActionDelegate.self) private var quickActions
     @Environment(\.scenePhase) private var scenePhase
     @State private var shouldAttemptTunnelReconnect = false
     // Persisted: the welcome screen is FIRST-RUN onboarding, so it's shown once and never again.
