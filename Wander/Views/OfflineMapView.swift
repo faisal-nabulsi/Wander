@@ -78,9 +78,20 @@ struct OfflineMapView: UIViewRepresentable {
     /// When true, the overlay serves only cached tiles (offline preview) — no network.
     var cacheOnly: Bool
 
-    /// Reports the map's region as the user pans, so the parent's center-crosshair placement
-    /// ("Set pin here") keeps working while this offline map is the active surface.
-    var onRegionChange: ((MKCoordinateRegion) -> Void)?
+    /// Reports the map's region as the user pans — together with THE COORDINATE UNDER THE SHARED
+    /// CROSSHAIR, measured from this view's own geometry — so the parent's "Set pin here" keeps
+    /// working while this offline map is the active surface.
+    ///
+    /// The coordinate is handed over rather than left for the host to derive from the region, and
+    /// that is the whole point of the pair: `MKMapView.region` DOES NOT DESCRIBE THIS VIEW'S
+    /// BOUNDS. It describes the layout-margins rect inside them (measured: 675pt of a full-bleed
+    /// 874pt map, centred 16.5pt below the view's centre), so a host that computed a screen-height
+    /// fraction against `region.span` dropped the pin 46pt BELOW the crosshair. See
+    /// `MapModeChrome.dropPoint(in mapView:)` for the numbers.
+    ///
+    /// The region is still reported because the host needs it to track the camera; it must not be
+    /// used to place the pin.
+    var onRegionChange: ((MKCoordinateRegion, CLLocationCoordinate2D) -> Void)?
 
     /// Draw the floating layer button on the map itself.
     ///
@@ -107,7 +118,7 @@ struct OfflineMapView: UIViewRepresentable {
         selectedCoordinate: Binding<CLLocationCoordinate2D?>,
         region: Binding<MKCoordinateRegion>,
         cacheOnly: Bool,
-        onRegionChange: ((MKCoordinateRegion) -> Void)? = nil,
+        onRegionChange: ((MKCoordinateRegion, CLLocationCoordinate2D) -> Void)? = nil,
         showsStyleSwitcher: Bool = false
     ) {
         self._selectedCoordinate = selectedCoordinate
@@ -439,7 +450,11 @@ struct OfflineMapView: UIViewRepresentable {
             // doesn't bounce back through updateUIView as a re-center).
             lastAppliedRegion = mapView.region
             let region = mapView.region
-            DispatchQueue.main.async { self.parent.onRegionChange?(region) }
+            // Measured HERE, on the live view, and not recomputed by the host from `region` —
+            // see the note on `onRegionChange`. Read synchronously so it can't drift from the
+            // region it is reported beside.
+            let dropPoint = MapModeChrome.dropPoint(in: mapView)
+            DispatchQueue.main.async { self.parent.onRegionChange?(region, dropPoint) }
         }
 
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {

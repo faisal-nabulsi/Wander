@@ -57,6 +57,39 @@ struct WalkModeView: View {
     @State private var knobOffset: CGSize = .zero
     @State private var isWalking = false
 
+    /// A run is being brought up but hasn't begun yet — the synchronous half of `isWalking`.
+    ///
+    /// `isWalking` alone stopped being a usable re-entrancy guard the moment starting a run could
+    /// suspend: for a user on Wander's own tunnel, `start()` / `startAutoWalk()` / hands-free all
+    /// hand off to `TunnelStartGate.then`, which may take up to 12 s to bring the tunnel up, and
+    /// `isWalking` is only set on the far side of that. The joystick's `DragGesture` fires
+    /// `onChanged` many times per second, so every tick would sail past `if !isWalking` and launch
+    /// another bring-up — concurrent starts, several `beginWalk` runs, several timers.
+    ///
+    /// Set SYNCHRONOUSLY, after the bail-out guards and before the gate, and cleared in the gate's
+    /// `cleanup:` closure — NOT in its body. That distinction is load-bearing: the gate declines to
+    /// run `body` when a global Stop or Panic lands during the bring-up, so a reset that lived there
+    /// would be skipped on exactly that path and this flag would stick true, wedging Start for the
+    /// rest of the session. `cleanup` runs on both outcomes. Every bail-out returns before the flag
+    /// is ever set, so it cannot be left stuck true that way either. For the default install
+    /// `isNeeded` is false, the body runs inline, and this is set and cleared inside one synchronous
+    /// call: unchanged behaviour, byte for byte.
+    @State private var isStarting = false
+
+    /// The run's FIRST fix has been enqueued but has not come back yet, so the tick timer is not
+    /// armed. See `noteWriteOutcome` — this is what stops the joystick from advancing a marker that
+    /// nothing on the device is backing.
+    @State private var awaitingFirstWrite = false
+
+    /// Consecutive failed writes since the last one that landed. Reset on every success.
+    @State private var writeFailures = 0
+
+    /// How many consecutive failed writes a run tolerates before it stands itself down. At the 1 Hz
+    /// tick that is roughly three seconds of benefit of the doubt for a transient — long enough to
+    /// ride out a network re-attach, short enough that the map cannot narrate a fictional walk.
+    /// A dead tunnel does not spend this budget at all; it is definitive and halts on the first one.
+    private static let maxConsecutiveWriteFailures = 3
+
     /// True while this view holds the background keep-alive.
     ///
     /// Without a hold, iOS suspends the app and reclaims the socket under the DVT connection (Apple
@@ -201,7 +234,16 @@ struct WalkModeView: View {
                 mapLayer
                 controls
             }
+            // The shared navigation treatment — inline, not the large title this had before.
+            // See "THE NAVIGATION RULE" in MapModeChrome: a large title is ~96pt of bar against an
+            // inline bar's ~44, so the three tabs would still have started at different heights.
             .navigationTitle(L("joystick.title", fallback: "Joystick"))
+            .navigationBarTitleDisplayMode(.inline)
+            // The bar all three map tabs share (Places, Offline maps, "…"). No file actions: this
+            // tab has no pin and no waypoint list of its own — it moves whatever is already live —
+            // so an "Import coordinates" row here would have nowhere to put the file and an
+            // "Export GPX" row nothing to write. Omitted rather than shown dead.
+            .mapModeToolbar()
             .alert(alertTitle, isPresented: $showAlert) {
                 Button(L("action.ok", fallback: "OK"), role: .cancel) { }
             } message: {
@@ -242,7 +284,10 @@ struct WalkModeView: View {
                 // Returning to an in-progress walk: restart our tick so we re-take ownership
                 // (step() re-asserts suppressResends) and resume keeping the fix warm — otherwise the
                 // stopped timer would leave the joystick dead until the user hit Stop and restarted.
-                if isWalking { startTimer() }
+                // `!awaitingFirstWrite`: a run whose opening fix hasn't come back yet is still behind
+                // the write gate, and re-arming the tick here would walk the marker without ever
+                // having confirmed the device is receiving anything (see `noteWriteOutcome`).
+                if isWalking, !awaitingFirstWrite { startTimer() }
             }
             // Keep the Orbit centre list in step with the Places tab / sync, so a spot saved a
             // minute ago is offerable without leaving and re-entering the tab.
@@ -275,25 +320,29 @@ struct WalkModeView: View {
             if let coordinate {
                 Annotation("You", coordinate: coordinate) {
                     ZStack {
-                        Circle().fill(.blue.opacity(0.25)).frame(width: 34, height: 34)
-                        Circle().fill(.blue).frame(width: 16, height: 16)
+                        // The live position dot, identical to the one the Route tab draws —
+                        // the same thing was brand blue there and system blue here.
+                        Circle().fill(Wander.brand.opacity(0.22)).frame(width: 34, height: 34)
+                        Circle().fill(Wander.brand).frame(width: 16, height: 16)
                             .overlay(Circle().stroke(.white, lineWidth: 2))
                     }
                 }
             }
         }
         .onMapCameraChange(frequency: .continuous) { context in
-            visibleCenter = context.region.center
+            // The point UNDER the crosshair, not the map's geometric centre. This screen used to
+            // draw the crosshair dead-centre and report the raw centre; now it shares the lifted
+            // placement with Teleport and Route, so "Set start point" must follow it — the same
+            // MapModeChrome.dropPoint the other two use, so all three can't disagree.
+            visibleCenter = MapModeChrome.dropPoint(in: context.region)
         }
-        .overlay(alignment: .center) {
-            if coordinate == nil { MapCrosshair() }
-        }
+        .wanderMapCrosshair(coordinate == nil)
         .ignoresSafeArea()
     }
 
     private var controls: some View {
         WanderCard {
-            VStack(spacing: 14) {
+            VStack(spacing: MapModeChrome.rowSpacing) {
                 if gslocMode {
                     gslocTeleportOnlyNote
                 }
@@ -309,33 +358,35 @@ struct WalkModeView: View {
                     WanderPrimaryButton(title: "Set start point", icon: Wander.Icon.setHere) {
                         setStartToCenter()
                     }
+                    // The SAME three speed controls the walking state shows — the same definitions,
+                    // not copies, so the two states can't drift apart. They belong here because
+                    // choosing HOW FAST you will move is a decision you make BEFORE you start
+                    // moving, and `speedMps` is view state that `start()` already reads, so a pace
+                    // picked at rest carries straight into the walk. It is also what fills the
+                    // shared panel height (MapModeChrome.panelHeight): this state used to be two
+                    // controls in a 240pt box, i.e. ~142pt of dead space that made the Joystick tab
+                    // look like a different app from Teleport and Route. No heading lock, farm or
+                    // hands-free row joins them — those are genuinely post-start and would overflow.
+                    VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
+                        speedReadout
+                        speedPresets
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    speedSlider
                 } else {
-                    HStack(alignment: .center, spacing: 16) {
+                    HStack(alignment: .center, spacing: MapModeChrome.rowSpacing) {
                         joystick
-                        VStack(spacing: 10) {
-                            Text("\(Int(SpeedFormat.fromMps(speedMps, useMph: useMph))) \(SpeedFormat.unitLabel(useMph: useMph))")
-                                .font(.title3.bold()).monospacedDigit()
-                            HStack(spacing: 6) {
-                                Button(L("joystick.walk", fallback: "Walk")) { speedMps = 6_000.0 / 3_600.0 }.buttonStyle(.bordered).font(.caption)
-                                Button(L("joystick.run", fallback: "Run")) { speedMps = 12_000.0 / 3_600.0 }.buttonStyle(.bordered).font(.caption)
-                                Button(L("joystick.drive", fallback: "Drive")) { speedMps = 50_000.0 / 3_600.0 }.buttonStyle(.bordered).font(.caption)
-                            }
+                        VStack(spacing: MapModeChrome.groupSpacing) {
+                            speedReadout
+                            speedPresets
                         }
                     }
-                    Slider(
-                        value: Binding(
-                            get: { SpeedFormat.fromMps(speedMps, useMph: useMph) },
-                            set: { speedMps = SpeedFormat.toMps($0, useMph: useMph) }
-                        ),
-                        in: SpeedFormat.sliderRange(useMph: useMph),
-                        step: 1
-                    )
+                    speedSlider
                     if gameSpeedWarn, speedMps * 3.6 > Double(gamePreset.maxSafeSpeedKmh) {
-                        Label("Above \(gamePreset.shortTitle)'s safe speed (~\(Int(SpeedFormat.fromMps(Double(gamePreset.maxSafeSpeedKmh) / 3.6, useMph: useMph))) \(SpeedFormat.unitLabel(useMph: useMph)))",
-                              systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        WanderPanelNote(
+                            status: .caution,
+                            text: "Above \(gamePreset.shortTitle)'s safe speed (~\(Int(SpeedFormat.fromMps(Double(gamePreset.maxSafeSpeedKmh) / 3.6, useMph: useMph))) \(SpeedFormat.unitLabel(useMph: useMph)))"
+                        )
                     }
                     headingLockRow
                     farmSection
@@ -351,7 +402,7 @@ struct WalkModeView: View {
                         if autoWalkTarget != nil {
                             Label(L("joystick.autowalk.active", fallback: "Auto-walking to your destination…"),
                                   systemImage: "figure.walk.motion")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .wanderDetail()
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         } else {
                             AddressSearchBar(placeholder: L("joystick.autowalk.search", fallback: "Auto-walk to a place…")) { coord, _ in
@@ -370,48 +421,133 @@ struct WalkModeView: View {
                 .disabled(gslocMode)
                 .opacity(gslocMode ? 0.5 : 1)
             }
-            // The card hugs its content, so the collapsed screen is unchanged; it only grows (and
-            // becomes scrollable) once the hands-free section is expanded and the radius/dwell rows
-            // are on screen. Without this the expanded group would push the Stop button off-screen.
-            .hugScrollCard(maxHeight: UIScreen.main.bounds.height * 0.55)
+            // THE canonical panel height, shared with Teleport and Route (see MapModeChrome), and
+            // the SAME height whether the hands-free section is open or shut: it overflows the
+            // panel's fixed frame and scrolls inside it. It used to ask for a taller box, which
+            // Teleport can't do, so opening it and switching tabs resized the box.
+            .wanderMapPanel()
+            // The panel swaps its whole content when a start point lands — the one layout change on
+            // this screen big enough to be worth following with the eye.
+            .wanderAnimation(WanderMotion.layout, on: coordinate != nil)
         }
+    }
+
+    // MARK: - Speed controls
+    //
+    // ONE definition of each, used by BOTH panel states (at rest beneath "Set start point", and
+    // beside the joystick while walking). They were written inline in the walking branch; the
+    // resting branch needs the same three controls, and a second copy of a control that writes
+    // `speedMps` is a correctness bug waiting to happen — the two copies drift, and the one you
+    // didn't update silently sets a different speed.
+
+    /// THE focal value of this panel — the number the user is steering by. Value and unit are split
+    /// so the unit can drop to secondary instead of competing with the digits at the same weight.
+    ///
+    /// The unit went MISSING for a while — the panel read as a bare "6" — and the cause was not
+    /// here: `wanderMicro()` painted with `.secondary`, and a hierarchical style resolves to
+    /// nothing on the material `WanderCard` this sits in. Both tokens take a concrete colour now;
+    /// see `Wander.secondaryText`. Keep the unit on a token rather than a raw `.secondary`.
+    private var speedReadout: some View {
+        let value = Int(SpeedFormat.fromMps(speedMps, useMph: useMph))
+        return HStack(alignment: .firstTextBaseline, spacing: MapModeChrome.chipSpacing) {
+            // One computation, read twice: the digits shown and the value the tick animates on
+            // must be the same number or the roll animates against a figure that isn't on screen.
+            Text("\(value)")
+                .wanderMetric(value)
+            Text(SpeedFormat.unitLabel(useMph: useMph))
+                .wanderMicro()
+        }
+        // ONE LINE, ALWAYS, EVEN WHEN IT DOESN'T FIT. While walking this readout sits in the ~180pt
+        // column beside the joystick, and a SwiftUI `Text` that is denied its width does NOT
+        // truncate — it WRAPS, and once a single word is wider than the space it wraps ONE CHARACTER
+        // PER LINE. That is the whole of the "weird letters" bug: the pace chips below turned into
+        // vertical stacks of loose letters, and this readout shed its unit until the panel read as a
+        // bare "6". Scaling the glyphs is the right trade here — the readout is the one number on
+        // this panel, and a smaller "6 km/h" beats a large "6" that doesn't say of what.
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
+        // A value and its unit are one readout, not two — VoiceOver should say "6 km/h", not stop
+        // between them.
+        .accessibilityElement(children: .combine)
+    }
+
+    /// The three pace shortcuts. Deliberately unlabelled: the chips name themselves and the readout
+    /// above them carries the unit, so a section title would only cost a row of the shared height.
+    ///
+    /// THEY SCROLL, exactly like the goal and radius chips further down this same panel, and for a
+    /// sharper reason than those: while walking, this row is in the narrow column beside the
+    /// joystick, and three chips that don't fit it are not shrunk or truncated by SwiftUI — their
+    /// labels WRAP one character per line, so "Walk / Run / Drive" rendered as three vertical
+    /// columns of loose single letters ("a l k", "u n", "r i v e") sitting between the speed number
+    /// and the slider. A horizontal scroll view lets each chip keep its own width and carries the
+    /// overflow sideways instead. Do NOT put this row back in a bare `HStack`.
+    private var speedPresets: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: MapModeChrome.chipSpacing) {
+                speedPresetChip(L("joystick.walk", fallback: "Walk"), metersPerHour: 6_000)
+                speedPresetChip(L("joystick.run", fallback: "Run"), metersPerHour: 12_000)
+                speedPresetChip(L("joystick.drive", fallback: "Drive"), metersPerHour: 50_000)
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    /// Fine pace control between the presets. Reads and writes in the user's own unit; `speedMps`
+    /// stays the single stored value in m/s, so switching km/mi can't move the chosen speed.
+    private var speedSlider: some View {
+        Slider(
+            value: Binding(
+                get: { SpeedFormat.fromMps(speedMps, useMph: useMph) },
+                set: { speedMps = SpeedFormat.toMps($0, useMph: useMph) }
+            ),
+            in: SpeedFormat.sliderRange(useMph: useMph),
+            step: 1
+        )
+    }
+
+    /// One of the three pace shortcuts under the speed readout. Carries a SELECTED state — they were
+    /// three identical grey chips before, so nothing showed which pace you were on — and a selection
+    /// haptic, matching the radius/dwell chips further down the same panel.
+    private func speedPresetChip(_ title: String, metersPerHour: Double) -> some View {
+        let target = metersPerHour / 3_600.0
+        let selected = abs(speedMps - target) < 0.01
+        return Button(title) {
+            speedMps = target
+            Haptics.selection()
+        }
+        .buttonStyle(.bordered)
+        .tint(selected ? Wander.brand : nil)
+        .font(.wanderMicro)
+        // The label keeps ONE line at its OWN natural width; the scroll view in `speedPresets`
+        // carries whatever doesn't fit. Without both of these a squeezed chip wraps per character
+        // and reads as a column of loose letters rather than a word.
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     /// Shown at the top of the Joystick controls while PoGo (gs-loc) mode is on: live movement doesn't
     /// work through the gs-loc network path, so the controls below are disabled and the user is pointed
     /// back to teleport (which is all gs-loc supports).
     private var gslocTeleportOnlyNote: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "hand.raised.fill")
-                .font(.caption)
-                .foregroundStyle(.orange)
-            Text(L("joystick.gsloc_teleport_only",
-                   fallback: "PoGo mode is teleport-only. Joystick, routes & auto-walk work in every other app and mode."))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        WanderPanelNote(
+            status: .caution,
+            text: L("joystick.gsloc_teleport_only",
+                    fallback: "PoGo mode is teleport-only. Joystick, routes & auto-walk work in every other app and mode."),
+            icon: "hand.raised.fill"
+        )
     }
 
     /// Non-blocking advisory shown when movement starts during a live cooldown. Reads the live
     /// remaining time so the MM:SS stays current while the note is up. Advisory only — never blocks.
     private var cooldownNote: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "hourglass")
-                .font(.caption)
-                .foregroundStyle(.orange)
-            Text(String(
+        WanderPanelNote(
+            status: .caution,
+            text: String(
                 format: L("joystick.cooldown_note",
                           fallback: "Heads up — moving still counts as interacting; your soft-ban cooldown is still running (%@)."),
-                cooldownClock(session.cooldownRemaining)))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+                cooldownClock(session.cooldownRemaining)),
+            icon: "hourglass"
+        )
         .transition(.opacity)
     }
 
@@ -437,34 +573,42 @@ struct WalkModeView: View {
     /// joystick: while locked the knob sits centred (nobody's touching it), which on its own would
     /// read as "stopped" — the state has to be spelled out in words somewhere.
     private var headingLockRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: MapModeChrome.groupSpacing) {
             if let locked = lockedHeading {
                 Label(String(format: L("joystick.lock.active", fallback: "Heading locked — walking %@"),
                              compassLabel(locked)),
                       systemImage: "location.north.line.fill")
-                    .font(.caption.weight(.semibold))
+                    .font(.wanderDetail.weight(.semibold))
                     .foregroundStyle(Wander.brand)
                 Spacer(minLength: 0)
+                // `wanderLabel`, not `wanderMicro`: a bordered/prominent BUTTON is a control, and
+                // every other prominent control in the app (Route's Preview/Drive/Stop,
+                // `WanderPrimaryButton`) is built at label size. At 12pt these read as chips, so
+                // Joystick's prominent actions were a whole step smaller than Route's peers on the
+                // next tab. Genuine chips — the status pills, the segmented items — stay at micro.
                 Button(L("joystick.lock.unlock", fallback: "Unlock")) { toggleHeadingLock() }
                     .buttonStyle(.borderedProminent)
                     .tint(Wander.brand)
-                    .font(.caption)
+                    .font(.wanderLabel)
             } else {
                 Button {
                     toggleHeadingLock()
                 } label: {
                     Label(L("joystick.lock.lock", fallback: "Lock heading"), systemImage: "location.north.line")
-                        .font(.caption)
+                        .font(.wanderLabel)
                 }
                 .buttonStyle(.bordered)
+                // A hint sentence is SUPPORTING text, which is `wanderDetail` — `wanderMicro` is
+                // for tertiary metadata, and this panel had fifteen of them, so nothing in it read
+                // as more important than anything else.
                 Text(L("joystick.lock.hint", fallback: "Push the stick, then lock to keep walking hands-free."))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .wanderDetail()
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .wanderAnimation(WanderMotion.quick, on: lockedHeading != nil)
     }
 
     // MARK: - Distance / goal UI
@@ -473,35 +617,40 @@ struct WalkModeView: View {
     /// because they answer different questions: how far this run has gone (is my egg close?) and
     /// how much the account has "walked" today (does this look like a plausible human day?).
     private var farmSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
+            HStack(spacing: MapModeChrome.groupSpacing) {
                 Label(String(format: L("joystick.distance.session", fallback: "Session %@"),
                              distanceText(sessionMeters)),
                       systemImage: "figure.walk")
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
+                    .font(.wanderNumeric(.subheadline))
+                    .wanderTick(Int(sessionMeters))
                 Spacer(minLength: 0)
                 Text(String(format: L("joystick.distance.today", fallback: "Today %@"),
                             distanceText(dailyMeters)))
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .font(.wanderNumeric(.caption, weight: .medium))
+                    // A CONCRETE colour, not the hierarchical `.secondary` this used to carry: on
+                    // the material `WanderCard` this row sits in, `.secondary` resolves to nothing
+                    // at all, and this readout was rendering fully INVISIBLE (verified on device —
+                    // the row showed "Session 0 m" and blank space where "Today" belongs). Same
+                    // failure that once ate the speed unit; see `Wander.secondaryText`.
+                    .foregroundStyle(Wander.secondaryText)
             }
-            HStack(spacing: 6) {
+            HStack(spacing: MapModeChrome.chipSpacing) {
+                // A row label — the level WanderStyle reserves for exactly this. The chips it
+                // introduces stay `wanderMicro`; the thing naming them does not.
                 Text(L("joystick.goal.label", fallback: "Stop at"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .wanderLabel()
                 // The chips scroll: four egg tiers plus Custom and Off don't fit a phone's width in
                 // miles ("6.21 mi" is a wide chip), and shrinking the labels to make them fit would
                 // throw away the precision that's the whole reason we show the converted number.
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: MapModeChrome.chipSpacing) {
                         ForEach(goalPresetsKm, id: \.self) { km in
                             let meters = km * 1000
                             Button(goalPresetTitle(km)) { setGoal(meters: meters) }
                                 .buttonStyle(.bordered)
                                 .tint(isGoalSelected(meters) ? Wander.brand : nil)
-                                .font(.caption)
+                                .font(.wanderMicro)
                         }
                         // Free entry, because "walk until N km" is the actual request — the presets
                         // are shortcuts for the common N, not the whole vocabulary (buddy candy and
@@ -509,32 +658,32 @@ struct WalkModeView: View {
                         Button(L("joystick.goal.custom", fallback: "Custom…")) { promptCustomGoal() }
                             .buttonStyle(.bordered)
                             .tint(goalMeters > 0 && !isPresetGoal ? Wander.brand : nil)
-                            .font(.caption)
+                            .font(.wanderMicro)
                         if goalMeters > 0 {
                             Button(L("joystick.goal.off", fallback: "Off")) { setGoal(meters: 0) }
                                 .buttonStyle(.bordered)
-                                .font(.caption)
+                                .font(.wanderMicro)
                         }
                     }
                     .padding(.vertical, 2)
                 }
             }
             if goalCompleted {
-                Label(String(format: L("joystick.goal.reached",
-                                       fallback: "Goal reached — %@ walked. Movement stopped; you're parked here."),
-                             distanceText(goalMeters)),
-                      systemImage: "checkmark.seal.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.green)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                WanderPanelNote(
+                    status: .good,
+                    text: String(format: L("joystick.goal.reached",
+                                           fallback: "Goal reached — %@ walked. Movement stopped; you're parked here."),
+                                 distanceText(goalMeters)),
+                    icon: "checkmark.seal.fill"
+                )
             } else if goalMeters > 0 {
                 ProgressView(value: min(goalProgressMeters / goalMeters, 1))
                     .tint(Wander.brand)
                 Text(goalProgressText)
-                    .font(.caption2)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .font(.wanderNumeric(.caption, weight: .medium))
+                    // Concrete colour for the same reason as the "Today" readout above — a
+                    // hierarchical `.secondary` disappears entirely on this card's material.
+                    .foregroundStyle(Wander.secondaryText)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -576,16 +725,18 @@ struct WalkModeView: View {
     /// Stop: someone who parked on a lured stop to farm wants to keep the spot when they're done,
     /// and Stop clears the spoof entirely.
     private var patternActiveRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: MapModeChrome.groupSpacing) {
             Label(patternStatusText, systemImage: dwellTicksLeft > 0 ? "pause.circle.fill" : "circle.dashed")
-                .font(.caption.weight(.semibold))
+                .font(.wanderDetail.weight(.semibold))
                 .foregroundStyle(Wander.brand)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
+            // Label size, like every other prominent button in the app — see the note on the
+            // heading-lock row above.
             Button(L("joystick.pattern.park", fallback: "Park here")) { parkInPlace() }
                 .buttonStyle(.borderedProminent)
                 .tint(Wander.brand)
-                .font(.caption)
+                .font(.wanderLabel)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -594,34 +745,35 @@ struct WalkModeView: View {
     /// isn't farming. Mirrors the Route tab's "More options" disclosure.
     private var handsFreeSection: some View {
         DisclosureGroup(isExpanded: $showHandsFree) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: MapModeChrome.rowSpacing) {
                 roamControls
                 Divider()
                 orbitControls
             }
-            .padding(.top, 6)
+            .padding(.top, MapModeChrome.groupSpacing)
         } label: {
             Label(L("joystick.handsfree", fallback: "Hands-free — roam an area, orbit a spot"),
                   systemImage: "figure.walk.motion")
-                .font(.subheadline.weight(.medium))
+                .font(.wanderLabel)
         }
         .tint(Wander.brand)
     }
 
     private var roamControls: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
             Text(L("joystick.roam.title", fallback: "Roam this area"))
-                .font(.caption.weight(.semibold))
+                .wanderLabel()
             radiusChips(Self.roamRadiusChoices, selected: roamRadius) { roamRadius = $0 }
+            // Supporting prose under a row title → `wanderDetail`, same as Route's hints.
             Text(L("joystick.roam.hint",
                    fallback: "Walks a wandering path around your current spot and never leaves the circle. Uses the speed above and stops on your distance goal."))
-                .font(.caption2).foregroundStyle(.secondary)
+                .wanderDetail()
                 .fixedSize(horizontal: false, vertical: true)
             Button {
                 startRoam()
             } label: {
                 Label(L("joystick.roam.start", fallback: "Start roaming"), systemImage: "arrow.triangle.turn.up.right.circle")
-                    .frame(maxWidth: .infinity).frame(height: 28)
+                    .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
@@ -630,15 +782,16 @@ struct WalkModeView: View {
     }
 
     private var orbitControls: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
             Text(L("joystick.orbit.title", fallback: "Orbit a spot"))
-                .font(.caption.weight(.semibold))
+                .wanderLabel()
             radiusChips(Self.orbitRadiusChoices, selected: orbitRadius) { orbitRadius = $0 }
-            HStack(spacing: 6) {
+            HStack(spacing: MapModeChrome.chipSpacing) {
+                // A row label, like "Stop at" above — the chips beside it stay micro.
                 Text(L("joystick.orbit.dwell", fallback: "Pause each lap"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .wanderLabel()
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: MapModeChrome.chipSpacing) {
                         ForEach(Self.orbitDwellChoices, id: \.self) { seconds in
                             Button(seconds == 0
                                    ? L("joystick.orbit.dwell.none", fallback: "None")
@@ -648,7 +801,7 @@ struct WalkModeView: View {
                             }
                             .buttonStyle(.bordered)
                             .tint(abs(orbitDwellSeconds - seconds) < 0.5 ? Wander.brand : nil)
-                            .font(.caption)
+                            .font(.wanderMicro)
                         }
                     }
                     .padding(.vertical, 2)
@@ -656,12 +809,12 @@ struct WalkModeView: View {
             }
             Toggle(isOn: $orbitClockwise) {
                 Text(L("joystick.orbit.clockwise", fallback: "Clockwise"))
-                    .font(.caption)
+                    .font(.wanderDetail)
             }
             .tint(Wander.brand)
             Text(L("joystick.orbit.hint",
                    fallback: "Circles the pin so distance keeps accruing while you stay in range of it — pick one of your saved spots, or circle where you're standing."))
-                .font(.caption2).foregroundStyle(.secondary)
+                .wanderDetail()
                 .fixedSize(horizontal: false, vertical: true)
             Menu {
                 Button(L("joystick.orbit.center_here", fallback: "Around this spot")) { startOrbit(center: nil) }
@@ -675,7 +828,7 @@ struct WalkModeView: View {
                 }
             } label: {
                 Label(L("joystick.orbit.start", fallback: "Start orbit"), systemImage: "circle.dashed")
-                    .frame(maxWidth: .infinity).frame(height: 28)
+                    .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
@@ -688,7 +841,7 @@ struct WalkModeView: View {
     private func radiusChips(_ choices: [Double], selected: Double,
                              onPick: @escaping (Double) -> Void) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
+            HStack(spacing: MapModeChrome.chipSpacing) {
                 ForEach(choices, id: \.self) { meters in
                     Button(radiusText(meters)) {
                         onPick(meters)
@@ -696,7 +849,7 @@ struct WalkModeView: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(abs(selected - meters) < 1 ? Wander.brand : nil)
-                    .font(.caption)
+                    .font(.wanderMicro)
                 }
             }
             .padding(.vertical, 2)
@@ -720,7 +873,7 @@ struct WalkModeView: View {
     private var joystick: some View {
         ZStack {
             Circle()
-                .fill(Color.secondary.opacity(0.12))
+                .fill(Wander.inactive.opacity(0.12))
                 .frame(width: (joystickRadius + 30) * 2, height: (joystickRadius + 30) * 2)
                 .overlay(
                     Circle().strokeBorder(Wander.brand.opacity(lockedHeading == nil ? 0 : 0.9), lineWidth: 3)
@@ -736,7 +889,7 @@ struct WalkModeView: View {
                     .rotationEffect(.radians(locked))
             }
             Circle()
-                .fill(isWalking ? Color.accentColor : Color.gray)
+                .fill(isWalking ? Wander.accent : Wander.inactive)
                 .frame(width: 60, height: 60)
                 .offset(knobOffset)
                 .gesture(
@@ -771,7 +924,11 @@ struct WalkModeView: View {
                             // user is steering again, so the pin gets out of the way rather than
                             // fighting the input.
                             releaseHeadingLock(resetGait: true)
-                            if !isWalking { start() }
+                            // `!isStarting` alongside `!isWalking`: this closure runs many times a
+                            // second and a start can now be in flight without walking yet (see
+                            // `isStarting`). `start()` re-checks it — this is the same guard said
+                            // where the reader is standing.
+                            if !isWalking, !isStarting { start() }
                         }
                         .onEnded { _ in
                             knobOffset = .zero
@@ -792,7 +949,12 @@ struct WalkModeView: View {
         recenter(on: center)
     }
 
-    private func start() {
+    /// Begin a joystick run. `then` runs once the walk has ACTUALLY begun, and not at all on any of
+    /// the bail-out paths — see `lockHeading`, which arms its lock from it.
+    private func start(then completion: (@MainActor () -> Void)? = nil) {
+        // A bring-up is already in flight (see `isStarting`). The joystick asks many times a second
+        // and only the first ask may start a run.
+        guard !isStarting else { return }
         guard let coordinate else { return }
         guard pairingFilePath() != nil else {
             alert("Pairing file required", "Import a pairing file in Settings before simulating location.")
@@ -803,6 +965,20 @@ struct WalkModeView: View {
             showPaywall = true
             return
         }
+        // Bring Wander's own tunnel up before the first write, the way the Teleport tab does.
+        // Without this, a joystick Start after the tunnel auto-disconnected wrote into a tunnel that
+        // was no longer there and simply did nothing. Runs synchronously — no task, no await — for
+        // everyone who hasn't opted into Wander's own tunnel, which is the default.
+        // Claim the start BEFORE the gate, which may suspend for the whole tunnel bring-up.
+        isStarting = true
+        TunnelStartGate.then(cleanup: { isStarting = false }) {
+            beginWalk(from: coordinate)
+            completion?()
+        }
+    }
+
+    /// The joystick run itself, once the transport is as ready as it is going to get.
+    private func beginWalk(from coordinate: CLLocationCoordinate2D) {
         // Advisory only (never blocks): if a soft-ban cooldown is still running, remind the user that
         // moving still counts as interacting. Shown before we flip isWalking; movement proceeds either way.
         noteCooldownIfActive()
@@ -823,8 +999,23 @@ struct WalkModeView: View {
         // Adventure Sync: start a fresh walk window so the first tick isn't measured
         // against a stale coordinate from an earlier run (no-op unless opted in).
         AdventureSyncManager.shared.beginWalk()
-        send(coordinate)
-        startTimer()
+        beginRunWriting(from: coordinate)
+    }
+
+    /// Hand the run's FIRST fix to the device. The tick timer is armed by `noteWriteOutcome` only
+    /// once that write lands, so a run over a dead tunnel never starts moving the marker.
+    ///
+    /// The one caller-visible bail: `send` couldn't even enqueue because the pairing file went away
+    /// between the start guard and here (the tunnel bring-up in between can take up to 12 s). Stand
+    /// the run down rather than leave `isWalking` true with nothing coming to arm the timer.
+    private func beginRunWriting(from coordinate: CLLocationCoordinate2D) {
+        writeFailures = 0
+        awaitingFirstWrite = true
+        guard send(coordinate) else {
+            haltRun(title: "Pairing file required",
+                    message: "Import a pairing file in Settings before simulating location.")
+            return
+        }
     }
 
     private func stop() {
@@ -838,6 +1029,11 @@ struct WalkModeView: View {
         AdventureSyncManager.shared.endWalk()
         releaseKeepAlive()
         isWalking = false
+        // The write gate belongs to the run that just ended — a stale `awaitingFirstWrite` would
+        // block the NEXT run's `.onAppear` re-arm, and a stale failure count would shorten its
+        // tolerance. See `noteWriteOutcome`.
+        awaitingFirstWrite = false
+        writeFailures = 0
         autoWalkTarget = nil
         pattern = nil
         dwellTicksLeft = 0
@@ -1031,6 +1227,10 @@ struct WalkModeView: View {
     /// Begin walking, by itself, from the current spot to `target`. Autonomous ⇒ the motion
     /// engine adds the occasional realistic micro-pause. Pro/trial-gated like the joystick.
     private func startAutoWalk(to target: CLLocationCoordinate2D) {
+        // Same in-flight guard the joystick uses. Not driven by a repeating source (a search-result
+        // tap gets here), but it shares `isStarting` so a run that is already coming up can't have a
+        // second one started underneath it during the tunnel bring-up.
+        guard !isStarting else { return }
         guard let coordinate else { return }
         guard pairingFilePath() != nil else {
             alert("Pairing file required", "Import a pairing file in Settings before simulating location.")
@@ -1043,6 +1243,15 @@ struct WalkModeView: View {
         }
         // Advisory only (never blocks): remind about a running soft-ban cooldown before auto-walk begins.
         noteCooldownIfActive()
+        // Transport before writes — see `start()`. Synchronous unless the user runs Wander's tunnel.
+        isStarting = true
+        TunnelStartGate.then(cleanup: { isStarting = false }) {
+            beginAutoWalk(from: coordinate, to: target)
+        }
+    }
+
+    /// The auto-walk run itself, once the transport is as ready as it is going to get.
+    private func beginAutoWalk(from coordinate: CLLocationCoordinate2D, to target: CLLocationCoordinate2D) {
         autoWalkTarget = target
         knobOffset = .zero        // defensive: ensure step() takes the auto-walk path, not the stick
         holdKeepAlive()
@@ -1055,8 +1264,7 @@ struct WalkModeView: View {
         SimulationSession.shared.started()
         beginDistanceSession()
         AdventureSyncManager.shared.beginWalk()
-        send(coordinate)
-        startTimer()
+        beginRunWriting(from: coordinate)
     }
 
     /// Arrived at the auto-walk destination: settle on the exact point and idle (staying put),
@@ -1136,6 +1344,11 @@ struct WalkModeView: View {
     /// The gates every hands-free run has to pass, in one place: pairing file, licence/trial, and
     /// the non-blocking cooldown advisory. Returns false when the run must not start.
     private func beginHandsFreeRun() -> Bool {
+        // Checked HERE rather than in `launchHandsFreeRun` so a refused start costs the user
+        // nothing: `startOrbit` books a teleport (cooldown + trial charge) between this gate and
+        // the launch, and charging for a run we then decline to start would be worse than the
+        // double-start it prevents.
+        guard !isStarting else { return false }
         guard pairingFilePath() != nil else {
             alert("Pairing file required", "Import a pairing file in Settings before simulating location.")
             coordinate = nil
@@ -1154,6 +1367,15 @@ struct WalkModeView: View {
     /// keep-alive hold, same single-writer suppression, same autonomous gait — because these are
     /// the same kind of run: the app is walking and the phone is in a pocket.
     private func launchHandsFreeRun(from origin: CLLocationCoordinate2D) {
+        // Transport before writes — see `start()`. Synchronous unless the user runs Wander's tunnel.
+        // `isStarting` was checked in `beginHandsFreeRun()`, which every caller passes through.
+        isStarting = true
+        TunnelStartGate.then(cleanup: { isStarting = false }) {
+            beginHandsFreeMovement(from: origin)
+        }
+    }
+
+    private func beginHandsFreeMovement(from origin: CLLocationCoordinate2D) {
         autoWalkTarget = nil       // one hands-free mode at a time
         lockedHeading = nil
         knobOffset = .zero         // defensive: ensure step() takes the pattern path, not the stick
@@ -1167,9 +1389,8 @@ struct WalkModeView: View {
         SimulationSession.shared.started()
         beginDistanceSession()
         AdventureSyncManager.shared.beginWalk()
-        send(origin)
         recenter(on: origin)
-        startTimer()
+        beginRunWriting(from: origin)
         Haptics.medium()
     }
 
@@ -1477,11 +1698,20 @@ struct WalkModeView: View {
             return
         }
         // start() owns the licence gate, the pairing-file check and taking over the location stream.
-        // If it bails we must not leave a lock armed with nothing driving it.
+        // If it bails we must not leave a lock armed with nothing driving it — hence the lock is
+        // armed from start()'s completion, not after it returns. `start()` is no longer guaranteed
+        // to have begun walking by the time it returns: when the user runs Wander's own tunnel it
+        // may first have to bring that tunnel up, which is asynchronous. The completion runs only on
+        // the path that actually starts walking, so "bailed ⇒ no lock" still holds.
         if !isWalking {
-            start()
-            guard isWalking else { return }
+            start { applyHeadingLock(bearing: bearing, fraction: fraction) }
+            return
         }
+        applyHeadingLock(bearing: bearing, fraction: fraction)
+    }
+
+    /// Arm the hands-free heading lock on a run that is already walking.
+    private func applyHeadingLock(bearing: Double, fraction: Double) {
         lockedHeading = bearing
         lockedFraction = max(fraction, 0.05)   // a barely-nudged stick shouldn't lock in a crawl
         // One hands-free mode at a time. When we got here from a live auto-walk (or a Roam/Orbit
@@ -1543,11 +1773,81 @@ struct WalkModeView: View {
         return (FileManager.default.fileExists(atPath: url.path) || GslocMode.enabled) ? url.path : nil
     }
 
-    private func send(_ coord: CLLocationCoordinate2D) {
-        guard let path = pairingFilePath() else { return }
-        LocationSimulationCommandQueue.shared.async {
-            _ = simulate_location(DeviceConnectionContext.targetIPAddress, coord.latitude, coord.longitude, path)
+    /// Write one fix and REPORT WHAT HAPPENED TO IT.
+    ///
+    /// This used to be fire-and-forget: the return code was discarded, so a run kept walking the
+    /// on-screen marker across the map while every single write was bouncing off a tunnel that
+    /// wasn't there. That is the worst failure this screen can have — the map is the only thing the
+    /// user can check, and it was lying to them.
+    ///
+    /// - Returns: false when the write could not even be ENQUEUED (no pairing file), which matters
+    ///   because a run whose first write never happens would otherwise wait forever for an outcome.
+    @discardableResult
+    private func send(_ coord: CLLocationCoordinate2D) -> Bool {
+        guard let path = pairingFilePath() else { return false }
+        LocationSimulationCommandQueue.submit {
+            let code = simulate_location(DeviceConnectionContext.targetIPAddress, coord.latitude, coord.longitude, path)
+            DispatchQueue.main.async { noteWriteOutcome(code) }
         }
+        return true
+    }
+
+    /// Reconcile the display with the device: what did that write actually do?
+    ///
+    /// Runs on the main thread once per write. Three outcomes:
+    ///
+    ///   * LANDED — clear the failure count, and (for the first write of a run) arm the tick timer.
+    ///     THE TIMER IS NOT ARMED UNTIL A WRITE LANDS. That is what makes "the marker never advances
+    ///     unless the device is really receiving it" structural rather than a promise: with the
+    ///     tunnel down the joystick simply never starts moving.
+    ///   * TUNNEL DOWN — definitive. A bounded probe established the endpoint isn't answering before
+    ///     anything was dialled, so the next tick would reach nothing either. Stand the run down now.
+    ///   * ANYTHING ELSE — possibly transient (a network re-attach, a momentary DVT hiccup), and a
+    ///     walk that aborted on one bad tick would be its own bug. Spend a few ticks, then stop.
+    private func noteWriteOutcome(_ code: Int32) {
+        guard isWalking else { return }   // the run is already over — nothing left to reconcile
+        if code == 0 {
+            writeFailures = 0
+            if awaitingFirstWrite {
+                awaitingFirstWrite = false
+                startTimer()
+            }
+            return
+        }
+        // The first write of a run is a GATE, not a sample: nothing has been written yet, and no
+        // later tick is coming to retry it (the timer is armed above, on success, and nowhere else).
+        // So any failure here — not just a dead tunnel — has to stand the run down, or `isWalking`
+        // would sit true with no timer behind it.
+        let tunnelDown = LocationSimulationOutcome.isTunnelUnreachable(code)
+        if !tunnelDown && !awaitingFirstWrite {
+            writeFailures += 1
+            guard writeFailures >= Self.maxConsecutiveWriteFailures else { return }
+        }
+        haltRun(
+            title: tunnelDown
+                ? LocationSimulationOutcome.tunnelDownTitle
+                : L("walk.write_failed.title", fallback: "Movement stopped"),
+            message: tunnelDown
+                ? LocationSimulationOutcome.tunnelDownMessage
+                : L("walk.write_failed.message",
+                    fallback: "Wander couldn't send your location to your device (error \(code)), so the map was showing movement your device wasn't making. Check that the tunnel is connected, then start again.")
+        )
+    }
+
+    /// End the run because the device is not receiving what the map is showing.
+    ///
+    /// Reuses the ONE global stop path rather than inventing a second teardown: `stopAll` clears the
+    /// device fix, broadcasts `.stopSimulationRequested`, and this view's own handler runs
+    /// `localReset()` — which stops the tick and drops the marker back to the "set a start point"
+    /// state, so nothing is left on screen implying a walk that never reached the device.
+    ///
+    /// `.automation` because nobody asked for this: the transport went away on its own, and an
+    /// automated stop must not take the tunnel down with it (see `SimulationSession.StopSource`).
+    private func haltRun(title: String, message: String) {
+        awaitingFirstWrite = false
+        writeFailures = 0
+        SimulationSession.shared.stopAll(source: .automation)
+        alert(title, message)
     }
 
     private func alert(_ title: String, _ message: String) {

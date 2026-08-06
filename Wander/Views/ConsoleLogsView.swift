@@ -15,6 +15,9 @@ struct ConsoleLogsView: View {
     @State private var selectedConsoleTab: ConsoleTab = .idevice
     @State private var jitScrollView: ScrollViewProxy? = nil
     @State private var showingCustomAlert = false
+    /// Non-nil while the share sheet for an exported log is up. See `exportMenuOption` for why this
+    /// is a sheet rather than a ShareLink.
+    @State private var exportedLog: ExportedLog?
     @State private var alertMessage = ""
     @State private var alertTitle = ""
     
@@ -23,6 +26,9 @@ struct ConsoleLogsView: View {
     @State private var isViewActive = false
     @State private var lastProcessedLineCount = 0
     @State private var isLoadingLogs = false
+    /// Guards the endpoint sweep against a second tap while the first is still probing — it does
+    /// several bounded blocking connects and takes a few seconds.
+    @State private var isProbingEndpoints = false
     @State private var jitIsAtBottom = true
     @State private var syslogIsAtBottom = true
     @State private var syslogSearchText = ""
@@ -50,6 +56,7 @@ struct ConsoleLogsView: View {
             }
             .navigationTitle("Console")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(item: $exportedLog) { ConsoleShareSheet(url: $0.url) }
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Picker("", selection: $selectedConsoleTab) {
@@ -70,6 +77,26 @@ struct ConsoleLogsView: View {
                             }
                             Button("Copy Spoof Diagnostics", systemImage: "stethoscope") {
                                 copySpoofDiagnostics()
+                            }
+                            Button(L("console.dump_interfaces", fallback: "Dump network interfaces"),
+                                   systemImage: "network") {
+                                dumpNetworkInterfaces()
+                            }
+                            Button(L("console.probe_endpoints", fallback: "Probe tunnel endpoints"),
+                                   systemImage: "dot.radiowaves.left.and.right") {
+                                probeTunnelEndpoints()
+                            }
+                            .disabled(isProbingEndpoints)
+                            Button(L("console.packet_trace", fallback: "Dump tunnel packet trace"),
+                                   systemImage: "waveform.path.ecg") {
+                                dumpTunnelPacketTrace()
+                            }
+                            Button(L("console.packet_trace.stop", fallback: "Stop packet tracing"),
+                                   systemImage: "stop.circle") {
+                                PacketTraceReport.stop()
+                                presentAlert(title: L("console.packet_trace.stop.title", fallback: "Tracing Stopped"),
+                                             message: L("console.packet_trace.stop.body",
+                                                        fallback: "The tunnel extension stops recording on its next packet batch. The last capture stays readable."))
                             }
                             Button("Copy Logs", systemImage: "doc.on.doc") {
                                 copyJITLogs()
@@ -281,6 +308,71 @@ struct ConsoleLogsView: View {
                      message: "\(matched.count) relevant lines copied (filtered out \(logManager.logs.count - matched.count) noise lines).")
     }
 
+    /// Write the full interface picture into the log, on demand.
+    ///
+    /// WHY A BUTTON: the question this answers ("what interfaces does this phone have with Wi-Fi off,
+    /// on cellular?") can only be answered IN that state, and re-signing a build every time you want to
+    /// ask it is the reason it has never actually been measured. One tap, then Export Logs.
+    private func dumpNetworkInterfaces() {
+        let count = NetworkInterfaceDump.logNow(reason: "manual")
+        let body = L("console.dump_interfaces.done.body",
+                     fallback: "Written to the log below. Scroll to the SUMMARY lines for the verdict, then use Export Logs to send it.")
+        presentAlert(
+            title: L("console.dump_interfaces.done.title", fallback: "Interfaces Dumped"),
+            message: "\(count) lines. \(body)")
+    }
+
+    /// Probe port 49152 on every interesting destination and write the errno for each into the log.
+    ///
+    /// WHY A BUTTON, NEXT TO THE INTERFACE DUMP: the dial path gives ONE data point per app restart,
+    /// and "Can't reach the device tunnel" cannot distinguish a refusal (packets flow, a daemon said
+    /// no — policy) from no route (the packet never left the phone — routing) from silence (a
+    /// blackhole). Those need opposite fixes. One tap gets all of them, in the state that is failing.
+    ///
+    /// OFF THE MAIN THREAD. The sweep does several bounded blocking TCP connects; running it inline
+    /// would freeze the Console for seconds. It never touches the serial location queue, so Stop and
+    /// Panic stay responsive while it runs.
+    private func probeTunnelEndpoints() {
+        guard !isProbingEndpoints else { return }
+        isProbingEndpoints = true
+        Task {
+            let summary = await Task.detached(priority: .userInitiated) {
+                TunnelEndpointSweep.runAndSummarize(reason: "manual")
+            }.value
+            isProbingEndpoints = false
+            presentAlert(
+                title: L("console.probe_endpoints.done.title", fallback: "Endpoints Probed"),
+                message: summary)
+        }
+    }
+
+    /// Read the tunnel extension's packet ring buffer into the log, with a verdict.
+    ///
+    /// WHY A BUTTON, NEXT TO THE OTHER TWO: a Network Extension is a separate process, so nothing it
+    /// logs reaches this Console. Wander's own tunnel blackholes every address in every config while
+    /// LocalDevVPN's equivalent works on the same phone, and nobody has been able to say WHERE the
+    /// packets die — before the provider (routing), inside it (the swap never fires), or after it
+    /// (reinjection). Those need three different fixes. This reads the shared ring the provider
+    /// writes and states which one the data shows.
+    ///
+    /// ARM-OR-DUMP IN ONE ROW: tracing is a no-op until this arms it, so the first tap has nothing
+    /// to read and can only arm. Reproduce the failure, then tap again.
+    private func dumpTunnelPacketTrace() {
+        switch PacketTraceReport.run() {
+        case .armed(let message):
+            presentAlert(title: L("console.packet_trace.armed.title", fallback: "Packet Tracing Armed"),
+                         message: message)
+        case .dumped(let summary, let lines):
+            let body = L("console.packet_trace.done.body",
+                         fallback: "Written to the log below — scroll to the VERDICT line, then use Export Logs to send it.")
+            presentAlert(title: L("console.packet_trace.done.title", fallback: "Packet Trace Dumped"),
+                         message: "\(summary)\n\n\(lines) lines. \(body)")
+        case .blocked(let why):
+            presentAlert(title: L("console.packet_trace.blocked.title", fallback: "Packet Trace Unavailable"),
+                         message: why)
+        }
+    }
+
     private func copyJITLogs() {
         var logsContent = "=== DEVICE INFORMATION ===\n"
         logsContent += "Version: \(UIDevice.current.systemVersion)\n"
@@ -304,12 +396,22 @@ struct ConsoleLogsView: View {
         // idevice dump: it does NOT contain the app's own LogManager entries, so the lines that matter
         // most for diagnosing a problem (including the [spoof] trace) could never be exported at all.
         // Sharing the rendered entries means Export always works and always matches what the user sees.
-        ShareLink(
-            item: exportedLogFile(),
-            preview: SharePreview("wander-log.txt", image: Image(systemName: "doc.text"))
-        ) {
-            Label("Export Logs", systemImage: "square.and.arrow.up")
+        //
+        // ⚠️ DELIBERATELY A Button + .sheet, NOT a ShareLink. This row lives inside a `Menu`, and a
+        // ShareLink placed in a Menu does not reliably present its share sheet — tapping it did
+        // nothing at all, reported from the device 2026-08-05 while trying to send an interface dump.
+        // Presenting the activity controller ourselves from a sheet on the view body works from a
+        // menu row. Do not "simplify" this back to a ShareLink.
+        Button("Export Logs", systemImage: "square.and.arrow.up") {
+            exportedLog = ExportedLog(url: exportedLogFile())
         }
+    }
+
+    /// Identifiable wrapper so `.sheet(item:)` can drive the share sheet — the file is written when
+    /// the row is tapped, so the sheet always carries the log as it stood at that moment.
+    fileprivate struct ExportedLog: Identifiable {
+        let url: URL
+        var id: String { url.path }
     }
 
     /// Write the current log entries to a temp file and return its URL. Uses the same body as Copy, so
@@ -398,6 +500,15 @@ struct ConsoleLogsView: View {
             if let (entries, lineCount) = result {
                 lastProcessedLineCount = lineCount
                 logManager.setLogs(entries)
+                // setLogs REPLACES the buffer with the parsed file, which does not contain the app's own
+                // entries — so any interface dump taken while the Console was closed (i.e. every
+                // automatic one) would vanish exactly when you opened the Console to read it. Re-append.
+                let replay = NetworkInterfaceDump.retainedLines()
+                if !replay.isEmpty {
+                    logManager.appendLogs(replay.map {
+                        LogManager.LogEntry(timestamp: Date(), type: .info, message: $0)
+                    })
+                }
                 if jitIsAtBottom, let last = logManager.logs.last {
                     jitScrollView?.scrollTo(last.id, anchor: .bottom)
                 }
@@ -694,4 +805,14 @@ private extension LogManager.LogEntry.LogType {
             return .orange
         }
     }
+}
+
+/// Share sheet for the exported log. A plain `UIActivityViewController` wrapper, because the row that
+/// triggers it lives inside a `Menu` and SwiftUI's `ShareLink` does not reliably present from there.
+private struct ConsoleShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) { }
 }

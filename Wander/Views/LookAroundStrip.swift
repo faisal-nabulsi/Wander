@@ -53,10 +53,15 @@ struct LookAroundStrip: View {
                 )
                 .frame(height: height)
                 .frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                // Nested-control tokens: this strip sits INSIDE the Teleport card, beside the AI
+                // bar and the search field, so it takes the same radius and the same hairline they
+                // do. It used to draw its own 10 against their 12.
+                .clipShape(RoundedRectangle(cornerRadius: MapModeChrome.innerCornerRadius,
+                                            style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                    RoundedRectangle(cornerRadius: MapModeChrome.innerCornerRadius,
+                                     style: .continuous)
+                        .strokeBorder(Wander.hairline, lineWidth: 0.5)
                 )
                 .accessibilityLabel(L("map.look_around.a11y",
                                       fallback: "Look Around preview of the pinned location"))
@@ -64,8 +69,8 @@ struct LookAroundStrip: View {
                 // A short, quiet placeholder rather than a spinner: on a coordinate
                 // with no coverage this row is about to vanish, and a spinner that
                 // resolves into nothing reads as a failure.
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.primary.opacity(0.05))
+                RoundedRectangle(cornerRadius: MapModeChrome.innerCornerRadius, style: .continuous)
+                    .fill(MapModeChrome.innerMaterial)
                     .frame(height: height)
                     .overlay(
                         Text(L("map.look_around.loading", fallback: "Checking street view…"))

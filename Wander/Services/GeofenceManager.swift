@@ -249,7 +249,12 @@ final class GeofenceManager: NSObject, ObservableObject {
     private func fire(_ geofence: Geofence) {
         switch geofence.action {
         case .stopSpoofing:
-            SimulationSession.shared.stopAll()
+            // `.automation`: nobody asked for this and nobody is watching. A geofence has a return
+            // trip — the same rule fires again when the user comes back — so the transport stays up
+            // and only the location is cleared. Arming a disconnect here would also break the
+            // documented "harmless even if nothing is currently simulating" promise above by
+            // dropping a tunnel the user connected by hand.
+            SimulationSession.shared.stopAll(source: .automation)
         }
         LogManager.shared.addInfoLog("Geofence fired: \(geofence.name) (\(geofence.trigger.rawValue))")
         postArrivalNotification(for: geofence)

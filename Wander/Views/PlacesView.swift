@@ -266,6 +266,8 @@ struct PlacesView: View {
                     } footer: {
                         Text(localized: "places.quick_picks_hint", fallback: "Tap any place to jump there and start simulating.")
                     }
+
+                    transferSection
                 }
             }
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic),
@@ -324,6 +326,83 @@ struct PlacesView: View {
             } message: {
                 Text(importError ?? "")
             }
+        }
+    }
+
+    // MARK: - Import / export
+
+    /// Moving spots in and out of Wander as a FILE, as opposed to one at a time by share link
+    /// (the "Paste share link" button above) or by hand on the map.
+    ///
+    /// These two used to be glyphs in the Teleport screen's navigation bar — the only tab in the
+    /// app that had one, holding five buttons of which three were duplicates of navigation that
+    /// already existed. The bar is gone; these two were the real ones, so they moved here rather
+    /// than being dropped. This is their natural home: an import lands as a place or a route, and
+    /// an export writes exactly what this screen lists — the current pin plus your saved and
+    /// recent places (or the live route, when there is one).
+    ///
+    /// The WORK still happens on the Teleport screen, which owns the file importer, the file
+    /// exporter and the pin/route being written; these rows switch to it and ask. Same order as
+    /// `importFromClipboard` and for the same reason: a picker presented by a screen that is
+    /// mid-dismissal is silently dropped.
+    private var transferSection: some View {
+        Section {
+            Button {
+                requestOnMap(.importCoordinatesRequested)
+            } label: {
+                transferRow(
+                    L("places.import_coordinates", fallback: "Import coordinates"),
+                    detail: L("places.import_coordinates.detail",
+                              fallback: "Open a GPX / CSV / text file — one point drops a pin, several become a route."),
+                    symbol: "square.and.arrow.down"
+                )
+            }
+            // Plain, like every other row on this screen — a default List button tints the whole
+            // two-line label accent-blue, which would make these two shout over the places above.
+            .buttonStyle(.plain)
+
+            Button {
+                requestOnMap(.exportGPXRequested)
+            } label: {
+                transferRow(
+                    L("places.export_gpx", fallback: "Export GPX"),
+                    detail: L("places.export_gpx.detail",
+                              fallback: "Save the current route — or your pin, saved and recent places — as a GPX file."),
+                    symbol: "square.and.arrow.up"
+                )
+            }
+            .buttonStyle(.plain)
+        } header: {
+            Text(localized: "places.transfer", fallback: "Import & export")
+        }
+    }
+
+    private func transferRow(_ title: String, detail: String, symbol: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.body)
+                .foregroundStyle(Wander.brand)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.body).foregroundStyle(.primary)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+            }
+            Spacer()
+        }
+        .contentShape(Rectangle())
+    }
+
+    /// Hand a request to the Teleport screen: show that tab, close this sheet, then post — so the
+    /// map is on screen and subscribed by the time the notification lands.
+    private func requestOnMap(_ name: Notification.Name) {
+        selection = AppFeature.location.id
+        dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            NotificationCenter.default.post(name: name, object: nil)
         }
     }
 

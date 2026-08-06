@@ -86,6 +86,14 @@ final class ItineraryRunner: ObservableObject {
         SimulationSession.shared.started()
 
         runTask = Task { [weak self] in
+            // Bring Wander's own tunnel up before the first step writes. An itinerary is the most
+            // unattended thing in the app: if the tunnel had auto-disconnected after the previous
+            // session, every step would inject into nothing and the user would find out hours later.
+            // No-ops (no await at all) unless the user opted into Wander's own tunnel.
+            if TunnelStartGate.isNeeded {
+                await WanderTunnel.shared.ensureStarted()
+            }
+            guard !Task.isCancelled else { return }
             await self?.run(steps: steps)
         }
     }
@@ -142,7 +150,10 @@ final class ItineraryRunner: ObservableObject {
             // which re-enters stop() via the observer. With runTask still set, stop()'s
             // `isRunning || runTask != nil` guard would pass and fire a redundant second stopAll().
             runTask = nil
-            SimulationSession.shared.stopAll()
+            // `.automation`: the itinerary ran to its natural end. Nobody pressed anything, and an
+            // unattended queue is exactly the case where the next automated thing to run would find
+            // the tunnel gone.
+            SimulationSession.shared.stopAll(source: .automation)
         }
     }
 
@@ -190,7 +201,7 @@ final class ItineraryRunner: ObservableObject {
         // stay keep-alive), so re-assert single-writer suppression of the Map tab's stale resend at
         // this one choke-point (mirrors WalkModeView.step()'s per-tick re-assert).
         LocationSimulationCommandQueue.suppressResends = true
-        LocationSimulationCommandQueue.shared.async {
+        LocationSimulationCommandQueue.submit {
             _ = simulate_location_logged(DeviceConnectionContext.targetIPAddress,
                                          target.latitude, target.longitude, path,
                                          source: .itinerary)

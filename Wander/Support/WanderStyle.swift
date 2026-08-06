@@ -108,6 +108,30 @@ enum Wander {
     /// separator in both appearances.
     static let hairline = Color.primary.opacity(0.08)
 
+    /// The colour of supporting text — what `wanderDetail()` and `wanderMicro()` paint with.
+    ///
+    /// 🔴 A CONCRETE COLOUR ON PURPOSE, not `.secondary`. This is the system's own secondary
+    /// label, so it is the same grey `.secondary` resolves to on a plain background and it still
+    /// adapts to light/dark — but it is NOT a `HierarchicalShapeStyle`, and that is the point.
+    ///
+    /// Every floating map panel is a `WanderCard`, and `WanderCard` fills itself with
+    /// `MapModeChrome.panelMaterial`. `.background(Material)` publishes `backgroundMaterial` into
+    /// the environment, and SwiftUI then resolves hierarchical styles — `.secondary`, `.tertiary`,
+    /// and `Color.secondary`, which is hierarchical-backed — through its VIBRANCY path. Measured
+    /// in the Joystick panel on an iPhone 17 Pro: `.secondary`, `.tertiary` and `Color.secondary`
+    /// all laid out at full width and drew NOTHING AT ALL, while `.primary` and this colour drew
+    /// normally; re-clearing `backgroundMaterial` on the same `Text` brought `.secondary` back,
+    /// which is what pins the cause on the material rather than on the font or the call site.
+    ///
+    /// The visible symptom was the Joystick speed readout rendering as a bare "6" with no unit,
+    /// but it was never limited to that: it silently blanked EVERY `WanderPanelNote` advisory in
+    /// all three map panels, because those go through `wanderDetail()`.
+    ///
+    /// So: supporting text in this app takes a colour, not a hierarchy level. A raw
+    /// `.foregroundStyle(.secondary)` inside a panel is the bug, and there are still some — see
+    /// the note on `wanderDetail()`.
+    static let secondaryText = Color(uiColor: .secondaryLabel)
+
     enum Icon {
         static let teleport = "mappin.and.ellipse"
         static let joystick = "dpad.fill"
@@ -121,62 +145,54 @@ enum Wander {
         static let add = "plus.circle.fill"
         static let clear = "trash"
         static let search = "magnifyingglass"
+
+        /// The "…" that holds the long tail of a bar that only has room for a couple of glyphs.
+        /// Used by `MapModeToolbar` — the map tabs' shared navigation bar. Circled rather than
+        /// bare so it reads as a tappable control against a moving map, where a bare ellipsis
+        /// disappears into whatever is underneath it.
+        static let overflow = "ellipsis.circle"
+
+        /// Reading a coordinate FILE into Wander (GPX / KML / GeoJSON / CSV). Pairs with
+        /// `Wander.Icon.export`.
+        ///
+        /// This is the SAME glyph as `Wander.Icon.install`, which is deliberate and is the one
+        /// place in the vocabulary that repeats: the Places screen's "Import coordinates" row
+        /// already draws `square.and.arrow.down`, and the map toolbar's menu item is a second
+        /// entry point to that exact action — two doors into one room have to wear one glyph.
+        /// `install` (putting an app build on the device) only ever appears in Settings, so the
+        /// two never share a screen.
+        static let importFile = "square.and.arrow.down"
     }
 }
 
 /// A floating, rounded, translucent control panel that sits over a full-bleed map.
+///
+/// Every measurement comes from `MapModeChrome` so the Teleport, Joystick and Route panels share
+/// one container treatment — same radius, same padding, same material, same shadow. Nothing here
+/// is a local number; change it in MapModeChrome and all three move together.
 struct WanderCard<Content: View>: View {
     @ViewBuilder var content: () -> Content
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: MapModeChrome.cornerRadius, style: .continuous)
+    }
     var body: some View {
         content()
-            .padding(16)
+            .padding(MapModeChrome.cardPadding)
             .frame(maxWidth: .infinity)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
-            )
-            .shadow(color: .black.opacity(0.14), radius: 14, y: 6)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 12)
+            .background(MapModeChrome.panelMaterial, in: shape)
+            .overlay(shape.strokeBorder(Wander.hairline, lineWidth: 0.5))
+            .wanderMapShadow()
+            .padding(.horizontal, MapModeChrome.horizontalInset)
+            .padding(.bottom, MapModeChrome.bottomInset)
     }
 }
 
-/// Measures content height so a control card can HUG its content instead of always reserving a
-/// fixed slice of the screen (which left a big empty band and covered the whole map under short
-/// content). The card only grows toward `maxHeight` — and only becomes scrollable — once the
-/// content genuinely exceeds it.
-private struct ContentHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
-}
-
-extension View {
-    /// Wrap a control card's content so the card hugs its content height, capping + scrolling only
-    /// past `maxHeight`. Replaces `ScrollView { ... }.frame(maxHeight:)`, which reserved the full
-    /// height regardless of content.
-    func hugScrollCard(maxHeight: CGFloat) -> some View {
-        modifier(HugScrollCard(maxHeight: maxHeight))
-    }
-}
-
-private struct HugScrollCard: ViewModifier {
-    let maxHeight: CGFloat
-    @State private var contentHeight: CGFloat = 0
-    func body(content: Content) -> some View {
-        ScrollView {
-            content
-                .background(GeometryReader { g in
-                    Color.clear.preference(key: ContentHeightKey.self, value: g.size.height)
-                })
-        }
-        // Until measured, fall back to the cap (matches the old behavior for one layout pass), then
-        // snap down to the real content height.
-        .frame(height: contentHeight <= 0 ? maxHeight : min(contentHeight, maxHeight))
-        .scrollBounceBehavior(.basedOnSize)
-        .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
-    }
-}
+// A `hugScrollCard(maxHeight:)` helper used to live here — it measured content and let a card
+// shrink to fit. It was DELETED, not left unused, because it is the mechanism that let the three
+// map panels agree only once their content overflowed: on a first launch they hugged at ~104,
+// ~213 and ~250pt and looked like three different designs. Panel sizing now goes through
+// `wanderMapPanel()` (MapModeChrome), which is a fixed frame. If you find yourself wanting the old
+// hugging behaviour for a map panel, you want to change `MapModeChrome.panelHeight` instead.
 
 /// The center placement crosshair — the one consistent "you'll drop it here" indicator.
 struct MapCrosshair: View {
@@ -200,12 +216,14 @@ struct WanderPrimaryButton: View {
     var body: some View {
         Button(role: role, action: action) {
             Label(title, systemImage: icon)
-                .font(.headline)
+                .font(.wanderLabel)
                 .frame(maxWidth: .infinity)
-                .frame(height: 30)
+                .frame(height: MapModeChrome.controlHeight)
         }
         .buttonStyle(.borderedProminent)
-        .tint(role == .destructive ? .red : Wander.brand)
+        // Semantic, not raw `.red`: a destructive primary is the "blocked / stop" status colour,
+        // which is the same token the Stop buttons in all three modes now use.
+        .tint(role == .destructive ? Wander.blocked : Wander.brand)
         .controlSize(.large)
     }
 }
@@ -235,6 +253,13 @@ extension Font {
 
     /// A numeric readout that lives inside a card — speed, distance, elapsed, altitude.
     /// Monospaced digits so the value doesn't jitter as it ticks (pair with `.wanderTick(_:)`).
+    ///
+    /// THIS IS THE FOCAL VALUE OF A MAP MODE'S PANEL, and there is exactly one size and one colour
+    /// rule for it: this font, at `.primary`. The three modes each answer one question — Joystick
+    /// "how fast am I moving", Route "how long does this take", Teleport "where is the pin" — and
+    /// they had answered it at three different sizes (`.title` / `.title3` / `.subheadline`) in two
+    /// different colours (primary / brand), which is precisely how three screens stop looking like
+    /// one app. Brand colour is for things you can TOUCH; the answer is read, not tapped.
     static let wanderMetric = Font.system(.title, design: .rounded, weight: .semibold).monospacedDigit()
 
     /// Card and section headers — the second level of the hierarchy, still rounded so headline
@@ -297,13 +322,17 @@ extension View {
 
     /// Supporting text. Secondary colour is part of the token — the contrast drop is what makes
     /// the label above it read as the focal point.
+    ///
+    /// USE THIS (or `wanderMicro()`) RATHER THAN A RAW `.foregroundStyle(.secondary)` anywhere
+    /// that can end up inside a `WanderCard`: a hierarchical style resolves to nothing at all on
+    /// the card's material. `Wander.secondaryText` has the measurements.
     func wanderDetail() -> some View {
-        font(.wanderDetail).foregroundStyle(.secondary)
+        font(.wanderDetail).foregroundStyle(Wander.secondaryText)
     }
 
     /// Tertiary metadata.
     func wanderMicro() -> some View {
-        font(.wanderMicro).foregroundStyle(.secondary)
+        font(.wanderMicro).foregroundStyle(Wander.secondaryText)
     }
 }
 

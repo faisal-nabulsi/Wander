@@ -183,8 +183,15 @@ final class ScheduleManager: ObservableObject {
         didStartActiveSpoof = true
         BackgroundAudioManager.shared.start()
         startTickIfNeeded()
-        resend(schedule.coordinate, path: path)
-        SimulationSession.shared.started()
+        // Bring Wander's own tunnel up BEFORE the first resend. This one is the sharpest edge of the
+        // whole feature: `resend()` runs before `started()`, so a schedule window opening after the
+        // tunnel had auto-disconnected would inject into nothing, mark the session active anyway,
+        // and spoof silently forever without ever having moved the device. No-ops synchronously
+        // unless the user opted into Wander's own tunnel.
+        TunnelStartGate.then {
+            self.resend(schedule.coordinate, path: path)
+            SimulationSession.shared.started()
+        }
         LogManager.shared.addInfoLog("Schedule '\(schedule.name)' started (auto-spoof).")
     }
 
@@ -194,7 +201,10 @@ final class ScheduleManager: ObservableObject {
         activeScheduleID = nil
         didStartActiveSpoof = false
         if wasStarted {
-            SimulationSession.shared.stopAll()
+            // `.automation`: the window closed on a timer, and the NEXT window (tomorrow, or the
+            // next armed schedule) will need this tunnel with nobody present to reconnect it. Clear
+            // the location, keep the transport.
+            SimulationSession.shared.stopAll(source: .automation)
         }
         updateKeepAlive()
     }
@@ -218,7 +228,7 @@ final class ScheduleManager: ObservableObject {
             ? LocationJitter.apply(coordinate)
             : coordinate
         let target = CoarseLocation.apply(jittered)
-        LocationSimulationCommandQueue.shared.async {
+        LocationSimulationCommandQueue.submit {
             _ = simulate_location_logged(DeviceConnectionContext.targetIPAddress,
                                          target.latitude, target.longitude, path,
                                          source: .schedule)

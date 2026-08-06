@@ -102,6 +102,25 @@ struct MainTabView: View {
     @State private var showSetup = false
     @State private var didRunSetupCheck = false
 
+    // Cellular Mode stranding. Observed HERE, not just inside `CellularModeBanner`, because two other
+    // things on this screen auto-present themselves over the top of that banner at exactly the moment
+    // it matters, and both have to be told to stand down while it is up:
+    //
+    //   • the setup checklist sheet, which auto-presents on `!setupChecker.allReady` — and a stranded,
+    //     tunnel-down, no-network phone is precisely a phone that reports not-ready, so the sheet
+    //     lands over the banner as a direct consequence of the same failure;
+    //   • the reboot-resume alert, which can arm at launch.
+    //
+    // A sheet and an alert both present ABOVE every `.overlay`, whatever order the overlays are
+    // declared in, so there is no arrangement of this view that would let the banner simply win on
+    // top — it has to be suppression. Neither is deleted: both return the moment the banner is
+    // dismissed or the stranding clears (see `onChange(of: cellularRun.isStranded)`).
+    @ObservedObject private var cellularRun = CellularModeRun.shared
+    /// True only while the checklist sheet is being HELD BACK by a stranding — i.e. it wanted to be
+    /// on screen and we closed it (or never opened it). It is what makes the restore give back
+    /// exactly what was taken, instead of re-popping a sheet the user had already dismissed.
+    @State private var setupSuppressedByStranding = false
+
     @ObservedObject private var gate = RemoteGate.shared
     // Apple-ID account singleton — observed so the OTA re-sign's 2FA prompt can surface from the
     // update banner and launch-time auto-install (not just from Settings/login). Without this,
@@ -191,7 +210,32 @@ struct MainTabView: View {
             }
             .onChange(of: setupChecker.hasRunOnce) { _, ran in
                 // After the first launch check, nudge the setup sheet only if something's missing.
-                if ran && !setupChecker.allReady { showSetup = true }
+                // Held back while a stranding is on screen: the checklist would cover the one banner
+                // that explains why nothing is ready, and "your tunnel isn't connected" is not news
+                // to someone whose phone has no radio. It is DEFERRED, not skipped — the flag below
+                // owes it back when the banner goes.
+                guard ran && !setupChecker.allReady else { return }
+                if cellularRun.isStranded { setupSuppressedByStranding = true }
+                else { showSetup = true }
+            }
+            .onChange(of: cellularRun.isStranded) { _, stranded in
+                if stranded {
+                    // Get out of the banner's way. The checklist sheet is only ever raised
+                    // automatically (this is its single presenting flag), so closing it here cannot
+                    // yank away something the user opened on purpose.
+                    if showSetup { setupSuppressedByStranding = true; showSetup = false }
+                    // And re-pick the alert: `syncActiveAlert` now filters `.resume` out while
+                    // stranded, so an already-presented resume alert is dismissed by this call.
+                    syncActiveAlert()
+                } else {
+                    // Stranding cleared, or the user dismissed the banner. Give back exactly what was
+                    // taken away, and nothing more: restoring on "the checklist would show today"
+                    // rather than on "we suppressed it" would re-present a sheet the user had already
+                    // read and dismissed before the stranding ever happened.
+                    if setupSuppressedByStranding && !setupChecker.allReady { showSetup = true }
+                    setupSuppressedByStranding = false
+                    syncActiveAlert()
+                }
             }
             .sheet(isPresented: $showSetup) {
                 SetupChecklistView()
@@ -211,6 +255,11 @@ struct MainTabView: View {
                 if phase == .background { WanderQuickActions.refresh() }
                 if phase == .active {
                     SimulationSession.shared.rescheduleIfActive()
+                    // Re-ask "did a Cellular Mode run leave this phone in Airplane Mode?" on every
+                    // return to the app. Its own ticker covers the case where we are ALREADY
+                    // frontmost (StartTunnelIntent foregrounds Wander mid-sequence, so a stranded
+                    // user is often already looking at us and never generates a foreground event).
+                    CellularModeRun.shared.evaluate()
                     gate.refresh()
                     License.shared.refresh()   // re-check so an expired subscription re-locks
                     if session.isActive {
@@ -302,8 +351,14 @@ struct MainTabView: View {
                         }
                 }
             }
-            // Hidden while the low-memory nudge is up (both are top banners) so they don't stack.
-            .overlay(alignment: .top) { if !tunnelHealth.memoryPressureWarning { spoofingBanner } }
+            // Hidden while the low-memory nudge is up (both are top banners) so they don't stack —
+            // and, for the same reason, while a Cellular Mode stranding is on screen. Both banners
+            // sit at `.padding(.top, 52)`, and a stranded run very often DID get its teleport in
+            // before the airplane-off step was interrupted, so "Spoofing active" and the recovery
+            // card land on the same pixels. The recovery card is the one with something to do.
+            .overlay(alignment: .top) {
+                if !tunnelHealth.memoryPressureWarning && !cellularRun.isStranded { spoofingBanner }
+            }
             .overlay(alignment: .bottomTrailing) { if panicButtonEnabled { panicButton } }
             .overlay(alignment: .top) { panicToast }
             .overlay(alignment: .top) { updateBanner }
@@ -333,6 +388,20 @@ struct MainTabView: View {
             }
             // Non-blocking "low memory may drop the tunnel" nudge while spoofing.
             .overlay(alignment: .top) { TunnelMemoryWarningBanner() }
+            // Cellular Mode recovery. Deliberately NOT gated on `NetworkReachability.isOnCellular` —
+            // that flag is false in Airplane Mode, i.e. false in the exact state this exists to
+            // explain. See CellularModeRun.
+            //
+            // LAST of the `.top` overlays on purpose. Each `.overlay` wraps the result of the ones
+            // before it, so declaration order IS z-order and the last one declared draws over the
+            // rest — checked against this chain rather than assumed: `spoofingBanner`, `panicToast`,
+            // `updateBanner` and `TunnelMemoryWarningBanner` are all declared above. Adding a new
+            // `.top` overlay BELOW this line would put it over the recovery banner.
+            //
+            // Overlay order is no help against a sheet or an alert, which present above every
+            // overlay regardless — the setup checklist and the reboot-resume alert are suppressed
+            // for the duration instead. See `cellularRun`.
+            .overlay(alignment: .top) { CellularModeBanner() }
             .animation(.easeInOut(duration: 0.25), value: session.cooldownActive)
             .animation(.easeInOut(duration: 0.25), value: bannerVisible)
             .animation(.easeInOut(duration: 0.25), value: panicToastVisible)
@@ -540,7 +609,16 @@ struct MainTabView: View {
         if wanderAccount.awaiting2FA && wanderAccount.twoFactorPresenter == .system { armed.append(.twoFactor) }
         if showAppleSignInNeeded { armed.append(.appleSignIn) }
         if snapBack.didBounceBack { armed.append(.snapBack) }
-        if pendingResume != nil { armed.append(.resume) }
+        // The reboot-resume alert is SUPPRESSED, not dropped, while a Cellular Mode stranding is on
+        // screen: it can arm at launch and would sit over the recovery banner, and "resume your
+        // spoof?" is an offer the user cannot act on until the radio is back anyway. `pendingResume`
+        // still holds the target, so the moment the banner clears this list includes `.resume` again
+        // and `onChange(of: cellularRun.isStranded)` re-runs this.
+        //
+        // Filtering it out of `armed` (rather than skipping the append at presentation time) is what
+        // also DISMISSES it if it is already up: the "don't disturb the alert on screen" check below
+        // asks whether the current alert is still armed, and this one no longer is.
+        if pendingResume != nil && !cellularRun.isStranded { armed.append(.resume) }
         if session.showCellularTip { armed.append(.cellularTip) }
 
         // If the one on screen is still armed, don't disturb it — let it finish.
@@ -579,8 +657,36 @@ struct MainTabView: View {
         }
         .accessibilityLabel(L("panic.accessibility", fallback: "Panic — stop all spoofing"))
         .padding(.trailing, 18)
-        .padding(.bottom, 66)   // sit above the tab bar
+        .padding(.bottom, panicBottomInset)
     }
+
+    /// How far up the panic button sits.
+    ///
+    /// It is a GLOBAL overlay on the `TabView`, so it used to be placed with one flat number that
+    /// knew only about the tab bar — and on the three map tabs it therefore sat ON the control
+    /// panel. Measured on an iPhone 17 Pro (window 874): the 56pt circle occupied y 718…774 while
+    /// the panel's card runs 507…779, so it covered the card's bottom-right corner — it truncated
+    /// "Simulate" on Teleport and the right end of the speed slider row on Joystick.
+    ///
+    /// The button is the safety control, so it does NOT move out of the way, shrink, or fade: it
+    /// keeps its size, its colour and its corner, and simply rides above the panel's top edge.
+    ///
+    /// ONE NUMBER FOR EVERY TAB, on purpose — this was tried as a per-tab inset first and both
+    /// attempts are worth not repeating. Reading `selection` inside this property, and then an
+    /// `.onChange(of: selection)` writing `@State`, BOTH stayed stuck at the map value: when
+    /// `TabView` writes its own selection binding SwiftUI does not re-run this body, so neither
+    /// the read nor the `onChange` ever saw the new tab (verified twice — `primaryTabSelection`
+    /// on disk read "more" while the button measured at the map position). Routing every write
+    /// through a hand-made `Binding` setter did not shift it either.
+    ///
+    /// Rather than ship a conditional that silently never fires, the clearance is unconditional.
+    /// That is also the better behaviour for this particular control: a panic button that sits in
+    /// a different place depending on which tab you are on is a panic button you have to look for.
+    /// The non-map tabs scroll their content under it, which is what a floating button does.
+    ///
+    /// Derived from the panel's own tokens rather than hand-tuned, so a future change to the panel
+    /// carries the button with it instead of silently re-opening the overlap.
+    private var panicBottomInset: CGFloat { MapModeChrome.panelClearance }
 
     /// Brief confirmation shown after a panic stop.
     @ViewBuilder private var panicToast: some View {
@@ -601,8 +707,14 @@ struct MainTabView: View {
         }
     }
 
-    /// Reverts to real GPS immediately and flashes a confirmation. Fail-safe: even if no
-    /// simulation is running, stopAll() is a harmless clear.
+    /// Reverts to real GPS immediately and flashes a confirmation.
+    ///
+    /// STILL a harmless clear when nothing is running, and that had to be re-established once
+    /// `stopAll()` could take the tunnel down with it: it arms the tunnel auto-disconnect only when
+    /// it actually stopped a live session (see `SimulationSession.stopAll`). So Panic pressed with
+    /// nothing spoofing does not drop a tunnel the user connected by hand — but Panic pressed on a
+    /// live spoof does, which is right: it is the most deliberate stop in the app, and "stop
+    /// everything" reasonably includes the transport it was riding on.
     private func panicStop() {
         SimulationSession.shared.stopAll()
         panicToastHideWork?.cancel()
@@ -771,6 +883,23 @@ struct MainTabView: View {
             ShortcutRunner.ready = true
         case "shortcut-missing":
             ShortcutRunner.ready = false
+        // Cellular Mode keeps its OWN installed-flag (see ShortcutRunner.cellularModeReady): the
+        // gs-loc/flush pack being installed says nothing about this shortcut existing, and sharing one
+        // flag would offer a one-tap button that lands on an x-error every time.
+        // Arrives TWICE on a healthy run and must stay idempotent: the shortcut's own last action
+        // opens it (so completion is recorded even if the x-callback is lost), and Shortcuts fires
+        // x-success at the same host a moment later. Reaching here proves the run got past its
+        // Airplane-Mode-Off step, which is what retires the stranding marker; `noteRunFinished` then
+        // answers the question the user cannot — whether anything is actually simulating.
+        case "cellular-done":
+            ShortcutRunner.cellularModeReady = true
+            CellularModeRun.shared.noteRunFinished()
+        // x-error: the shortcut is missing or renamed, so NOTHING ran and nothing touched the radio.
+        // Retire the marker rather than leave it to time out into a recovery banner for a run that
+        // never happened.
+        case "cellular-missing":
+            ShortcutRunner.cellularModeReady = false
+            CellularModeRun.shared.noteRunNeverStarted()
         case "cancel", "error":
             break
         // A shared spot/route. UNLIKE teleport/reset above this is NOT run directly: those come from
@@ -1226,47 +1355,65 @@ struct MainTabView: View {
             return
         }
 
-        LocationSimulationCommandQueue.shared.async {
-            let code = simulate_location(
-                DeviceConnectionContext.targetIPAddress,
-                coordinate.latitude,
-                coordinate.longitude,
-                pairingFile.path
-            )
+        // Bring Wander's own tunnel up before the write. A link/Shortcut teleport is one of the
+        // paths that never did, so one arriving after the tunnel auto-disconnected injected into
+        // nothing and still reported success upstream. No-ops synchronously unless the user opted
+        // into Wander's own tunnel.
+        TunnelStartGate.then {
+            LocationSimulationCommandQueue.submit {
+                let code = simulate_location(
+                    DeviceConnectionContext.targetIPAddress,
+                    coordinate.latitude,
+                    coordinate.longitude,
+                    pairingFile.path
+                )
 
-            DispatchQueue.main.async {
-                if code == 0 {
-                    // Register the teleport with the session exactly as the map's own teleport does
-                    // (MapSelectionView.simulate): `started()` marks the session active and takes the
-                    // keep-alive (it calls requestStart itself — hence no separate call here), and
-                    // `noteTeleport` records the point, applies the app-wide cooldown and arms the
-                    // snap-back watcher. Without this a link teleport left the rest of the app
-                    // believing nothing was spoofing, so `wander://status` answered spoofing=false
-                    // with no lat/lon, and a following `wander://walk` fell through to the REAL fix
-                    // and quietly walked the user around their actual neighbourhood.
-                    let target = CLLocationCoordinate2D(latitude: coordinate.latitude,
-                                                        longitude: coordinate.longitude)
-                    SimulationSession.shared.started()
-                    SimulationSession.shared.noteTeleport(to: target)
-                    LogManager.shared.addInfoLog(
-                        String(format: "Simulated location from URL: %.6f, %.6f", coordinate.latitude, coordinate.longitude)
-                    )
-                } else {
-                    showAlert(
-                        title: "Location Simulation Failed",
-                        message: "Couldn't simulate location from URL (error \(code)). Make sure LocalDevVPN is connected and Developer Mode is ON (Settings → Privacy & Security → Developer Mode). On cellular with no Wi‑Fi? Connect LocalDevVPN first, then turn Airplane Mode ON (you can turn it back OFF after) — that usually fixes it.",
-                        showOk: true
-                    )
+                DispatchQueue.main.async {
+                    if code == 0 {
+                        // Register the teleport with the session exactly as the map's own teleport does
+                        // (MapSelectionView.simulate): `started()` marks the session active and takes the
+                        // keep-alive (it calls requestStart itself — hence no separate call here), and
+                        // `noteTeleport` records the point, applies the app-wide cooldown and arms the
+                        // snap-back watcher. Without this a link teleport left the rest of the app
+                        // believing nothing was spoofing, so `wander://status` answered spoofing=false
+                        // with no lat/lon, and a following `wander://walk` fell through to the REAL fix
+                        // and quietly walked the user around their actual neighbourhood.
+                        let target = CLLocationCoordinate2D(latitude: coordinate.latitude,
+                                                            longitude: coordinate.longitude)
+                        SimulationSession.shared.started()
+                        SimulationSession.shared.noteTeleport(to: target)
+                        LogManager.shared.addInfoLog(
+                            String(format: "Simulated location from URL: %.6f, %.6f", coordinate.latitude, coordinate.longitude)
+                        )
+                    } else if LocationSimulationOutcome.isTunnelUnreachable(code) {
+                        // Name the cause instead of printing a number and a list of guesses — a
+                        // bounded probe established this before anything was dialled.
+                        showAlert(
+                            title: LocationSimulationOutcome.tunnelDownTitle,
+                            message: LocationSimulationOutcome.tunnelDownMessage,
+                            showOk: true
+                        )
+                    } else {
+                        showAlert(
+                            title: "Location Simulation Failed",
+                            message: "Couldn't simulate location from URL (error \(code)). Make sure LocalDevVPN is connected and Developer Mode is ON (Settings → Privacy & Security → Developer Mode). On cellular with no Wi‑Fi? Connect LocalDevVPN first, then turn Airplane Mode ON (you can turn it back OFF after) — that usually fixes it.",
+                            showOk: true
+                        )
+                    }
                 }
             }
         }
     }
 
     private func clearSimulatedLocation() {
-        LocationSimulationCommandQueue.shared.async {
+        LocationSimulationCommandQueue.submitClear {
             let code = clear_simulated_location()
+            LocationSessionActivity.noteSessionClosed()
             DispatchQueue.main.async {
-                if code == 0 {
+                if code == 0 || LocationSimulationOutcome.isTunnelUnreachable(code) {
+                    // Tunnel down ⇒ the connection-scoped DVT session is already gone, so there was
+                    // nothing left on the device to clear. That is a completed stop, not a failure,
+                    // and alerting on it reported success as breakage.
                     BackgroundLocationManager.shared.requestStop()
                     LogManager.shared.addInfoLog("Cleared simulated location from URL")
                 } else {
@@ -1439,6 +1586,12 @@ final class WanderLinkAutomation {
             let samples = self.playbackSamples(for: route, path: path, speedMps: speedMps)
             guard samples.count > 1 else { self.reportUnplayableRoute(); return }
 
+            // Transport before writes: a link-driven drive starting after the tunnel
+            // auto-disconnected would otherwise play the whole route into a closed socket. No await
+            // at all unless the user opted into Wander's own tunnel.
+            if TunnelStartGate.isNeeded { await WanderTunnel.shared.ensureStarted() }
+            guard !Task.isCancelled, self.stopEpoch == epoch else { return }
+
             self.armAsSoleWriter(.route)
             if !License.shared.isLicensed { TrialManager.shared.chargeRoute() }
             // Adventure Sync: open a walk window so the drive can be mirrored into Health incrementally
@@ -1485,6 +1638,9 @@ final class WanderLinkAutomation {
         standDownOtherWriters()
         armTask = Task { @MainActor [weak self] in
             guard let self, !Task.isCancelled else { return }
+            // Transport before writes — see `startRoute`.
+            if TunnelStartGate.isNeeded { await WanderTunnel.shared.ensureStarted() }
+            guard !Task.isCancelled else { return }
             self.armAsSoleWriter(.walk)
             self.walkCoordinate = coordinate
             self.currentCoordinate = coordinate
@@ -1556,7 +1712,9 @@ final class WanderLinkAutomation {
                 walkTrialFraction -= 1
             }
             if !TrialManager.shared.canUse(.joystick) {
-                SimulationSession.shared.stopAll()   // ends the run through the one global stop path
+                // `.automation`: the trial allowance ran out mid-run — the user didn't stop
+                // anything, and they may well pay and start again in the next few seconds.
+                SimulationSession.shared.stopAll(source: .automation)   // one global stop path
                 return
             }
         }
@@ -1793,7 +1951,7 @@ final class WanderLinkAutomation {
         // "Approximate location": stable per-session offset. No-op when off.
         let target = CoarseLocation.apply(coordinate)
         LocationSimulationCommandQueue.suppressResends = true
-        LocationSimulationCommandQueue.shared.async {
+        LocationSimulationCommandQueue.submit {
             _ = simulate_location(DeviceConnectionContext.targetIPAddress, target.latitude, target.longitude, path)
         }
     }

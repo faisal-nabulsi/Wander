@@ -61,6 +61,12 @@ struct WanderApp: App {
             // that reads through L(...) picks up the new bundle immediately.
             .id(localization.currentLanguage)
             .task {
+                // FIRST, before anything can read the tunnel configuration. The Tunnel Matrix
+                // diagnostic holds the user's tunnel addresses for a few seconds per row while it
+                // reconnects; if the app died inside that window the tunnel would come back pointed
+                // at a test address and the spoof would silently never work again, with a symptom
+                // that looks nothing like the cause. No-op when no run was interrupted.
+                TunnelConfigMatrixRunner.restoreInterruptedRunIfNeeded()
                 // If we crashed last run, quietly ship that report to support now.
                 CrashReporter.sendPendingIfAny()
                 // Arm the in-app scheduler: turns on the keep-alive if any schedule is armed,

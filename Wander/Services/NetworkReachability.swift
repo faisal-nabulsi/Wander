@@ -80,6 +80,9 @@ final class NetworkReachability: ObservableObject {
     private var probeTask: Task<Void, Never>?
     private var periodicProbeTask: Task<Void, Never>?
     private var probeFailStreak = 0
+    /// True from the moment a probe starts until it applies its result (or is superseded). Read only
+    /// by `recheckInternetSoon`, which must not restart a probe that is already running.
+    private var probeInFlight = false
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -124,12 +127,34 @@ final class NetworkReachability: ObservableObject {
     /// on every path change, so toggling Airplane Mode / Wi-Fi updates the flag promptly.
     @MainActor private func refreshHasInternet(pathSatisfied: Bool) {
         probeTask?.cancel()
+        probeInFlight = false
         guard pathSatisfied else { probeFailStreak = 0; setHasInternet(false); return }
+        probeInFlight = true
         probeTask = Task { [weak self] in
             let ok = await Self.probeInternet()
             if Task.isCancelled { return }
-            await MainActor.run { self?.applyProbe(ok) }
+            await MainActor.run {
+                self?.probeInFlight = false
+                self?.applyProbe(ok)
+            }
         }
+    }
+
+    /// Ask for a re-probe NOW, unless one is already running.
+    ///
+    /// Exists for `CellularModeRun`, which polls every 5 s while a Cellular Mode run is outstanding
+    /// and needs `hasInternet` to be current rather than up to 60 s stale — the difference between a
+    /// 45-second recovery banner and a 65-second one.
+    ///
+    /// The "unless one is already running" part is the whole point, and is why this is not simply a
+    /// public `refreshHasInternet`: that call CANCELS the probe in flight, which is right for a path
+    /// change (the answer it was computing is about to be obsolete) and ruinous for a repeating
+    /// caller. A probe takes up to 8 s (two endpoints, 4 s each), so a 5-second poll that cancelled
+    /// would restart it forever, no result would ever land, and the two-failure streak in
+    /// `applyProbe` would never advance at all.
+    @MainActor func recheckInternetSoon() {
+        guard !probeInFlight else { return }
+        refreshHasInternet(pathSatisfied: NetworkReachability.isOnlineSnapshot)
     }
 
     /// Success flips us online immediately; require TWO consecutive failures before switching a

@@ -128,6 +128,8 @@
 
 "settings.tunnel.header" = "Wander Tunnel";
 "settings.tunnel.checklist" = "Setup checklist";
+/* Shown when this install's signature has no Network Extension entitlement, so the built-in tunnel could never start here. */
+"settings.tunnel.unsupported" = "This install can't run the built-in tunnel — the Network Extension entitlement isn't in its signature, which is what free-Apple-ID sideloading removes when it re-signs the app. Use the LocalDevVPN app as your tunnel instead.";
 
 "settings.help.header" = "Help";
 "settings.help.download_vpn" = "Download LocalDevVPN";
@@ -399,3 +401,12 @@
 "update.needs_apple_id.title" = "Sign in to install";
 "update.needs_apple_id.body" = "To install the update, first sign in to your Apple ID in More → Settings → Sign in to Apple ID, then tap the update again.";
 "update.banner" = "Update ready — tap to install";
+
+/* Tunnel IP settings: opt-in, default-off experiment that dials the developer tunnel over IPv6 so an
+   IPv6-only cellular carrier doesn't need the Airplane Mode toggle. Falls back to IPv4 either way. */
+"tunnelip.ipv6.header" = "Cellular (experimental)";
+"tunnelip.ipv6.toggle" = "Try IPv6 tunnel (experiment)";
+"tunnelip.ipv6.addresses" = "IPv6 addresses";
+"tunnelip.ipv6.restart" = "Restart tunnel to apply";
+"tunnelip.ipv6.footer" = "Some carriers give your phone only an IPv6 address on cellular, and the tunnel then won't start unless you toggle Airplane Mode. This tries the tunnel over IPv6 first, then falls back to the normal way, so nothing is taken away if it fails. It is an experiment and it is not known yet whether iOS accepts it — if the tunnel stops connecting, turn this back off. It only applies to Wander's own built-in tunnel (Settings → Wander Tunnel → Connect), not to LocalDevVPN, and the tunnel has to be restarted for a change here to take effect.";
+"tunnelip.ipv6.unsupported" = "Needs Wander's own built-in tunnel, which this install isn't signed for. Only a certificate install (not a free Apple ID sideload) can run it.";

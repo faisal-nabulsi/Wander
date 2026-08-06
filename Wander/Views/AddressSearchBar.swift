@@ -567,8 +567,14 @@ struct AddressSearchBar: View {
                     .accessibilityLabel("Clear search")
                 }
             }
-            .padding(10)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+            // Nested-control tokens, not hand-rolled numbers. This bar renders inside the control
+            // panel of ALL THREE map modes, so a radius typed here is a radius every mode shows —
+            // and the 10 that used to live on these four surfaces sat directly beside the AI bar's
+            // 12 and the card's 24, i.e. three radii on one card in every tab.
+            .padding(MapModeChrome.innerPadding)
+            .background(MapModeChrome.innerMaterial,
+                        in: RoundedRectangle(cornerRadius: MapModeChrome.innerCornerRadius,
+                                             style: .continuous))
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -624,9 +630,11 @@ struct AddressSearchBar: View {
                             .padding(.vertical, 8)
                     }
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, MapModeChrome.innerPadding)
                 .padding(.bottom, completer.results.isEmpty ? 4 : 0)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                .background(MapModeChrome.innerMaterial,
+                            in: RoundedRectangle(cornerRadius: MapModeChrome.innerCornerRadius,
+                                                 style: .continuous))
             }
         }
         // Keep the completer pointed at the current anchor. `.task(id:)` re-runs when
@@ -700,8 +708,10 @@ struct AddressSearchBar: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 8).padding(.horizontal, 10)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .padding(.vertical, 8).padding(.horizontal, MapModeChrome.innerPadding)
+            .background(MapModeChrome.innerMaterial,
+                        in: RoundedRectangle(cornerRadius: MapModeChrome.innerCornerRadius,
+                                             style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -765,8 +775,10 @@ struct AddressSearchBar: View {
             .buttonBorderShape(.capsule)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 8).padding(.horizontal, 10)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .padding(.vertical, 8).padding(.horizontal, MapModeChrome.innerPadding)
+        .background(MapModeChrome.innerMaterial,
+                    in: RoundedRectangle(cornerRadius: MapModeChrome.innerCornerRadius,
+                                         style: .continuous))
     }
 
     /// A pasted string lands in the FIELD rather than teleporting on the spot: the

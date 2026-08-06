@@ -158,8 +158,13 @@ struct SpoofDoctorView: View {
                 icon: "location.slash.fill",
                 title: "Location is off for Wander",
                 message: "Wander needs Location access to read what iOS reports. Turn it on for Wander, then run the check again.",
+                // App-specific permission, so land on WANDER's own location screen rather than the
+                // long system list. AppLocationSettings falls back to the generic pane if Apple ever
+                // drops the per-app path.
                 actions: [
-                    .init(title: "Open Location Services", icon: "gear", url: "prefs:root=Privacy&path=LOCATION")
+                    .init(title: "Open Wander's location settings", icon: "gear") {
+                        AppLocationSettings.openLocationScreen(forBundleID: AppLocationSettings.BundleID.wander)
+                    }
                 ]
             )
 
@@ -169,8 +174,12 @@ struct SpoofDoctorView: View {
                 icon: "questionmark.circle",
                 title: "Couldn't get a fix",
                 message: "No location came back. Make sure Location Services is on for Wander and try again.",
+                // Same reasoning as .locationDenied — this is Wander's own permission, not the
+                // system-wide switch.
                 actions: [
-                    .init(title: "Open Location Services", icon: "gear", url: "prefs:root=Privacy&path=LOCATION")
+                    .init(title: "Open Wander's location settings", icon: "gear") {
+                        AppLocationSettings.openLocationScreen(forBundleID: AppLocationSettings.BundleID.wander)
+                    }
                 ]
             )
         }

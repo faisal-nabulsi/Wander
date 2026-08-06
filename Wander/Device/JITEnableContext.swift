@@ -153,76 +153,95 @@ final class JITEnableContext {
     /// fail fast when the VPN is down. `tunnel_create_rppairing` has NO timeout and would
     /// otherwise hang, holding `tunnelConnecting` and blocking every later attempt — which is
     /// why the setup checklist stayed stuck on X even after the VPN came back.
-    private func isTunnelEndpointReachable(timeoutSeconds: Double = 3) -> Bool {
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { return false }
-        defer { close(fd) }
-
-        let flags = fcntl(fd, F_GETFL, 0)
-        _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
-
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = in_port_t(49152).bigEndian
-        guard DeviceConnectionContext.targetIPAddress.withCString({ inet_pton(AF_INET, $0, &addr.sin_addr) }) == 1 else {
-            return false
-        }
-
-        let rc = withUnsafePointer(to: &addr) { p in
-            p.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.stride))
-            }
-        }
-        if rc == 0 { return true }                // connected immediately
-        if errno != EINPROGRESS { return false }  // immediate failure (no route, refused, …)
-
-        var pfd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-        guard poll(&pfd, 1, Int32(max(timeoutSeconds, 0.1) * 1000)) > 0 else { return false }  // timeout
-
-        var soError: Int32 = 0
-        var len = socklen_t(MemoryLayout<Int32>.size)
-        guard getsockopt(fd, SOL_SOCKET, SO_ERROR, &soError, &len) == 0 else { return false }
-        return soError == 0
+    ///
+    /// Family-agnostic: it probes whatever address it is handed, IPv4 or IPv6. That matters because
+    /// this probe runs BEFORE the FFI call and a failure here gates the whole attempt — a hardcoded
+    /// AF_INET probe would fail an IPv6 dial before the IPv6 dial was ever tried, and the result would
+    /// read as "IPv6 doesn't work" when the v6 path was never reached.
+    ///
+    /// The socket work now lives in `EndpointProbe` so the REASON survives: this used to return a bare
+    /// Bool, and every caller then reported the same "Can't reach the device tunnel" whether a daemon
+    /// had refused the connection (packets flow — policy), no route existed (packets never left the
+    /// phone — routing), or the SYN vanished (blackhole). Those have completely different fixes. The
+    /// Bool contract, the 3 s default and the semantics ("true only on a completed handshake") are
+    /// unchanged; the detail is written alongside it, not returned through it.
+    private func isTunnelEndpointReachable(address: String = DeviceConnectionContext.targetIPAddress,
+                                           timeoutSeconds: Double = 3) -> Bool {
+        let result = EndpointProbe.probe(address, timeoutSeconds: timeoutSeconds)
+        EndpointProbeLog.record(result, context: "tunnel dial pre-probe:")
+        return result.isReachable
     }
 
+    /// Dials the developer tunnel, trying each candidate address in turn.
+    ///
+    /// With the IPv6 experiment OFF — the default — `dialTargets()` returns exactly one element (the
+    /// same IPv4 address as before), so this runs the identical single attempt and throws the identical
+    /// error. With it ON, IPv6 is tried FIRST and IPv4 is still tried after it, so a user can never end
+    /// up worse off than the shipping path.
     private func createTunnel(hostname: String) throws -> TunnelHandles {
+        let targets = DeviceConnectionContext.dialTargets()
+        var lastError: Error = makeError("Can't reach the device tunnel — connect the VPN and try again.", code: -19)
+
+        for target in targets {
+            do {
+                let handles = try createTunnelAttempt(hostname: hostname, target: target)
+                if targets.count > 1 {
+                    SpoofTrace.log("tunnel dial OK over \(target.familyLabel) (\(target.address))")
+                }
+                return handles
+            } catch {
+                lastError = error
+                if targets.count > 1 {
+                    SpoofTrace.log("tunnel dial FAILED over \(target.familyLabel) (\(target.address)): \(error.localizedDescription)")
+                }
+            }
+        }
+
+        throw lastError
+    }
+
+    private func createTunnelAttempt(hostname: String, target: DeviceConnectionContext.DialTarget) throws -> TunnelHandles {
         // Fail fast when the VPN/tunnel route is down (see isTunnelEndpointReachable) so the
         // un-timeout-able native call below never hangs and wedges future attempts.
-        guard isTunnelEndpointReachable() else {
+        // The bound travels with the candidate: IPv4 keeps the shipping 3s, the speculative IPv6 leg
+        // gets a tighter one so adding it can't stretch the caller's overall budget (see
+        // DialTarget.probeTimeoutSeconds).
+        guard isTunnelEndpointReachable(address: target.address,
+                                        timeoutSeconds: target.probeTimeoutSeconds) else {
             throw makeError("Can't reach the device tunnel — connect the VPN and try again.", code: -19)
         }
         let pairingFile = try getPairingFile()
         defer { rp_pairing_file_free(pairingFile) }
 
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = in_port_t(49152).bigEndian
-
-        let deviceIP = DeviceConnectionContext.targetIPAddress
-        let parseResult = deviceIP.withCString { inet_pton(AF_INET, $0, &addr.sin_addr) }
-        guard parseResult == 1 else {
+        // sockaddr_in for an IPv4 literal, sockaddr_in6 for an IPv6 one, each with its own exact
+        // socklen — which is what the FFI's generic `const idevice_sockaddr *` + socklen pair is for.
+        guard let endpoint = DeviceConnectionContext.makeSocketAddress(target.address) else {
             throw makeError("Failed to parse target IP address.", code: -18)
         }
 
         var tunnel = TunnelHandles()
         let ffiError = hostname.withCString { hostname in
-            withUnsafePointer(to: &addr) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    tunnel_create_rppairing(
-                        $0,
-                        socklen_t(MemoryLayout<sockaddr_in>.stride),
-                        hostname,
-                        pairingFile,
-                        nil,
-                        nil,
-                        &tunnel.adapter,
-                        &tunnel.handshake
-                    )
-                }
+            endpoint.withSockaddr { pointer, length in
+                tunnel_create_rppairing(
+                    pointer,
+                    length,
+                    hostname,
+                    pairingFile,
+                    nil,
+                    nil,
+                    &tunnel.adapter,
+                    &tunnel.handshake
+                )
             }
         }
 
         if let ffiError {
+            // Free whatever the failed call still managed to hand back before throwing. The FFI can
+            // populate one handle and then fail on the other, and the pre-existing code path dropped
+            // those on the floor. That leaked once per failed inject; with a retry loop above it, it
+            // would leak once per candidate. Same treatment as the incomplete-handles branch below.
+            var partialTunnel = tunnel
+            partialTunnel.free()
             throw error(from: ffiError, fallback: "Failed to create tunnel")
         }
 

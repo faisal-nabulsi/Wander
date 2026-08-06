@@ -84,6 +84,9 @@ func mountPersonalDDI(imagePath: String, trustcachePath: String, manifestPath: S
         try JITEnableContext.shared.mountPersonalDDI(withImagePath: imagePath, trustcachePath: trustcachePath, manifestPath: manifestPath)
     } catch {
         LogManager.shared.addErrorLog("Failed to mount DDI: \(error.localizedDescription)")
+        // A failed mount is almost always a failed tunnel underneath it, so record which interfaces
+        // existed at that moment — that is the state the lockdownd source-address check saw.
+        NetworkInterfaceDump.logOnFailure(reason: "DDI mount failed: \(error.localizedDescription)")
         return error.localizedDescription
     }
     return nil

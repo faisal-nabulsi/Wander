@@ -329,6 +329,10 @@ final class SimulationSession: ObservableObject {
     /// Call when a mode begins simulating.
     func started() {
         isActive = true
+        // A spoof is live again, so any pending "disconnect the tunnel, nothing is using it" timer is
+        // now wrong. This is the common case, not an edge one: clearing a pin to choose a different
+        // spot lands here within seconds, and must never pay for a tunnel restart.
+        WanderTunnel.shared.cancelAutoDisconnect()
         BackgroundLocationManager.shared.requestStart()
         scheduleReminderIfEnabled()
         maybeShowCellularTip()
@@ -348,7 +352,31 @@ final class SimulationSession: ObservableObject {
 
     /// Call when a single mode stops only itself (e.g. Teleport's Clear). The global Stop
     /// button uses stopAll(), which additionally broadcasts to every mode.
-    func markStopped() {
+    ///
+    /// ARMS THE TUNNEL AUTO-DISCONNECT, under the SAME two conditions `stopAll()` uses: a human
+    /// asked for the stop, and something was actually running. It has to. BOTH of the Map tab's
+    /// "Stop" buttons land here (`MapSelectionView.clear()`), so for a teleport user — the primary
+    /// flow — this is how a session ends. With only `stopAll()` arming, the feature fired for
+    /// nobody who just teleports.
+    ///
+    /// WHY THAT IS SAFE EVEN THOUGH THIS DOES NOT POST `.stopSimulationRequested`. It stands nobody
+    /// down: `ItineraryRunner`, `WalkModeView`, `RouteModeView` and the link automation all keep
+    /// injecting straight through it, against an `isActive` that now reads false. Arming is only a
+    /// REQUEST, though — it is not what decides the teardown. `WanderTunnel.fireAutoDisconnect`
+    /// asks `LocationSessionActivity.mayHoldOpenSession` on the location queue before it stops
+    /// anything, and a writer that is still injecting has pushed the recorded last write PAST this
+    /// stop's clear, so that reads "a session may be open" and the tunnel is left up. The arm asks;
+    /// the session guard answers. DO NOT WEAKEN THAT GUARD — it is the whole reason this arm is
+    /// allowed to exist.
+    ///
+    /// ORDERING. The one caller runs this from the SUCCESS handler of its own clear, i.e. after
+    /// `clear_simulated_location()` has returned and `noteSessionClosed()` has been recorded on the
+    /// location queue. `scheduleAutoDisconnectWhenIdle()` additionally drains that queue before it
+    /// arms anything, so the ordering holds even if a future caller stops being that careful.
+    func markStopped(source: StopSource = .user) {
+        // Read BEFORE we clear it, exactly as stopAll() does: a stop that stopped nothing arms
+        // nothing. `isActive` false here can only ever cost us a disconnect we skipped.
+        let wasActive = isActive
         isActive = false
         stopGeneration += 1
         clearResumeTarget()   // deliberate stop — never resurface as a "resume?" prompt next launch
@@ -358,10 +386,36 @@ final class SimulationSession: ObservableObject {
         // A deliberate stop ends the session — cancel the pending "cooldown cleared" ping so it can't
         // fire after the user has already stopped (the in-app chip still counts down if it re-shows).
         cancelCooldownClearedNotification()
+        if source == .user, wasActive {
+            WanderTunnel.shared.scheduleAutoDisconnectWhenIdle()
+        }
+    }
+
+    /// Who asked for the stop. The distinction exists for exactly one decision — whether to arm the
+    /// tunnel auto-disconnect — and the rule is: only a human ending a session may take the
+    /// transport down with it.
+    enum StopSource {
+        /// A person did this: the Stop button, Panic, the health chip, Settings, the Shortcuts
+        /// "Stop" verb. Nothing else is expected to want the tunnel in a moment.
+        case user
+        /// Something stopped on its own: a geofence firing, a schedule window closing, an itinerary
+        /// finishing, a trial allowance running out. These are stops that a FURTHER automated action
+        /// may follow — the same schedule opens another window tomorrow, the same geofence has a
+        /// return trip — and there is no one present to reconnect a tunnel we dropped. They clear
+        /// the location; they never touch the transport.
+        case automation
     }
 
     /// Global stop: clears the device location, tells every mode to reset, cancels the reminder.
-    func stopAll() {
+    func stopAll(source: StopSource = .user) {
+        // Read BEFORE we clear it. A stop that stopped nothing arms nothing — Panic and the
+        // geofence/schedule stops are all documented as "harmless even if nothing is running", and
+        // that has to stay true now that a stop can take the tunnel with it. A user who connected
+        // the tunnel by hand and then hit Panic with nothing spoofing must keep their tunnel.
+        //
+        // Note which way this uses `isActive`: false means DON'T arm. Its known weakness (false
+        // during a teleport's rebuild) can therefore only ever cost us a disconnect we skipped.
+        let wasActive = isActive
         isActive = false
         stopGeneration += 1
         clearResumeTarget()   // deliberate stop — never resurface as a "resume?" prompt next launch
@@ -372,11 +426,23 @@ final class SimulationSession: ObservableObject {
         // notification handler that stops the resend timer may land a beat later.
         LocationSimulationCommandQueue.suppressResends = true
         NotificationCenter.default.post(name: .stopSimulationRequested, object: nil)
-        LocationSimulationCommandQueue.shared.async {
+        LocationSimulationCommandQueue.submitClear {
             _ = clear_simulated_location()
+            // Every return path of that call has already run `LocationSimulationState.cleanup()`, so
+            // at this instant no FFI session handle exists. That fact — recorded here, on the
+            // location queue — is what lets the tunnel's fire-time guard tell "nothing is holding a
+            // session" from "I merely can't see one".
+            LocationSessionActivity.noteSessionClosed()
             DispatchQueue.main.async {
                 BackgroundLocationManager.shared.requestStop()
             }
+        }
+        // MUST stay after the clear is enqueued above. The scheduler waits its turn on that SAME
+        // serial queue, so the grace timer only starts once the clear has actually returned — the
+        // tunnel is the transport the clear rides on, and pulling it out mid-clear is how you get an
+        // orphaned session. The ordering is the queue's FIFO, not the length of the delay.
+        if source == .user, wasActive {
+            WanderTunnel.shared.scheduleAutoDisconnectWhenIdle()
         }
         cancelReminder()
         // A deliberate global stop ends the session — cancel the pending "cooldown cleared" ping.

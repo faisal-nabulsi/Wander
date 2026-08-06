@@ -187,6 +187,12 @@ final class TunnelHealthMonitor: ObservableObject {
     }
 
     private func setState(_ newState: State) {
+        // On the TRANSITION into red only — never on every poll — snapshot the interface list. A tunnel
+        // that just went unreachable is exactly when the "which interfaces does this phone have" question
+        // has to be answered, and it can't be answered after the fact. Throttled inside the dump.
+        if newState == .disconnected, state != .disconnected, !GslocMode.enabled {
+            NetworkInterfaceDump.logOnFailure(reason: "tunnel health went red")
+        }
         if newState != state { state = newState }
         // Kick a best-effort reconnect when unhealthy; back off to healthy resets the attempt counter.
         switch newState {

@@ -32,9 +32,16 @@ private struct RouteSearchSelection {
     let coordinate: CLLocationCoordinate2D
 }
 
-private enum RouteSearchField {
-    case start
-    case end
+extension Notification.Name {
+    /// Ask the Teleport screen to open its coordinate/GPX file importer. Posted by Places, which
+    /// owns the entry point; the parsing and the pin/route it produces belong to this screen, so
+    /// the importer itself stays here rather than being rebuilt on the other side.
+    static let importCoordinatesRequested = Notification.Name("wander.importCoordinatesRequested")
+
+    /// Ask the Teleport screen to write a GPX of what it currently holds — the live route if there
+    /// is one, otherwise the pin plus your saved and recent places. Also posted by Places, for the
+    /// same reason: only this screen knows what "currently" means.
+    static let exportGPXRequested = Notification.Name("wander.exportGPXRequested")
 }
 
 private struct RouteSimulationPlan {
@@ -882,6 +889,12 @@ struct LocationSimulationView: View {
     @State private var realLocationSnapshot: CLLocationCoordinate2D?
     @StateObject private var locationInfo = LocationInfoService()
     @ObservedObject private var reachability = NetworkReachability.shared
+    /// Cellular Mode's own "the shortcut is installed" flag, read through the SAME defaults key
+    /// `ShortcutRunner.cellularModeReady` writes — as an `@AppStorage` so the button re-labels itself
+    /// the instant the setup sheet (or an x-error callback) flips it. Same pattern, same reason, as
+    /// `SetupChecklistView`'s read of `shortcutsReady`.
+    @AppStorage("cellularModeShortcutReady") private var cellularModeReady = false
+    @State private var showCellularSetup = false
     // "First fix is real" guardrail (OFF by default — see RealGPSSeeder). When enabled, seeds the
     // device's real location before a teleport so the opening jump isn't an instant impossible delta.
     @StateObject private var realGPSSeeder = RealGPSSeeder()
@@ -892,10 +905,24 @@ struct LocationSimulationView: View {
     /// location wanders ~1–3 m and drifts back instead of teleporting a fresh random metre each
     /// tick. Created per hold in startResendLoop, cleared in stopResendLoop.
     @State private var breathingJitter: BreathingJitter?
-    @State private var routeLoadTask: Task<Void, Never>?
     @State private var routeSpeedPrefetchTask: Task<Void, Never>?
     @State private var routePlaybackTask: Task<Void, Never>?
     @State private var isBusy = false
+
+    /// Which location command currently OWNS the controls, so `isBusy` can never latch true.
+    ///
+    /// `isBusy` greys out Simulate, Play Route and Stop, and its only reset used to live at the far
+    /// end of the serial location queue — inside the block that runs after the FFI returns. A queue
+    /// that could not drain (a dead tunnel, before the bounded probe in `_simulate_location` covered
+    /// every dial) therefore left the whole action row disabled for the rest of the session, which is
+    /// precisely the reported "Simulate goes gray and clicking Stop does nothing".
+    ///
+    /// Every command takes the next token, and three things can end its ownership: the command
+    /// reporting back, the watchdog releasing it (`armBusyWatchdog`), or a Stop taking the controls
+    /// (`clear()` / the `.stopSimulationRequested` handler) — the last of which is what guarantees a
+    /// user-visible Stop is never gated on work it cannot see. A late outcome whose token no longer
+    /// matches is discarded rather than allowed to re-disable a control somebody else now owns.
+    @State private var locationCommandToken = 0
     @State private var showPaywall = false
     @State private var isLoadingRoute = false
     @State private var isPrefetchingRouteSpeeds = false
@@ -906,32 +933,16 @@ struct LocationSimulationView: View {
 
     @State private var showCoordinateImporter = false
     @State private var streetViewTarget: CoordinateSnapshot?
-    @State private var showOfflineMaps = false
     // True while the address search is focused / showing results — hides the floating top card.
     @State private var searchActive = false
-    /// Global Y of the bottom controls card's TOP edge (measured live). The card's height varies by
-    /// mode (teleport vs route vs simulating), and the tab bar + safe-area sit below it, so a fixed
-    /// lift fraction can't reliably clear it — we measure the card top and centre the crosshair in
-    /// the open map region above it.
-    @State private var controlsCardTopY: CGFloat = 0
-    /// Fraction of the SCREEN to lift the placement crosshair above centre so the bottom controls
-    /// card can't cover it. Derived so the crosshair lands at the MIDPOINT between the top of the
-    /// screen and the card's top edge; `visibleCenter` is shifted north by the SAME fraction to match.
-    private var crosshairLift: CGFloat {
-        let h = UIScreen.main.bounds.height
-        guard h > 0, controlsCardTopY > 0, controlsCardTopY < h else { return 0.14 }  // default until measured
-        return min(0.34, max(0.10, (h - controlsCardTopY) / (2 * h)))
-    }
-    /// Reports the controls card's top-edge Y (global space) up to `body` so `crosshairLift` adapts.
-    private struct ControlsCardTopKey: PreferenceKey {
-        static var defaultValue: CGFloat = 0
-        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
-    }
+    // Crosshair placement and the bottom panel's height are NOT decided here — see
+    // Support/MapModeChrome.swift, which owns both for Teleport, Joystick and Route alike. This
+    // screen used to measure its own card top and derive a lift from it, which is why the crosshair
+    // sat somewhere different here than it did on the other two tabs.
     // Region for the offline (cached-tile) map shown automatically when the device has no network.
     @State private var offlineRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 0, longitude: 0),
         latitudinalMeters: 2000, longitudinalMeters: 2000)
-    @State private var showRouteSearch = false
     @State private var routeStartSelection: RouteSearchSelection?
     @State private var routeEndSelection: RouteSearchSelection?
     @State private var routePlan: RouteSimulationPlan?
@@ -961,9 +972,9 @@ struct LocationSimulationView: View {
         return formatter
     }()
 
-    // Bookmarks
+    // Bookmarks. Saved to (and read back from) the shared `locationBookmarks` store — the same one
+    // the Places screen lists — so the bookmark button below and Places are one feature, not two.
     @State private var bookmarks: [LocationBookmark] = []
-    @State private var showBookmarks = false
     @State private var showSaveBookmark = false
     @State private var newBookmarkName = ""
 
@@ -996,6 +1007,20 @@ struct LocationSimulationView: View {
 
     private var isRouteRunning: Bool {
         routePlaybackTask != nil
+    }
+
+    /// Whether Stop has anything to do — and therefore whether it is tappable.
+    ///
+    /// DELIBERATELY NOT GATED ON `isBusy`, unlike every other control in the row. `isBusy` means "a
+    /// location command is out", and a command that is out is the single most likely reason someone
+    /// is reaching for Stop in the first place. Gating Stop on it is what turned a slow command into
+    /// "clicking Stop does nothing". `clear()` is safe to call at any moment: its whole first half is
+    /// synchronous local teardown that touches no queue.
+    ///
+    /// Not gated on `pairingExists` either — standing the local session down is just as valid with
+    /// no pairing file, and `clear()` skips only the device half in that case.
+    private var canStop: Bool {
+        hasActiveSimulation || isBusy
     }
 
     private var hasRouteContext: Bool {
@@ -1033,7 +1058,9 @@ struct LocationSimulationView: View {
         if routeStartSelection != nil || routeEndSelection != nil {
             return "Pick both route endpoints to build the drive."
         }
-        return "Plan a route from the toolbar."
+        // No toolbar to plan from any more — a route gets here by being imported (Places → Import
+        // coordinates), and routes are BUILT on the Route tab.
+        return "Import a route file from Places, or build one on the Route tab."
     }
 
     private var routeAttributionLink: some View {
@@ -1041,8 +1068,10 @@ struct LocationSimulationView: View {
             "Speed limit data © OpenStreetMap contributors (ODbL)",
             destination: OpenStreetMapSpeedLimitService.copyrightURL
         )
-        .font(.caption2)
-        .foregroundStyle(.secondary)
+        // The tertiary-metadata token, not a raw `.caption2` — an attribution line is the textbook
+        // case for `wanderMicro`, and a raw point size here is a fifth size on a panel that is
+        // supposed to have four.
+        .wanderMicro()
     }
 
     private var mapStyleMode: MapStyleMode {
@@ -1129,12 +1158,12 @@ struct LocationSimulationView: View {
         // Hidden while a route/track is on the map: POIs aren't drawn then, so any
         // selection still sitting here is left over from before the route existed.
         if !isDrawingPath, let selected = selectedFeature {
-            VStack(spacing: 6) {
-                HStack(spacing: 6) {
+            VStack(spacing: MapModeChrome.groupSpacing) {
+                HStack(spacing: MapModeChrome.chipSpacing) {
                     Image(systemName: "mappin.circle.fill")
                         .foregroundStyle(Wander.brand)
                     Text(selected.title)
-                        .font(.subheadline.weight(.semibold))
+                        .wanderLabel()
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     Button {
@@ -1146,13 +1175,13 @@ struct LocationSimulationView: View {
                     .accessibilityLabel(L("map.poi.dismiss", fallback: "Dismiss place"))
                 }
 
-                HStack(spacing: 10) {
+                HStack(spacing: MapModeChrome.rowSpacing) {
                     Button {
                         if isRouteRunning { return }
                         saveFeatureAsPlace(selected)
                     } label: {
                         Label(L("map.poi.save", fallback: "Save to Places"), systemImage: "bookmark")
-                            .frame(maxWidth: .infinity).frame(height: 30)
+                            .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                     }
                     .buttonStyle(.bordered)
                     .tint(Wander.brand)
@@ -1164,7 +1193,7 @@ struct LocationSimulationView: View {
                         teleportToFeature(selected)
                     } label: {
                         Label(L("map.poi.teleport", fallback: "Teleport here"), systemImage: Wander.Icon.simulate)
-                            .frame(maxWidth: .infinity).frame(height: 30)
+                            .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(Wander.brand)
@@ -1292,13 +1321,17 @@ struct LocationSimulationView: View {
             Image(systemName: mapStyleMode.symbol)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Wander.brand)
-                .frame(width: 44, height: 44)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(width: MapModeChrome.tapTarget, height: MapModeChrome.tapTarget)
+                .background(MapModeChrome.panelMaterial,
+                            in: RoundedRectangle(cornerRadius: MapModeChrome.innerCornerRadius,
+                                                 style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                    RoundedRectangle(cornerRadius: MapModeChrome.innerCornerRadius, style: .continuous)
+                        .strokeBorder(Wander.hairline, lineWidth: 0.5)
                 )
-                .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+                // The panel's shadow, not a second recipe — this button floats over the same map at
+                // the same height, so it casts the same shadow.
+                .wanderMapShadow()
         }
         .accessibilityLabel(L("map.style.switch", fallback: "Map style"))
     }
@@ -1316,24 +1349,34 @@ struct LocationSimulationView: View {
             Map(position: $position, selection: $mapFeatureSelection) {
                 if hasRouteContext {
                     if let routePolyline {
+                        // Brand, matching the Route tab's drive line (RouteLegPalette.drive is
+                        // Wander.brand) — the same route drawn on two screens was two different
+                        // blues before this.
                         MapPolyline(routePolyline)
-                            .stroke(.blue.opacity(0.8), lineWidth: 5)
+                            .stroke(Wander.brand.opacity(0.85), lineWidth: 5)
                     }
+                    // Same two tokens the Route tab tints its first/last waypoint with, so a
+                    // start pin is the same green on both screens.
                     if let routeStartCoordinate {
                         Marker("Start", coordinate: routeStartCoordinate)
-                            .tint(.green)
+                            .tint(Wander.good)
                     }
                     if let routeEndCoordinate {
                         Marker("End", coordinate: routeEndCoordinate)
-                            .tint(.red)
+                            .tint(Wander.blocked)
                     }
                     if let routePlaybackCoordinate {
+                        // Where the spoof currently IS — the one live, working thing on the map,
+                        // so it takes the brand colour rather than a raw `.blue` that happened to
+                        // match nothing else in the panel below it.
                         Marker("Current", coordinate: routePlaybackCoordinate)
-                            .tint(.blue)
+                            .tint(Wander.brand)
                     }
                 } else if let coordinate {
+                    // The pin the user placed. Brand, not `.red`: red is `Wander.blocked` in this
+                    // app's vocabulary, and a pin you just dropped is not an error.
                     Marker("Pin", coordinate: coordinate)
-                        .tint(.red)
+                        .tint(Wander.brand)
                 }
             }
             .mapStyle(mapStyleMode.mapStyle(pointsOfInterest: mapPOICategories))
@@ -1343,9 +1386,7 @@ struct LocationSimulationView: View {
             }
             .onMapCameraChange(frequency: .continuous) { context in
                 // Report the point UNDER the lifted crosshair (shifted north), not the map centre.
-                visibleCenter = CLLocationCoordinate2D(
-                    latitude: context.region.center.latitude + crosshairLift * context.region.span.latitudeDelta,
-                    longitude: context.region.center.longitude)
+                visibleCenter = MapModeChrome.dropPoint(in: context.region)
                 // Warm the offline cache for the area being viewed. Debounced (wait for the camera to
                 // settle), online-only, and only when zoomed to neighbourhood/city level so a wide
                 // view can't queue thousands of tiles. Skips already-cached tiles, so it's cheap.
@@ -1377,11 +1418,13 @@ struct LocationSimulationView: View {
             selectedCoordinate: $coordinate,
             region: $offlineRegion,
             cacheOnly: false,
-            onRegionChange: { region in
-                // Point under the lifted crosshair (shifted north), matching the online map.
-                visibleCenter = CLLocationCoordinate2D(
-                    latitude: region.center.latitude + crosshairLift * region.span.latitudeDelta,
-                    longitude: region.center.longitude)
+            onRegionChange: { region, dropPoint in
+                // Point under the lifted crosshair, matching the online map — but MEASURED from
+                // the map view's geometry, not derived from `region`. `MKMapView.region`
+                // describes its layout-margins rect rather than its bounds, so the region-based
+                // rule the online branch uses lands 46pt low here; the offline map hands us the
+                // exact coordinate instead. See `MapModeChrome.dropPoint(in mapView:)`.
+                visibleCenter = dropPoint
                 // Track the user's pan. Without this, offlineRegion stays pinned to the selected
                 // coordinate, and the visibleCenter re-render makes updateUIView re-apply it —
                 // snapping the map back to the pin every time you tried to pan away while offline.
@@ -1397,301 +1440,273 @@ struct LocationSimulationView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Group {
-                if reachability.hasInternet {
-                    onlineMap
-                } else {
-                    offlineMap   // real internet unreachable (incl. Airplane Mode + LocalDevVPN) → cached CARTO, still spoofable
-                }
-            }
-                .overlay(alignment: .center) {
-                    if !hasRouteContext && !hasActiveSimulation {
-                        MapCrosshair()
-                            .offset(y: -UIScreen.main.bounds.height * crosshairLift)
+        NavigationStack {
+            ZStack(alignment: .bottom) {
+                Group {
+                    if reachability.hasInternet {
+                        onlineMap
+                    } else {
+                        offlineMap   // real internet unreachable (incl. Airplane Mode + LocalDevVPN) → cached CARTO, still spoofable
                     }
                 }
-                .ignoresSafeArea()
-                .onChange(of: coordinate.map(CoordinateSnapshot.init)) { _, new in
-                    if let new {
-                        let region = MKCoordinateRegion(
-                            center: new.coordinate,
-                            latitudinalMeters: 1000,
-                            longitudinalMeters: 1000
-                        )
-                        // Keep the offline-tile window in sync either way — it's not user-visible framing.
-                        offlineRegion = region
-                        // Don't yank the camera when the user placed this pin on the map themselves.
-                        if pinMovedFromMap {
-                            pinMovedFromMap = false
-                        } else {
-                            position = .region(region)
-                        }
-                    }
-                }
-
-            VStack(spacing: 0) {
-                Spacer()
-
-                WanderCard {
-                    // Tighter than the standard card spacing on purpose: this panel sits on top of the
-                    // map, and the map is the point. Every point of height here is map the user can't see.
-                    VStack(spacing: 8) {
-                        if !hasRouteContext {
-                            AddressSearchBar(
-                                placeholder: "Search, coordinates, or Plus Code",
-                                mapCenter: visibleCenter,
-                                // Rank autocomplete around where the user is PRETENDING
-                                // to be, not where the phone is sitting.
-                                searchAnchor: searchAnchor,
-                                // Only used to offer "Near me" — never as the default,
-                                // and only ever the pre-simulation snapshot, never a
-                                // live CoreLocation fix that a spoof may have written.
-                                realLocation: realLocationSnapshot,
-                                onPick: { coord, _ in applySelection(coord) },
-                                onActiveChange: { searchActive = $0 }
+                    .wanderMapCrosshair(!hasRouteContext && !hasActiveSimulation)
+                    .ignoresSafeArea()
+                    .onChange(of: coordinate.map(CoordinateSnapshot.init)) { _, new in
+                        if let new {
+                            let region = MKCoordinateRegion(
+                                center: new.coordinate,
+                                latitudinalMeters: 1000,
+                                longitudinalMeters: 1000
                             )
-
-                            nlTeleportBar
-
-                            sharingModeToggle
-                        }
-
-                        selectedFeatureRow
-
-                        if isImportingCoordinates {
-                            ProgressView("Importing coordinates…")
-                                .font(.footnote)
-                        }
-
-                        if hasRouteContext {
-                            routeControls
-                        } else {
-                            pinControls
+                            // Don't yank the camera when the user placed this pin on the map
+                            // themselves — on EITHER branch. `offlineRegion` used to be written
+                            // unconditionally here as "not user-visible framing", but it is the
+                            // offline map's live camera (OfflineMapView re-applies it through
+                            // `shouldApplyRegion`), so "Set pin here" re-centred the offline map
+                            // on the pin — parking the pin at the region's centre, well below the
+                            // crosshair the user aimed with, and resetting their zoom. Online was
+                            // already exempt via `pinMovedFromMap`; this is the same exemption.
+                            if pinMovedFromMap {
+                                pinMovedFromMap = false
+                            } else {
+                                offlineRegion = region
+                                position = .region(region)
+                            }
                         }
                     }
-                    // Was 0.5 — the panel could eat HALF the screen. The map is the product; the controls
-                    // are the accessory. Capped lower so the map always keeps roughly two-thirds, and the
-                    // card scrolls internally instead of growing (hugScrollCard already handles that), so
-                    // nothing becomes unreachable — it just stops covering the map to get there.
-                    .hugScrollCard(maxHeight: UIScreen.main.bounds.height * 0.34)
-                }
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(key: ControlsCardTopKey.self,
-                                               value: geo.frame(in: .global).minY)
-                    }
-                )
-            }
 
-            VStack(spacing: 6) {
-                if !reachability.isOnline {
-                    offlinePill
-                        .padding(.top, 8)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-                // Hide the floating info card while searching — the results list grows up from the
-                // bottom card and would otherwise slide underneath it, hiding the top result.
-                if !searchActive {
-                    LocationInfoCard(service: locationInfo)
-                        .padding(.top, reachability.isOnline ? 8 : 0)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-                Spacer(minLength: 0)
-            }
-            .animation(.easeInOut(duration: 0.25), value: locationInfo.info)
-            .animation(.easeInOut(duration: 0.25), value: reachability.isOnline)
-            .animation(.easeInOut(duration: 0.2), value: searchActive)
-
-            VStack(spacing: 0) {
-                HStack {
+                VStack(spacing: 0) {
                     Spacer()
-                    mapStyleSwitcher
-                }
-                .padding(.top, 8)
-                .padding(.trailing, 12)
-                Spacer(minLength: 0)
-            }
-        }
-        // Ignore non-positive readings. Swapping between the online and offline map tears the card's
-        // GeometryReader down and briefly reports 0, which made crosshairLift snap to its default and
-        // the crosshair visibly jump up (and land under the card). Keeping the last good measurement
-        // makes the swap invisible.
-        .onPreferenceChange(ControlsCardTopKey.self) { newValue in
-            if newValue > 0 { controlsCardTopY = newValue }
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarLeading) {
-                Button {
-                    showBookmarks = true
-                } label: {
-                    Image(systemName: "bookmark.fill")
-                }
-                .accessibilityLabel(L("map.bookmarks", fallback: "Bookmarks"))
 
-                Button {
-                    showRouteSearch = true
-                } label: {
-                    Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
-                }
-                .accessibilityLabel(L("map.route_search", fallback: "Search routes"))
-                .disabled(isBusy || isRouteRunning)
+                    WanderCard {
+                        // One shared vertical rhythm across Teleport / Joystick / Route — this panel ran
+                        // at 8pt while the other two ran at 12 and 14, which is invisible on one screen
+                        // and obvious the moment you switch tabs.
+                        VStack(spacing: MapModeChrome.rowSpacing) {
+                            if !hasRouteContext {
+                                AddressSearchBar(
+                                    placeholder: "Search, coordinates, or Plus Code",
+                                    mapCenter: visibleCenter,
+                                    // Rank autocomplete around where the user is PRETENDING
+                                    // to be, not where the phone is sitting.
+                                    searchAnchor: searchAnchor,
+                                    // Only used to offer "Near me" — never as the default,
+                                    // and only ever the pre-simulation snapshot, never a
+                                    // live CoreLocation fix that a spoof may have written.
+                                    realLocation: realLocationSnapshot,
+                                    onPick: { coord, _ in applySelection(coord) },
+                                    onActiveChange: { searchActive = $0 }
+                                )
 
-                Button {
-                    showCoordinateImporter = true
-                } label: {
-                    Image(systemName: "square.and.arrow.down")
-                }
-                .disabled(isBusy || isRouteRunning || isImportingCoordinates)
-                .accessibilityLabel("Import Coordinates")
+                                nlTeleportBar
 
-                Button {
-                    prepareGPXExport()
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .disabled(isBusy || isImportingCoordinates || !canExportGPX)
-                .accessibilityLabel("Export GPX")
+                                sharingModeToggle
+                            }
 
-                // Offline Maps — a free, self-contained OSM tile-cache screen (parity with
-                // Android). Doesn't affect the online map above; just opens its own sheet.
-                Button {
-                    showOfflineMaps = true
-                } label: {
-                    Image(systemName: "map.circle")
+                            selectedFeatureRow
+
+                            if isImportingCoordinates {
+                                ProgressView("Importing coordinates…")
+                                    .font(.wanderDetail)
+                                    .tint(Wander.brand)
+                            }
+
+                            if hasRouteContext {
+                                routeControls
+                            } else {
+                                pinControls
+                            }
+                        }
+                        // THE canonical panel height, shared with Joystick and Route. See MapModeChrome.
+                        // This screen has no disclosure section, so it never asks for the expanded size.
+                        .wanderMapPanel()
+                        .wanderAnimation(WanderMotion.layout, on: hasRouteContext)
+                    }
                 }
-                .accessibilityLabel(L("offline.maps.open", fallback: "Offline Maps"))
+
+                VStack(spacing: 6) {
+                    if !reachability.isOnline {
+                        offlinePill
+                            .padding(.top, 8)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                    // Hide the floating info card while searching — the results list grows up from the
+                    // bottom card and would otherwise slide underneath it, hiding the top result.
+                    if !searchActive {
+                        LocationInfoCard(service: locationInfo)
+                            .padding(.top, reachability.isOnline ? 8 : 0)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                    Spacer(minLength: 0)
+                }
+                .animation(.easeInOut(duration: 0.25), value: locationInfo.info)
+                .animation(.easeInOut(duration: 0.25), value: reachability.isOnline)
+                .animation(.easeInOut(duration: 0.2), value: searchActive)
+
+                VStack(spacing: 0) {
+                    HStack {
+                        Spacer()
+                        mapStyleSwitcher
+                    }
+                    .padding(.top, 8)
+                    .padding(.trailing, 12)
+                    Spacer(minLength: 0)
+                }
             }
-        }
-        .alert(alertTitle, isPresented: $showAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(alertMessage)
-        }
-        .alert("Save Bookmark", isPresented: $showSaveBookmark) {
-            TextField("Name", text: $newBookmarkName)
-            Button("Save") { addBookmark() }
-            Button("Cancel", role: .cancel) { newBookmarkName = "" }
-        } message: {
-            Text("Enter a name for this location.")
-        }
-        .sheet(isPresented: $showBookmarks) {
-            BookmarksView(bookmarks: $bookmarks) { bookmark in
-                applySelection(bookmark.coordinate)
-                showBookmarks = false
-            } onDelete: { offsets in
-                bookmarks.remove(atOffsets: offsets)
-                saveBookmarks()
+            // (The card-measuring PreferenceKey that used to live here is gone: the crosshair no longer
+            // depends on a live measurement, so swapping between the online and offline map — which tore
+            // the GeometryReader down and briefly reported 0 — can't make it jump any more.)
+            // The shared navigation treatment: an inline title over a full-bleed map, same as
+            // Joystick and Route (see "THE NAVIGATION RULE" in MapModeChrome).
+            //
+            // NO `.toolbar` OF ITS OWN — see `mapModeToolbar` below. This screen once carried five
+            // buttons up here while Joystick and Route carried none, so the top of the app changed
+            // shape depending on which map mode you were on, and three of the five were a hidden
+            // second copy of navigation the app already has. Both of those problems are still real;
+            // the shared toolbar is what lets Places and Offline maps be one tap away WITHOUT
+            // either of them coming back. A route-search button is not in it and must not be: the
+            // Route tab is a permanent bottom tab.
+            .navigationTitle(AppFeature.location.title)
+            .navigationBarTitleDisplayMode(.inline)
+            // The bar all three map tabs share. Its two file actions post the SAME notifications
+            // the Places rows post (handled at the bottom of this chain), rather than reaching into
+            // this screen's importer/exporter directly — one guarded code path, whichever door the
+            // user came through.
+            .mapModeToolbar(files: MapModeFileActions(
+                importCoordinates: { NotificationCenter.default.post(name: .importCoordinatesRequested, object: nil) },
+                exportGPX:         { NotificationCenter.default.post(name: .exportGPXRequested, object: nil) }
+            ))
+            .alert(alertTitle, isPresented: $showAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(alertMessage)
             }
-        }
-        .sheet(isPresented: $showRouteSearch) {
-            RouteSearchSheet(
-                initialStart: routeStartSelection,
-                initialEnd: routeEndSelection,
-                anchor: searchAnchor,
-                // Same contract as the main search bar: the pre-simulation snapshot
-                // only, or nil so the "Near me" escape hatch simply isn't offered.
-                realLocation: realLocationSnapshot
-            ) { startSelection, endSelection in
-                routeStartSelection = startSelection
-                routeEndSelection = endSelection
-                refreshRoute()
+            .alert("Save Bookmark", isPresented: $showSaveBookmark) {
+                TextField("Name", text: $newBookmarkName)
+                Button("Save") { addBookmark() }
+                Button("Cancel", role: .cancel) { newBookmarkName = "" }
+            } message: {
+                Text("Enter a name for this location.")
             }
-        }
-        // Item-driven so Street View can ONLY open for a concrete, chosen pin — never on entry
-        // with a stale/ambient coordinate. Set by the Street View button from the selected pin.
-        .sheet(item: $streetViewTarget) { target in
-            StreetViewSheet(coordinate: target.coordinate)
-        }
-        .sheet(isPresented: $showOfflineMaps) {
-            OfflineMapsSheet()
-        }
-        .fileImporter(
-            isPresented: $showCoordinateImporter,
-            allowedContentTypes: CoordinateImportParser.supportedContentTypes,
-            allowsMultipleSelection: false
-        ) { result in
-            importCoordinates(result)
-        }
-        .fileExporter(
-            isPresented: $showGPXExporter,
-            document: gpxDocument,
-            contentType: UTType(filenameExtension: "gpx", conformingTo: .xml) ?? .xml,
-            defaultFilename: "wander-\(Self.gpxTimestamp())"
-        ) { result in
-            if case .failure(let error) = result {
-                alertTitle = "Export Failed"
-                alertMessage = error.localizedDescription
-                showAlert = true
+            // Item-driven so Street View can ONLY open for a concrete, chosen pin — never on entry
+            // with a stale/ambient coordinate. Set by the Street View button from the selected pin.
+            .sheet(item: $streetViewTarget) { target in
+                StreetViewSheet(coordinate: target.coordinate)
             }
-        }
-        .onAppear {
-            loadBookmarks()
-            currentLocation.request()
-        }
-        .onReceive(currentLocation.$coordinate.compactMap { $0 }) { c in
-            // Take the "real location" snapshot at most once, and only while nothing
-            // could be feeding CoreLocation a fake fix. After that it is frozen: a
-            // fix that arrives mid-spoof is the spoof target, not the device.
-            if realLocationSnapshot == nil, !mayBeReportingSpoofedLocation {
-                realLocationSnapshot = c
+            .fileImporter(
+                isPresented: $showCoordinateImporter,
+                allowedContentTypes: CoordinateImportParser.supportedContentTypes,
+                allowsMultipleSelection: false
+            ) { result in
+                importCoordinates(result)
             }
-            if coordinate == nil && simulatedCoordinate == nil && !hasRouteContext {
-                position = .region(MKCoordinateRegion(center: c, latitudinalMeters: 2500, longitudinalMeters: 2500))
+            .fileExporter(
+                isPresented: $showGPXExporter,
+                document: gpxDocument,
+                contentType: UTType(filenameExtension: "gpx", conformingTo: .xml) ?? .xml,
+                defaultFilename: "wander-\(Self.gpxTimestamp())"
+            ) { result in
+                if case .failure(let error) = result {
+                    alertTitle = "Export Failed"
+                    alertMessage = error.localizedDescription
+                    showAlert = true
+                }
             }
-        }
-        .onDisappear {
-            // Switching tabs shouldn't tear down a live spoof/route — keep it running and
-            // let the explicit Stop button (or global stop) end it. Only clean up when idle.
-            guard !SimulationSession.shared.isActive else { return }
-            routeLoadTask?.cancel()
-            routeLoadTask = nil
-            routeSpeedPrefetchTask?.cancel()
-            routeSpeedPrefetchTask = nil
-            cancelRoutePlayback(resetMarker: true)
-            stopResendLoop()
-            if backgroundTaskID != .invalid {
-                BackgroundLocationManager.shared.requestStop()
+            .onAppear {
+                loadBookmarks()
+                currentLocation.request()
             }
-            endBackgroundTask()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .stopSimulationRequested)) { _ in
-            cancelRoutePlayback(resetMarker: true)
-            stopResendLoop()
-            endBackgroundTask()
-            locationInfo.clear()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .holdLocationRequested)) { note in
-            guard let lat = note.userInfo?["lat"] as? Double,
-                  let lng = note.userInfo?["lng"] as? Double else { return }
-            // A joystick / auto-walk just parked here. Take over the warm-hold seeded at THIS
-            // point (re-enables the 4 s resend at the live position, not the old teleport origin).
-            startResendLoop(with: CLLocationCoordinate2D(latitude: lat, longitude: lng))
-        }
-        .sheet(isPresented: $showPaywall) { PaywallView(onClose: { showPaywall = false }) }
-        .onReceive(NotificationCenter.default.publisher(for: .teleportToRequested)) { note in
-            guard let lat = note.userInfo?["lat"] as? Double,
-                  let lng = note.userInfo?["lng"] as? Double else { return }
-            applySelection(CLLocationCoordinate2D(latitude: lat, longitude: lng))
-            if pairingExists {
-                simulate()
-            } else {
-                alertTitle = "Pairing needed"
-                alertMessage = "Import a pairing file in Settings, then tap Simulate to start."
-                showAlert = true
+            .onReceive(currentLocation.$coordinate.compactMap { $0 }) { c in
+                // Take the "real location" snapshot at most once, and only while nothing
+                // could be feeding CoreLocation a fake fix. After that it is frozen: a
+                // fix that arrives mid-spoof is the spoof target, not the device.
+                if realLocationSnapshot == nil, !mayBeReportingSpoofedLocation {
+                    realLocationSnapshot = c
+                }
+                if coordinate == nil && simulatedCoordinate == nil && !hasRouteContext {
+                    position = .region(MKCoordinateRegion(center: c, latitudinalMeters: 2500, longitudinalMeters: 2500))
+                }
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .previewLocationRequested)) { note in
-            guard let lat = note.userInfo?["lat"] as? Double,
-                  let lng = note.userInfo?["lng"] as? Double else { return }
-            // Preview ONLY: center the map, drop/move the pin, refresh its info. Do NOT simulate —
-            // the user presses Simulate / "Set pin here" to actually teleport. Shared by a tapped
-            // saved Place and a tapped PoGo hotspot so both behave identically.
-            applySelection(CLLocationCoordinate2D(latitude: lat, longitude: lng))
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .placesDidChange)) { _ in
-            loadBookmarks()
+            .onDisappear {
+                // Switching tabs shouldn't tear down a live spoof/route — keep it running and
+                // let the explicit Stop button (or global stop) end it. Only clean up when idle.
+                guard !SimulationSession.shared.isActive else { return }
+                routeSpeedPrefetchTask?.cancel()
+                routeSpeedPrefetchTask = nil
+                cancelRoutePlayback(resetMarker: true)
+                stopResendLoop()
+                if backgroundTaskID != .invalid {
+                    BackgroundLocationManager.shared.requestStop()
+                }
+                endBackgroundTask()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .stopSimulationRequested)) { _ in
+                cancelRoutePlayback(resetMarker: true)
+                stopResendLoop()
+                endBackgroundTask()
+                locationInfo.clear()
+                // A global Stop / Panic outranks whatever command is holding this row. Without this,
+                // Panic stood every mode down but left the Teleport tab's buttons greyed out behind
+                // an `isBusy` only that command could clear. See `locationCommandToken`.
+                locationCommandToken &+= 1
+                isBusy = false
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .holdLocationRequested)) { note in
+                guard let lat = note.userInfo?["lat"] as? Double,
+                      let lng = note.userInfo?["lng"] as? Double else { return }
+                // A joystick / auto-walk just parked here. Take over the warm-hold seeded at THIS
+                // point (re-enables the 4 s resend at the live position, not the old teleport origin).
+                startResendLoop(with: CLLocationCoordinate2D(latitude: lat, longitude: lng))
+            }
+            .sheet(isPresented: $showPaywall) { PaywallView(onClose: { showPaywall = false }) }
+            .sheet(isPresented: $showCellularSetup) { CellularModeSetupView() }
+            .onReceive(NotificationCenter.default.publisher(for: .teleportToRequested)) { note in
+                guard let lat = note.userInfo?["lat"] as? Double,
+                      let lng = note.userInfo?["lng"] as? Double else { return }
+                applySelection(CLLocationCoordinate2D(latitude: lat, longitude: lng))
+                if pairingExists {
+                    simulate()
+                } else {
+                    alertTitle = "Pairing needed"
+                    alertMessage = "Import a pairing file in Settings, then tap Simulate to start."
+                    showAlert = true
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .previewLocationRequested)) { note in
+                guard let lat = note.userInfo?["lat"] as? Double,
+                      let lng = note.userInfo?["lng"] as? Double else { return }
+                // Preview ONLY: center the map, drop/move the pin, refresh its info. Do NOT simulate —
+                // the user presses Simulate / "Set pin here" to actually teleport. Shared by a tapped
+                // saved Place and a tapped PoGo hotspot so both behave identically.
+                applySelection(CLLocationCoordinate2D(latitude: lat, longitude: lng))
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .placesDidChange)) { _ in
+                loadBookmarks()
+            }
+            // Import coordinates / Export GPX have TWO entry points — the Places rows and this
+            // screen's own toolbar menu — and one implementation, here, against this screen's pin
+            // and route, through the same `.fileImporter` / `.fileExporter` as before. Both doors
+            // post these notifications rather than duplicating the guards below. Places switches to
+            // this tab and dismisses itself before posting, so by the time either arrives this view
+            // is on screen and the picker has somewhere to present from; the toolbar is already on
+            // this view, so it can post directly.
+            .onReceive(NotificationCenter.default.publisher(for: .importCoordinatesRequested)) { _ in
+                guard !isBusy, !isRouteRunning, !isImportingCoordinates else { return }
+                showCoordinateImporter = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .exportGPXRequested)) { _ in
+                guard !isBusy, !isImportingCoordinates else { return }
+                // The toolbar button used to just go grey when there was nothing to write. A row in
+                // a list can't do that honestly (Places can't see this screen's pin), so say it.
+                guard canExportGPX else {
+                    alertTitle = L("map.export.nothing.title", fallback: "Nothing to export")
+                    alertMessage = L("map.export.nothing.body",
+                                     fallback: "Drop a pin, build a route, or save a place first — a GPX file needs at least one point.")
+                    showAlert = true
+                    return
+                }
+                prepareGPXExport()
+            }
         }
     }
 
@@ -1788,8 +1803,6 @@ struct LocationSimulationView: View {
             return
         }
 
-        routeLoadTask?.cancel()
-        routeLoadTask = nil
         routeSpeedPrefetchTask?.cancel()
         routeSpeedPrefetchTask = nil
         routeRequestID = UUID()
@@ -1867,13 +1880,13 @@ struct LocationSimulationView: View {
                 if on && jitterRadius < 1.5 { jitterRadius = 1.5 }
             }
         )) {
-            HStack(spacing: 8) {
+            HStack(spacing: MapModeChrome.groupSpacing) {
                 Image(systemName: "person.2.wave.2").foregroundStyle(Wander.brand)
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
                     Text(L("map.sharingmode.title", fallback: "Find My / Life360 mode"))
-                        .font(.subheadline.weight(.semibold))
+                        .font(.wanderDetail.weight(.semibold))
                     Text(L("map.sharingmode.sub", fallback: "Natural drift + smooth jumps so shared location looks real."))
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .wanderMicro()
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -1882,7 +1895,7 @@ struct LocationSimulationView: View {
     }
 
     private var nlTeleportBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: MapModeChrome.groupSpacing) {
             Image(systemName: "sparkles").foregroundStyle(Wander.brand)
             TextField("Where do you want to go?", text: $nlQuery)
                 .autocorrectionDisabled()
@@ -1902,8 +1915,14 @@ struct LocationSimulationView: View {
                 .accessibilityLabel("Teleport there")
             }
         }
-        .padding(10)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        // Nested-control tokens, not hand-rolled numbers: this bar sits INSIDE the card, so it
+        // takes the card's inner radius, inner padding and inner material. It used to draw a third
+        // corner radius (10) on a screen that already had 24 on the card and 12 on the map-style
+        // button — the same 10 `AddressSearchBar`, directly above it, drew until this pass.
+        .padding(MapModeChrome.innerPadding)
+        .background(MapModeChrome.innerMaterial,
+                    in: RoundedRectangle(cornerRadius: MapModeChrome.innerCornerRadius,
+                                         style: .continuous))
     }
 
     private func resolveNLPlace() {
@@ -1955,11 +1974,23 @@ struct LocationSimulationView: View {
     @ViewBuilder
     private var pinControls: some View {
         if let coord = coordinate {
-            Text(String(format: "%.5f,  %.5f", coord.latitude, coord.longitude))
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.secondary)
+            // THE focal value of this panel — the one thing the user came to this screen to read.
+            // It was `.subheadline` in secondary grey, i.e. quieter than the buttons around it.
+            VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
+                Text(String(format: "%.5f,  %.5f", coord.latitude, coord.longitude))
+                    // `wanderMetric` at `.primary` — the ONE size and colour the focal value takes
+                    // in all three modes (see the token's note in WanderStyle).
+                    .font(.wanderMetric)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .wanderTick(CoordinateSnapshot(coord))
+                Text(L("map.pin.label", fallback: "Pin"))
+                    .wanderMicro()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 10) {
+            HStack(spacing: MapModeChrome.rowSpacing) {
                 // Guard the inactive states in the ACTION + dim with .opacity, rather than via
                 // .disabled — a disabled `.bordered` button renders a blank/invisible grey label on
                 // the dark card in dark mode. Explicit .tint keeps the icon brand-coloured either way.
@@ -1968,7 +1999,7 @@ struct LocationSimulationView: View {
                     showSaveBookmark = true
                 } label: {
                     Image(systemName: "bookmark")
-                        .frame(width: 34, height: 30)
+                        .frame(width: 34, height: MapModeChrome.controlHeight)
                 }
                 .buttonStyle(.bordered)
                 .tint(Wander.brand)
@@ -1983,7 +2014,7 @@ struct LocationSimulationView: View {
                         revertToPrevious()
                     } label: {
                         Image(systemName: "arrow.uturn.backward")
-                            .frame(width: 34, height: 30)
+                            .frame(width: 34, height: MapModeChrome.controlHeight)
                     }
                     .buttonStyle(.bordered)
                     .tint(Wander.brand)
@@ -1999,7 +2030,7 @@ struct LocationSimulationView: View {
                     setPinToCenter()
                 } label: {
                     Label(L("map.move_here", fallback: "Move here"), systemImage: Wander.Icon.setHere)
-                        .frame(maxWidth: .infinity).frame(height: 30)
+                        .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                 }
                 .buttonStyle(.bordered)
                 .tint(Wander.brand)
@@ -2021,7 +2052,7 @@ struct LocationSimulationView: View {
             } label: {
                 Label(L("map.street_view", fallback: "Street View"),
                       systemImage: License.shared.isLicensed ? "binoculars.fill" : "lock.fill")
-                    .frame(maxWidth: .infinity).frame(height: 30)
+                    .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
             }
             .buttonStyle(.bordered)
             .tint(Wander.brand)
@@ -2029,23 +2060,25 @@ struct LocationSimulationView: View {
 
             gslocCooldownHint(for: coord)
 
-            HStack(spacing: 10) {
+            cellularModeControls(for: coord)
+
+            HStack(spacing: MapModeChrome.rowSpacing) {
                 Button {
-                    if !pairingExists || isBusy || !hasActiveSimulation { return }
+                    if !canStop { return }
                     clear()
                 } label: {
                     Label(L("map.stop", fallback: "Stop"), systemImage: Wander.Icon.stop)
-                        .frame(maxWidth: .infinity).frame(height: 30)
+                        .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                 }
                 .buttonStyle(.bordered)
-                .tint(.red)
+                .tint(Wander.blocked)
                 .controlSize(.large)
-                .opacity((!pairingExists || isBusy || !hasActiveSimulation) ? 0.5 : 1)
+                .opacity(canStop ? 1 : 0.5)
 
                 Button(action: simulate) {
                     Label(L("map.simulate", fallback: "Simulate"), systemImage: Wander.Icon.simulate)
-                        .font(.headline)
-                        .frame(maxWidth: .infinity).frame(height: 30)
+                        .font(.wanderLabel)
+                        .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Wander.brand)
@@ -2078,63 +2111,186 @@ struct LocationSimulationView: View {
     /// Renders nothing on a first teleport (no origin) or for a preset with no distance cooldown.
     @ViewBuilder private func gslocCooldownHint(for coord: CLLocationCoordinate2D) -> some View {
         if gslocMode, CooldownPreview.status(for: coord) != nil {
-            HStack(spacing: 6) {
-                Image(systemName: "hourglass")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            // The shared advisory row, like the other eight in these panels — this one was the last
+            // hand-rolled copy, with its own glyph size and its own gap. It takes the content-based
+            // initialiser because its body is a live countdown, not a fixed sentence.
+            WanderPanelNote(status: .caution, icon: "hourglass") {
                 CooldownPreviewLabel(destination: coord)
-                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - Cellular Mode (mobile data, no Wi-Fi)
+    //
+    // WHY THIS ROW EXISTS. lockdownd refuses the developer-tunnel connection while the device has
+    // cellular and NO Wi-Fi *at connect time* — so on mobile data the plain Simulate button below
+    // usually comes back with "Can't reach the device tunnel", and the only fix in the whole system is
+    // a toggle no app is allowed to touch. lockdownd does NOT re-evaluate an established session
+    // (confirmed on device, build 139: Airplane ON → connect → Airplane OFF, and the spoof HOLDS), so
+    // the toggle is needed for the moment of connection and nothing more. That is exactly the shape of
+    // thing a Shortcut can do and an app cannot, so this offers the sequence instead of failing.
+    //
+    // NOTHING HERE TOGGLES ANYTHING. The button runs a shortcut the user installed, only when the user
+    // taps it. The copy states the cost up front — Shortcuts flashes, signal drops for up to about half
+    // a minute — because a radio going dark unannounced reads as a crash.
+    //
+    // AND IT CAN GO WRONG. The shortcut turns the radio off and back on; an interrupted run never
+    // reaches the second half. This row cannot be the thing that says so, because it is gated on
+    // `isOnCellular`, which is FALSE in Airplane Mode. `CellularModeRun` + `CellularModeBanner` own
+    // that recovery, from outside this gate.
+    //
+    // Deliberately does NOT replace the Simulate button: a user who already brought the tunnel up (by
+    // hand, or by running this once already) should still be able to teleport without paying another
+    // airplane cycle, and the shortcut's own check is "is there Wi-Fi", not "is the tunnel up".
+
+    /// True only where Cellular Mode is the actual answer.
+    ///
+    /// The cellular question is asked ONCE, through `NetworkReachability.isOnCellular` — the app's
+    /// existing NWPathMonitor flag, which already reads the UNDERLYING transport so Wander's own utun
+    /// can't fool it, and which is false whenever Wi-Fi is present at all. No second way of asking.
+    private var offersCellularMode: Bool {
+        reachability.isOnCellular
+        // gs-loc pushes through Shadowrocket's proxy, not the developer tunnel. Airplane Mode would
+        // tear that proxy down, i.e. this would break PoGo mode rather than fix it.
+        && !gslocMode
+        && pairingExists
+        // Something is already being simulated, so the tunnel is demonstrably up — there is nothing
+        // for an airplane cycle to fix, and offering one would invite the user to break what works.
+        && !hasActiveSimulation
+        && !isRouteRunning
+    }
+
+    @ViewBuilder private func cellularModeControls(for coord: CLLocationCoordinate2D) -> some View {
+        if offersCellularMode {
+            WanderPanelNote(
+                status: .caution,
+                text: L("map.cellular.note",
+                        fallback: "Mobile data, no Wi-Fi — iOS won't let the tunnel connect. Cellular Mode turns Airplane Mode on just long enough to get it up, sets this pin, then turns it back off. You're offline for up to about half a minute."),
+                icon: "antenna.radiowaves.left.and.right"
+            )
+            Button {
+                if cellularModeReady {
+                    // THE SAME PAYWALL GATE AS THE SIMULATE BUTTON BELOW (`simulate()`). Cellular
+                    // Mode is a teleport with an Airplane Mode dance wrapped around it; shipping it
+                    // ungated made it a free door to the paid engine. The predicate lives in
+                    // `CellularModeRun.isAllowedToStart` so the button and the retry in the recovery
+                    // banner cannot drift; the trial is CHARGED where every other path charges it —
+                    // at the confirmed teleport, in `WanderLocationIntent.teleport`.
+                    guard CellularModeRun.isAllowedToStart else {
+                        showPaywall = true
+                        return
+                    }
+                    // Armed BEFORE the hand-off, so the marker exists even if the hand-off is what
+                    // fails. This is what lets the app notice it may have left the phone in
+                    // Airplane Mode — see CellularModeRun.
+                    CellularModeRun.shared.markLaunched(latitude: coord.latitude, longitude: coord.longitude)
+                    // The pin the user actually selected, handed to the shortcut as its text input.
+                    ShortcutRunner.runCellularMode(latitude: coord.latitude, longitude: coord.longitude)
+                } else {
+                    showCellularSetup = true
+                }
+            } label: {
+                Label(cellularModeReady
+                      ? L("map.cellular.run", fallback: "Simulate — Cellular Mode")
+                      : L("map.cellular.setup", fallback: "Set up Cellular Mode"),
+                      systemImage: "airplane")
+                    .font(.wanderLabel)
+                    .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Wander.brand)
+            .controlSize(.large)
+            .disabled(isBusy || isLoadingRoute)
+            .opacity((isBusy || isLoadingRoute) ? 0.5 : 1)
+
+            if cellularModeReady {
+                // HONEST NUMBER. The old copy said "a few seconds"; the run is a 4 s settle, up to
+                // 12 s in `WanderTunnel.ensureStarted()`, up to ~12 s in the teleport, and the
+                // shortcut's own trailing step. Someone waiting on a call notices the difference
+                // between that and "a few seconds", and a promise we break costs more than a number
+                // that sounds bad. See `CellularModeRun.worstCaseRunSeconds`.
+                Text(localized: "map.cellular.cost",
+                     fallback: "Shortcuts opens for a moment, then calls and data are off for up to about 30 seconds — usually less.")
+                    .wanderMicro()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
     private var routeControls: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: MapModeChrome.rowSpacing) {
             Text(routeStatusText)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                .wanderDetail()
 
             if isLoadingRoute || isPrefetchingRouteSpeeds {
                 ProgressView()
                     .controlSize(.small)
+                    .tint(Wander.brand)
             } else if let routeSummaryText {
+                // The focal value while a route is loaded. It now genuinely does match the Route
+                // tab's ETA — the old comment claimed that while rendering a brand-blue subheadline
+                // against that tab's title3, i.e. the two lines it said were the same were two
+                // sizes and two colours apart. Both are `wanderMetric` at `.primary`.
                 Text(routeSummaryText)
-                    .font(.footnote.monospaced())
-                    .foregroundStyle(.secondary)
+                    .font(.wanderMetric)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
             }
 
             routeAttributionLink
 
             if gslocMode {
-                Text("PoGo mode is teleport-only — route playback works in every other app and mode.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+                WanderPanelNote(
+                    status: .caution,
+                    text: "PoGo mode is teleport-only — route playback works in every other app and mode.",
+                    icon: "hand.raised.fill"
+                )
             }
 
-            HStack(spacing: 12) {
-                Button("Stop", action: clear)
-                    .buttonStyle(.bordered)
-                    .tint(.red)
-                    .disabled(!pairingExists || isBusy || !hasActiveSimulation)
+            // THE SHARED CONTROL RHYTHM — `wanderLabel` on the title, `controlHeight` for the box,
+            // `.controlSize(.large)` for the ~44pt tap target, `rowSpacing` between peers. Exactly
+            // what the Route tab's Preview/Drive and Pause/Stop pairs use. This row was the last
+            // action row in the app still drawing default-sized, content-hugging buttons, so
+            // Teleport's route controls read as a smaller, different class of control from every
+            // peer that does the same job one tab over.
+            HStack(spacing: MapModeChrome.rowSpacing) {
+                Button(action: clear) {
+                    Text("Stop")
+                        .font(.wanderLabel)
+                        .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
+                }
+                .buttonStyle(.bordered)
+                .tint(Wander.blocked)
+                .controlSize(.large)
+                .disabled(!canStop)
 
-                Button("Play Route", action: simulateRoute)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(
-                        gslocMode ||
-                        !pairingExists ||
-                        isBusy ||
-                        isLoadingRoute ||
-                        isPrefetchingRouteSpeeds ||
-                        routePlan == nil ||
-                        routePlaybackSamples.isEmpty
-                    )
+                Button(action: simulateRoute) {
+                    Text("Play Route")
+                        .font(.wanderLabel)
+                        .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Wander.brand)
+                .controlSize(.large)
+                .disabled(
+                    gslocMode ||
+                    !pairingExists ||
+                    isBusy ||
+                    isLoadingRoute ||
+                    isPrefetchingRouteSpeeds ||
+                    routePlan == nil ||
+                    routePlaybackSamples.isEmpty
+                )
 
-                Button("Reset", action: resetRouteSelection)
-                    .buttonStyle(.bordered)
-                    .disabled(isBusy || isRouteRunning)
+                Button(action: resetRouteSelection) {
+                    Text("Reset")
+                        .font(.wanderLabel)
+                        .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(isBusy || isRouteRunning)
             }
         }
     }
@@ -2276,17 +2432,36 @@ struct LocationSimulationView: View {
         }
     }
 
+    /// Where this view hands STARTING work to the location FFI — teleport, glide and route start —
+    /// which is why the pending-tunnel-disconnect cancellation lives at this level rather than in
+    /// each of them (see `LocationSimulationCommandQueue.submit`).
+    ///
+    /// ⚠️ STOP NO LONGER COMES THROUGH HERE. `clear()` enqueues its own `submitClear` directly and
+    /// never sets `isBusy`, because everything in this function — the busy latch, the watchdog, the
+    /// DDI auto-mount retry — is machinery for a command that OPENS a session, and every bit of it
+    /// was a way for a Stop to be delayed or disabled. See `clear()`.
+    ///
+    /// - Parameter isClear: enqueue via `submitClear`, i.e. WITHOUT cancelling a pending
+    ///   auto-disconnect. Unused today (see above); kept because the distinction is load-bearing and
+    ///   a future closing command must not silently get the opening behaviour.
     private func runLocationCommand(
         errorTitle: String,
         errorMessage: @escaping (Int32) -> String,
         operation: @escaping () -> Int32,
+        isClear: Bool = false,
         onSuccess: @escaping () -> Void
     ) {
         isBusy = true
+        // Claim the controls for THIS command. See `locationCommandToken`.
+        locationCommandToken &+= 1
+        let token = locationCommandToken
+        armBusyWatchdog(token: token)
         // Capture on the caller (main) for the mount guard below — a simulation that is ALREADY running
         // proves the developer image is mounted, so a remount can only do harm.
         let simulationWasActive = hasActiveSimulation
-        LocationSimulationCommandQueue.shared.async {
+        let enqueue = isClear ? LocationSimulationCommandQueue.submitClear
+                              : LocationSimulationCommandQueue.submit
+        enqueue {
             var code = operation()
             // Auto-recover the most common failure (error 3): the tunnel is up but the device's
             // developer image isn't mounted yet. The built-in auto-mount only fires for Wander's OWN
@@ -2319,9 +2494,19 @@ struct LocationSimulationView: View {
                 }
             }
             DispatchQueue.main.async {
+                // Somebody else owns the controls now — a newer command, or a Stop that unlatched
+                // them. This outcome is stale and must not re-disable or re-alert over them.
+                guard locationCommandToken == token else { return }
                 isBusy = false
                 if code == 0 {
                     onSuccess()
+                } else if LocationSimulationOutcome.isTunnelUnreachable(code) {
+                    // NAME THE CAUSE. A bounded probe established that the tunnel endpoint isn't
+                    // answering before anything was dialled, so this is a fact, not the old paragraph
+                    // of guesses ending in "(error 3)". Same words as the tunnel chip.
+                    alertTitle = LocationSimulationOutcome.tunnelDownTitle
+                    alertMessage = LocationSimulationOutcome.tunnelDownMessage
+                    showAlert = true
                 } else {
                     alertTitle = errorTitle
                     if let mountFailure {
@@ -2335,28 +2520,91 @@ struct LocationSimulationView: View {
         }
     }
 
+    /// How long a location command may hold the controls without reporting back.
+    ///
+    /// Generous on purpose: a healthy rebuild over a live tunnel finishes in a second or two, and a
+    /// dead one now fails inside the probe's own bound, so nothing legitimate should ever reach this.
+    /// It exists as the backstop for the class of bug this whole change is about — a control that is
+    /// disabled forever is never acceptable, whatever went wrong underneath it.
+    private static let busyWatchdogSeconds: TimeInterval = 20
+
+    /// Release the controls if `token`'s command has not reported back in time, and say why.
+    ///
+    /// Deliberately does NOT bump the token: if that command is merely slow and lands afterwards, it
+    /// still owns the controls and its result is still honoured — a late SUCCESS must arm the hold
+    /// loop, or the device would be spoofed with nothing keeping the fix warm.
+    private func armBusyWatchdog(token: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.busyWatchdogSeconds) {
+            guard locationCommandToken == token, isBusy else { return }
+            isBusy = false
+            alertTitle = LocationSimulationOutcome.tunnelStalledTitle
+            alertMessage = LocationSimulationOutcome.tunnelStalledMessage
+            showAlert = true
+        }
+    }
+
+    /// Stop.
+    ///
+    /// ── HOW STOP IS GUARANTEED TO RESPOND ────────────────────────────────────────────────────────
+    /// It is two halves, and only the second one can ever be delayed.
+    ///
+    ///   1. THE LOCAL HALF runs SYNCHRONOUSLY on the main thread, unconditionally, before anything is
+    ///      enqueued. It stops re-injecting, tears the run state down, releases the keep-alive, ends
+    ///      the session and unlatches `isBusy`. Not one line of it touches the serial location queue,
+    ///      so no state of that queue — backed up, busy, or wedged — can stop the button from working.
+    ///      This is what "Stop always responds" means concretely.
+    ///   2. THE DEVICE HALF is enqueued. Clearing the fix ON THE DEVICE requires the tunnel, so it
+    ///      inherently cannot be made independent of the transport — but it does not need to be:
+    ///      the DVT location session is connection-scoped, so if the tunnel is down there is nothing
+    ///      live left to clear and the device has already reverted to real GPS. Being late here costs
+    ///      nothing the user can see.
+    ///
+    /// It also no longer returns early when `pairingExists` is false. Standing the local session down
+    /// is exactly as valid without a pairing file — and bailing first was another way for a tap to
+    /// look like a no-op.
     private func clear() {
-        // ALWAYS stop re-injecting first — even if a command is in flight (isBusy) or pairing is
-        // momentarily unavailable. Previously the `!isBusy` guard could return BEFORE stopping the
-        // resend loop, leaving it re-freezing the fake location so Stop appeared to do nothing.
-        stopResendLoop()
-        guard pairingExists else { return }
-        routeLoadTask?.cancel()
-        routeLoadTask = nil
+        // ── 1. LOCAL, SYNCHRONOUS, UNCONDITIONAL ────────────────────────────────────────────────
+        stopResendLoop()                     // also sets suppressResends + clears simulatedCoordinate
         routeSpeedPrefetchTask?.cancel()
         routeSpeedPrefetchTask = nil
         cancelRoutePlayback(resetMarker: true)
-        stopResendLoop()
         locationInfo.clear()
-        runLocationCommand(
-            errorTitle: "Clear Failed",
-            errorMessage: { code in "Could not clear simulated location (error \(code))." },
-            operation: clear_simulated_location
-        ) {
-            endBackgroundTask()
-            BackgroundLocationManager.shared.requestStop()
-            SimulationSession.shared.markStopped()
+        // Stop OUTRANKS any command still holding the controls. Taking the token away both releases
+        // the row now and discards that command's late outcome, so a teleport that reports back after
+        // the user stopped cannot re-disable the buttons or re-alert over the stop.
+        locationCommandToken &+= 1
+        isBusy = false
+        endBackgroundTask()
+        BackgroundLocationManager.shared.requestStop()
+
+        // ── 2. DEVICE HALF — needs the tunnel, so it is enqueued and never gated on ──────────────
+        // Ordering is unchanged from before and from `SimulationSession.stopAll()`: the clear is
+        // ENQUEUED first, and `markStopped()` (which arms the tunnel auto-disconnect) comes after, so
+        // the scheduler's drain still cannot start its grace timer ahead of the clear it is waiting on.
+        if pairingExists {
+            LocationSimulationCommandQueue.submitClear {
+                let code = clear_simulated_location()
+                // Every return path of that call has already freed the FFI session, so no handle is
+                // open at this instant. Recorded on the location queue, where the tunnel's
+                // auto-disconnect reads it. See LocationSessionActivity.
+                LocationSessionActivity.noteSessionClosed()
+                DispatchQueue.main.async {
+                    // Only a REAL failure is worth an alert. "The tunnel was down" is not one: the
+                    // stop already happened locally and the device had nothing of ours left to clear,
+                    // so the old "Clear Failed (error 12)" reported a successful stop as broken.
+                    guard code != 0, !LocationSimulationOutcome.isTunnelUnreachable(code) else { return }
+                    alertTitle = "Clear Failed"
+                    alertMessage = "Could not clear simulated location (error \(code))."
+                    showAlert = true
+                }
+            }
         }
+
+        // Ends the session and arms the tunnel auto-disconnect under its existing conditions (a human
+        // asked, and something was actually running). Now runs on EVERY stop rather than only when
+        // the device clear came back 0 — with the tunnel down that success handler never ran, so the
+        // session stayed "active" forever, the chip stayed up and the keep-alive was never released.
+        SimulationSession.shared.markStopped()
     }
 
     private func beginBackgroundTask() {
@@ -2411,7 +2659,7 @@ struct LocationSimulationView: View {
             } else {
                 target = simulatedCoordinate
             }
-            LocationSimulationCommandQueue.shared.async {
+            LocationSimulationCommandQueue.submit {
                 // A Stop/Clear may have landed after this tick was queued — don't re-inject then.
                 if LocationSimulationCommandQueue.suppressResends { return }
                 _ = locationUpdateCode(for: target)
@@ -2512,8 +2760,6 @@ struct LocationSimulationView: View {
     }
 
     private func resetRouteSelection() {
-        routeLoadTask?.cancel()
-        routeLoadTask = nil
         routeSpeedPrefetchTask?.cancel()
         routeSpeedPrefetchTask = nil
         routeRequestID = UUID()
@@ -2524,101 +2770,6 @@ struct LocationSimulationView: View {
         routePlaybackCoordinate = nil
         isLoadingRoute = false
         isPrefetchingRouteSpeeds = false
-    }
-
-    private func refreshRoute() {
-        routeLoadTask?.cancel()
-        routeSpeedPrefetchTask?.cancel()
-        setRoutePlan(nil)
-        routePlaybackSamples = []
-
-        guard let routeStart = routeStartSelection?.coordinate,
-              let routeEnd = routeEndSelection?.coordinate else {
-            isLoadingRoute = false
-            isPrefetchingRouteSpeeds = false
-            return
-        }
-
-        let requestID = UUID()
-        routeRequestID = requestID
-        isLoadingRoute = true
-        isPrefetchingRouteSpeeds = false
-
-        let request = MKDirections.Request()
-        request.source = MKMapItem(placemark: MKPlacemark(coordinate: routeStart))
-        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: routeEnd))
-        request.requestsAlternateRoutes = false
-        request.transportType = .automobile
-
-        routeLoadTask = Task {
-            do {
-                let response = try await MKDirections(request: request).calculate()
-                guard !Task.isCancelled else { return }
-                guard let route = response.routes.first else {
-                    throw NSError(
-                        domain: "RouteSimulation",
-                        code: -1,
-                        userInfo: [NSLocalizedDescriptionKey: "No drivable route was returned."]
-                    )
-                }
-
-                let displayCoordinates = sampledRouteCoordinates(
-                    from: route.polyline.coordinateArray,
-                    targetDistance: RouteSimulationDefaults.pathSamplingDistance
-                )
-                let routePlan = RouteSimulationPlan(
-                    displayCoordinates: displayCoordinates,
-                    distance: route.distance,
-                    expectedTravelTime: route.expectedTravelTime
-                )
-
-                await MainActor.run {
-                    guard routeRequestID == requestID else { return }
-                    self.setRoutePlan(routePlan)
-                    isLoadingRoute = false
-                    isPrefetchingRouteSpeeds = true
-                    if let routePolyline {
-                        position = .rect(routePolyline.boundingMapRect)
-                    }
-                }
-
-                let fallbackSpeed = route.expectedTravelTime > 0
-                    ? route.distance / route.expectedTravelTime
-                    : 13.4
-
-                await MainActor.run {
-                    guard routeRequestID == requestID else { return }
-                    routeSpeedPrefetchTask?.cancel()
-                    routeSpeedPrefetchTask = Task.detached(priority: .utility) {
-                        let playbackSamples = await prefetchRoutePlaybackSamples(
-                            displayCoordinates: displayCoordinates,
-                            fallbackSpeedMetersPerSecond: fallbackSpeed
-                        )
-                        guard !Task.isCancelled else { return }
-                        await MainActor.run {
-                            guard routeRequestID == requestID else { return }
-                            routePlaybackSamples = playbackSamples
-                            isPrefetchingRouteSpeeds = false
-                        }
-                    }
-                }
-            } catch is CancellationError {
-                await MainActor.run {
-                    guard routeRequestID == requestID else { return }
-                    isLoadingRoute = false
-                    isPrefetchingRouteSpeeds = false
-                }
-            } catch {
-                await MainActor.run {
-                    guard routeRequestID == requestID else { return }
-                    isLoadingRoute = false
-                    isPrefetchingRouteSpeeds = false
-                    alertTitle = "Route Failed"
-                    alertMessage = error.localizedDescription
-                    showAlert = true
-                }
-            }
-        }
     }
 
     private func startRoutePlayback() {
@@ -2670,7 +2821,7 @@ struct LocationSimulationView: View {
 
     private func sendLocationUpdate(for coordinate: CLLocationCoordinate2D) async -> Int32 {
         await withCheckedContinuation { continuation in
-            LocationSimulationCommandQueue.shared.async {
+            LocationSimulationCommandQueue.submit {
                 continuation.resume(returning: locationUpdateCode(for: coordinate))
             }
         }
@@ -2685,462 +2836,15 @@ struct LocationSimulationView: View {
     }
 }
 
-private struct RouteSearchSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let initialStart: RouteSearchSelection?
-    let initialEnd: RouteSearchSelection?
-    /// Where route endpoints should be searched from — the spoof target / pin, not
-    /// the device's real position.
-    let anchor: MapSearchAnchor?
-    /// Device coordinate captured BEFORE any simulation, or nil. Only ever used to
-    /// offer "Near me"; see `AddressSearchBar.realLocation` for why it must not be a
-    /// live CoreLocation fix.
-    let realLocation: CLLocationCoordinate2D?
-    let onApply: (RouteSearchSelection, RouteSearchSelection) -> Void
-
-    @StateObject private var startCompleter = LocationSearchCompleter()
-    @StateObject private var endCompleter = LocationSearchCompleter()
-    @State private var startQuery: String
-    @State private var endQuery: String
-    @State private var startSelection: RouteSearchSelection?
-    @State private var endSelection: RouteSearchSelection?
-    @State private var isResolvingSelection = false
-    @State private var errorMessage: String?
-    /// The user has asked for endpoints to be ranked around their real location
-    /// instead of the spoof target.
-    @State private var preferRealLocation = false
-    @FocusState private var focusedField: RouteSearchField?
-
-    init(
-        initialStart: RouteSearchSelection?,
-        initialEnd: RouteSearchSelection?,
-        anchor: MapSearchAnchor? = nil,
-        realLocation: CLLocationCoordinate2D? = nil,
-        onApply: @escaping (RouteSearchSelection, RouteSearchSelection) -> Void
-    ) {
-        self.initialStart = initialStart
-        self.initialEnd = initialEnd
-        self.anchor = anchor
-        self.realLocation = realLocation
-        self.onApply = onApply
-        _startQuery = State(initialValue: initialStart?.title ?? "")
-        _endQuery = State(initialValue: initialEnd?.title ?? "")
-        _startSelection = State(initialValue: initialStart)
-        _endSelection = State(initialValue: initialEnd)
-    }
-
-    private var activeResults: [MKLocalSearchCompletion] {
-        switch focusedField {
-        case .start:
-            return startCompleter.results
-        case .end:
-            return endCompleter.results
-        case .none:
-            return []
-        }
-    }
-
-    /// Text currently being searched in the focused field, trimmed.
-    private var activeQuery: String {
-        switch focusedField {
-        case .start: return startQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        case .end:   return endQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        case .none:  return ""
-        }
-    }
-
-    /// True when the focused field's suggestions came from the unanchored retry.
-    private var activeFellBackToWorldwide: Bool {
-        switch focusedField {
-        case .start: return startCompleter.didFallBackToWorldwide
-        case .end:   return endCompleter.didFallBackToWorldwide
-        case .none:  return false
-        }
-    }
-
-    /// True when the user has explicitly widened the focused field to the whole world.
-    /// Read off the completer rather than kept as view state so it can't drift out of
-    /// sync when resolving a result resets one field's scope and not the other's.
-    private var activeForcedWorldwide: Bool {
-        switch focusedField {
-        case .start: return startCompleter.isForcedWorldwide
-        case .end:   return endCompleter.isForcedWorldwide
-        case .none:  return false
-        }
-    }
-
-    /// Widen (or re-anchor) both endpoint fields at once. A route has two ends and
-    /// they are almost always the same kind of question — a Tokyo→Osaka route is
-    /// out of region at BOTH ends.
-    private func setForceWorldwide(_ forced: Bool) {
-        startCompleter.setForceWorldwide(forced)
-        endCompleter.setForceWorldwide(forced)
-    }
-
-    private func scopeButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .lineLimit(1)
-                .fixedSize()
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Wander.brand)
-    }
-
-    /// The anchor actually handed to both completers — the host's, unless the user
-    /// asked for their real location and we were given a trustworthy one.
-    private var effectiveAnchor: MapSearchAnchor? {
-        guard let anchor else { return nil }
-        guard preferRealLocation, let realLocation else { return anchor }
-        return MapSearchAnchor(
-            coordinate: realLocation,
-            name: L("search.anchor.real", fallback: "your real location"),
-            radiusMeters: anchor.radiusMeters,
-            isRealLocation: true
-        )
-    }
-
-    /// Show the explanation as soon as the user is typing against an anchor — NOT
-    /// only when results exist. An anchored search that returns nothing is precisely
-    /// when the user needs to be told where we looked and offered somewhere else;
-    /// gating this on a non-empty list hides the escape hatch at the only moment it
-    /// matters.
-    private var showsAnchorHeader: Bool {
-        effectiveAnchor != nil && !activeQuery.isEmpty
-    }
-
-    /// Which search produced the visible list. Same three sentences the main search
-    /// bar uses — a deliberate widening must never be reported as a failure to find
-    /// anything nearby.
-    private func anchorSentence(_ anchor: MapSearchAnchor) -> String {
-        if activeForcedWorldwide {
-            return L("search.results_anywhere", fallback: "Results from anywhere")
-        }
-        if activeFellBackToWorldwide {
-            return String(format: L("search.nothing_near",
-                                    fallback: "Nothing near %@ — showing results worldwide"),
-                          anchor.name)
-        }
-        return String(format: L("search.results_near", fallback: "Results near %@"), anchor.name)
-    }
-
-    @ViewBuilder
-    private var anchorHeader: some View {
-        if let anchor = effectiveAnchor {
-            HStack(spacing: 6) {
-                // Sentence combines into one VoiceOver element; the buttons stay their
-                // own, so the escape hatches are reachable.
-                HStack(spacing: 6) {
-                    Image(systemName: (activeForcedWorldwide || activeFellBackToWorldwide)
-                          ? "globe"
-                          : (anchor.isRealLocation ? "location.fill" : "mappin.and.ellipse"))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(anchorSentence(anchor))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .accessibilityElement(children: .combine)
-                Spacer(minLength: 4)
-
-                if activeForcedWorldwide {
-                    scopeButton(L("search.scope.nearby", fallback: "Nearby")) {
-                        setForceWorldwide(false)
-                    }
-                } else {
-                    // The automatic retry only fires on an EMPTY anchored list, so a
-                    // required region that answers "Paris" with a local bakery would
-                    // otherwise trap a Tokyo→Paris route inside Tokyo.
-                    if !activeFellBackToWorldwide {
-                        scopeButton(L("search.scope.anywhere", fallback: "Anywhere")) {
-                            setForceWorldwide(true)
-                        }
-                    }
-                    if realLocation != nil {
-                        scopeButton(anchor.isRealLocation
-                                    ? L("search.near_target", fallback: "Near my pin")
-                                    : L("search.near_me", fallback: "Near me")) {
-                            preferRealLocation.toggle()
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var canApply: Bool {
-        startSelection != nil && endSelection != nil && !isResolvingSelection
-    }
-
-    var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                routeField(
-                    title: "Start",
-                    icon: "circle.fill",
-                    tint: .green,
-                    text: $startQuery,
-                    selection: startSelection,
-                    field: .start
-                )
-
-                routeField(
-                    title: "End",
-                    icon: "flag.checkered.circle.fill",
-                    tint: .red,
-                    text: $endQuery,
-                    selection: endSelection,
-                    field: .end
-                )
-
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
-
-                if isResolvingSelection {
-                    ProgressView("Resolving location…")
-                        .font(.footnote)
-                } else {
-                    // The header is OUTSIDE the results check on purpose — see
-                    // `showsAnchorHeader`.
-                    if showsAnchorHeader { anchorHeader }
-
-                    if !activeResults.isEmpty {
-                        ScrollView {
-                            LazyVStack(spacing: 0) {
-                                ForEach(Array(activeResults.enumerated()), id: \.element) { index, result in
-                                    Button {
-                                        resolve(result)
-                                    } label: {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(result.title)
-                                                .font(.subheadline)
-                                                .foregroundStyle(.primary)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                            if !result.subtitle.isEmpty {
-                                                Text(result.subtitle)
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
-                                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                            }
-                                        }
-                                        .padding(.vertical, 10)
-                                        .padding(.horizontal, 12)
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    if index < activeResults.count - 1 {
-                                        Divider()
-                                    }
-                                }
-                            }
-                        }
-                        .frame(maxHeight: 260)
-                    } else if activeFellBackToWorldwide {
-                        // Both the anchored and the worldwide search came back with
-                        // nothing — say so, instead of a bare gap under the header.
-                        Text(L("search.no_matches", fallback: "No matching places."))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    } else if !showsAnchorHeader {
-                        Text("Search for a start and destination to build the route.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(16)
-            .navigationTitle("Simulate Route")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Use Route") {
-                        guard let startSelection, let endSelection else { return }
-                        onApply(startSelection, endSelection)
-                        dismiss()
-                    }
-                    .disabled(!canApply)
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-        // Both completers get the anchor before the first keystroke, so the very
-        // first suggestion list is already ranked around the spoof target — and both
-        // get re-pointed when the user flips to "Near me".
-        .task(id: effectiveAnchor?.regionKey) {
-            startCompleter.setAnchor(effectiveAnchor)
-            endCompleter.setAnchor(effectiveAnchor)
-        }
-        .onAppear {
-            if startSelection == nil {
-                focusedField = .start
-            } else if endSelection == nil {
-                focusedField = .end
-            }
-        }
-    }
-
-    private func routeField(
-        title: String,
-        icon: String,
-        tint: Color,
-        text: Binding<String>,
-        selection: RouteSearchSelection?,
-        field: RouteSearchField
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .foregroundStyle(tint)
-
-                TextField(title, text: text)
-                    .textInputAutocapitalization(.words)
-                    .autocorrectionDisabled()
-                    .focused($focusedField, equals: field)
-                    .submitLabel(field == .start ? .next : .done)
-                    .onChange(of: text.wrappedValue) { _, newValue in
-                        errorMessage = nil
-                        update(query: newValue, for: field)
-                    }
-                    .onSubmit {
-                        if field == .start {
-                            focusedField = .end
-                        } else {
-                            focusedField = nil
-                        }
-                    }
-            }
-            .padding(.horizontal, 2)
-            .padding(.vertical, 4)
-
-            if let selection {
-                Text(String(format: "%.5f, %.5f", selection.coordinate.latitude, selection.coordinate.longitude))
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func update(query: String, for field: RouteSearchField) {
-        switch field {
-        case .start:
-            if query != startSelection?.title {
-                startSelection = nil
-            }
-            startCompleter.update(query: query)
-        case .end:
-            if query != endSelection?.title {
-                endSelection = nil
-            }
-            endCompleter.update(query: query)
-        }
-    }
-
-    private func resolve(_ completion: MKLocalSearchCompletion) {
-        let field = focusedField ?? .start
-        let request = MKLocalSearch.Request(completion: completion)
-        // Skipped entirely when the suggestions came from the worldwide retry: that
-        // place is by definition not near the anchor, so biasing toward the anchor
-        // could only pull the pin somewhere the user didn't pick.
-        if let anchor = effectiveAnchor, !activeFellBackToWorldwide, !activeForcedWorldwide {
-            request.region = anchor.region
-            // `.default` here on purpose — the completion was already ranked inside
-            // this region, so the region only needs to disambiguate same-named places.
-            // Requiring it could make a tap resolve to nothing at all.
-            if #available(iOS 18.0, *) { request.regionPriority = .default }
-        }
-        isResolvingSelection = true
-        errorMessage = nil
-
-        MKLocalSearch(request: request).start { response, error in
-            DispatchQueue.main.async {
-                isResolvingSelection = false
-
-                guard let item = response?.mapItems.first else {
-                    errorMessage = error?.localizedDescription ?? "Could not resolve that location."
-                    return
-                }
-
-                let name = item.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let title = name.isEmpty ? completion.title : name
-                let selection = RouteSearchSelection(title: title, coordinate: item.placemark.coordinate)
-
-                switch field {
-                case .start:
-                    startSelection = selection
-                    startQuery = title
-                    startCompleter.clearResults()
-                    focusedField = .end
-                case .end:
-                    endSelection = selection
-                    endQuery = title
-                    endCompleter.clearResults()
-                    focusedField = nil
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Bookmarks Sheet
-
-struct BookmarksView: View {
-    @Binding var bookmarks: [LocationBookmark]
-    let onSelect: (LocationBookmark) -> Void
-    let onDelete: (IndexSet) -> Void
-
-    var body: some View {
-        NavigationStack {
-            Group {
-                if bookmarks.isEmpty {
-                    ContentUnavailableView(
-                        "No Bookmarks",
-                        systemImage: "bookmark.slash",
-                        description: Text("Drop a pin on the map and tap the bookmark icon to save a location.")
-                    )
-                } else {
-                    List {
-                        ForEach(bookmarks) { bookmark in
-                            Button {
-                                onSelect(bookmark)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(bookmark.name)
-                                        .foregroundStyle(.primary)
-                                    Text(String(format: "%.6f, %.6f", bookmark.latitude, bookmark.longitude))
-                                        .font(.caption.monospaced())
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .onDelete(perform: onDelete)
-                    }
-                }
-            }
-            .navigationTitle("Bookmarks")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if !bookmarks.isEmpty {
-                    EditButton()
-                }
-            }
-        }
-    }
-}
+// The two sheets that used to live down here are GONE, not orphaned:
+//
+//   RouteSearchSheet — a start/end place picker reached from the old toolbar. The Route tab is a
+//                      whole tab of exactly this, with more in it (multiple stops, reordering,
+//                      transport modes, Preview/Drive), so this was a smaller second copy of the
+//                      app's own navigation hiding behind a glyph.
+//   BookmarksView    — a plain list of `locationBookmarks`. The Places screen lists the SAME store
+//                      (More → Places → "Saved"), with search, folders, tags, sharing and delete
+//                      on top of it.
+//
+// `RouteSearchSelection` above survives on purpose: imported coordinates still become a route
+// start/end through it (see `applyImportedCoordinates`).

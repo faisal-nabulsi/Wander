@@ -428,6 +428,26 @@ struct ProxySetupView: View {
                 ],
                 note: "Same idea in reverse: stop the spoof first, then force a fresh look so iOS grabs your real spot."
             )
+
+            // The one piece of advice on this screen that is about a SPECIFIC app's permission
+            // rather than the global switch, so it gets the per-app deep link.
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    Image(systemName: "gamecontroller.fill").font(.title3)
+                        .foregroundStyle(Wander.brand).frame(width: 28)
+                    Text("Set Pokémon GO to Always + Precise").font(.body.weight(.semibold))
+                    Spacer(minLength: 0)
+                }
+                Text("This one is the game's own permission, not the system switch. Location = Always and Precise Location ON — a coarse fix fights the spoofed one and is a common Error 12 cause.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                linkButton("Open Pokémon GO's location settings") {
+                    AppLocationSettings.openLocationScreen(forBundleID: AppLocationSettings.BundleID.pokemonGo)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
     }
 
@@ -451,7 +471,13 @@ struct ProxySetupView: View {
                 Text(note).font(.caption2).foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            linkButton("Open Location Services", url: "prefs:root=Privacy&path=LOCATION")
+            // GENERIC on purpose: every step in these cards is the system-wide Location Services
+            // switch (the off-10-seconds-on flush), not one app's permission. Routed through
+            // AppLocationSettings so a dropped `prefs:` path falls back instead of doing nothing.
+            // The button only NAVIGATES — iOS lets no app toggle Location Services.
+            linkButton("Open Location Services") {
+                AppLocationSettings.openLocationServicesPane()
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -524,9 +550,13 @@ struct ProxySetupView: View {
     /// Best-effort deep link: attempt to open; the caller always shows a manual path too, so a no-op is
     /// harmless. Private `prefs:`/proxy-app schemes can change between iOS/app versions.
     private func linkButton(_ title: String, url: String) -> some View {
-        Button {
+        linkButton(title) {
             if let u = URL(string: url) { UIApplication.shared.open(u) }
-        } label: {
+        }
+    }
+
+    private func linkButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             HStack {
                 Text(title).font(.caption.weight(.semibold))
                 Image(systemName: "arrow.up.right.square").font(.caption2)

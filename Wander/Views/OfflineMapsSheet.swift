@@ -70,6 +70,12 @@ struct OfflineMapsSheet: View {
                     showsStyleSwitcher: true
                 )
                 .ignoresSafeArea()
+                // Deliberately the bare crosshair, NOT `wanderMapCrosshair`: this is a SHEET, so
+                // the tab bar and home indicator that MapModeChrome's lift reserves room for
+                // aren't below it, and its card is content-sized rather than the canonical panel.
+                // Borrowing the modes' lift here would aim ~50pt off. If this screen ever grows a
+                // fixed panel, move it onto `wanderMapPanel()` + `wanderMapCrosshair()` together —
+                // the two only stay in step because they come from the same number.
                 .overlay(alignment: .center) {
                     if selectedCoordinate == nil { MapCrosshair() }
                 }

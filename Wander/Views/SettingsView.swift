@@ -32,6 +32,13 @@ struct SettingsView: View {
     @AppStorage("appearance") private var appearanceRaw = AppearanceMode.system.rawValue
     @AppStorage(SavedPlacesSync.enabledKey) private var syncPlacesEnabled = false
     @AppStorage(SavedRoutesSync.enabledKey) private var syncRoutesEnabled = false
+    // Default FALSE, deliberately, on every install: turning this on makes Wander claim iOS's single
+    // VPN slot by itself, which would break anyone holding it for LocalDevVPN, Shadowrocket (gs-loc /
+    // PoGo mode) or a real VPN. This @AppStorage is the ONLY writer of `useOwnTunnel` in the app —
+    // nothing seeds it, and no fresh-install default touches it.
+    @AppStorage(UserDefaults.Keys.useOwnTunnel) private var useOwnTunnel = false
+    @AppStorage(UserDefaults.Keys.tunnelAutoDisconnectWhenIdle) private var autoDisconnectTunnel = false
+    @AppStorage(UserDefaults.Keys.tunnelAutoDisconnectDelay) private var autoDisconnectDelay = TunnelIdleDisconnect.defaultDelay
     @StateObject private var tunnel = WanderTunnel.shared
     @ObservedObject private var simSession = SimulationSession.shared
     @ObservedObject private var tunnelHealth = TunnelHealthMonitor.shared
@@ -283,17 +290,87 @@ struct SettingsView: View {
                     } label: {
                         Label(L("settings.tunnel.checklist", fallback: "Setup checklist"), systemImage: Wander.Icon.checklist)
                     }
+                    // Auto-connect. OFFERED only where the entitlement exists, and OFF until the user
+                    // taps it — `isSupported` decides whether to show the switch, never whether to
+                    // flip it. Every guard inside `ensureStarted()` still applies: gs-loc mode, an
+                    // existing foreign tunnel, and an already-reachable loopback each veto the start.
+                    if WanderTunnel.isSupported {
+                        Toggle(isOn: $useOwnTunnel) {
+                            Label(L("settings.tunnel.auto_connect", fallback: "Connect automatically"),
+                                  systemImage: Wander.Icon.tunnelAutoConnect)
+                                .font(.wanderLabel)
+                                .wanderSymbolAccent(on: useOwnTunnel)
+                        }
+                        .wanderFeedback(.selection, on: useOwnTunnel)
+                        .onChange(of: useOwnTunnel) { _, isOn in
+                            // Turning auto-connect off takes the whole feature with it, including any
+                            // disconnect already counting down.
+                            if !isOn { WanderTunnel.shared.cancelAutoDisconnect() }
+                        }
+                        toggleFootnote(L("settings.tunnel.auto_connect.footer",
+                                         fallback: "Wander brings its own tunnel up when you start spoofing, so connecting first stops being a manual step. It won't do this while gs-loc mode is on, or while another VPN is already carrying the loopback — iOS runs one VPN at a time, and Wander never takes the slot from Shadowrocket, LocalDevVPN or a real VPN."))
+
+                        if useOwnTunnel {
+                            Toggle(isOn: $autoDisconnectTunnel) {
+                                Label(L("settings.tunnel.auto_disconnect", fallback: "Disconnect when not spoofing"),
+                                      systemImage: Wander.Icon.tunnelAutoDisconnect)
+                                    .font(.wanderLabel)
+                                    .wanderSymbolAccent(on: autoDisconnectTunnel)
+                            }
+                            .wanderFeedback(.selection, on: autoDisconnectTunnel)
+                            .onChange(of: autoDisconnectTunnel) { _, isOn in
+                                // Switched off while a disconnect was already pending — drop it now
+                                // rather than letting a timer the user just disabled still fire.
+                                if !isOn { WanderTunnel.shared.cancelAutoDisconnect() }
+                            }
+                            // Subordinate to the switch above: indented, and dimmed + inert while the
+                            // switch is off so it can never read as an active setting.
+                            HStack {
+                                Text(localized: "settings.tunnel.auto_disconnect.delay", fallback: "Wait")
+                                    .wanderDetail()
+                                Spacer()
+                                Picker(L("settings.tunnel.auto_disconnect.delay", fallback: "Wait"),
+                                       selection: $autoDisconnectDelay) {
+                                    ForEach(TunnelIdleDisconnect.choices, id: \.self) { seconds in
+                                        Text(TunnelIdleDisconnect.label(for: seconds)).tag(seconds)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .tint(Wander.accent)
+                            }
+                            .padding(.leading, 28)
+                            .disabled(!autoDisconnectTunnel)
+                            .opacity(autoDisconnectTunnel ? 1 : 0.4)
+                            if autoDisconnectTunnel {
+                                toggleFootnote(L("settings.tunnel.auto_disconnect.footer",
+                                                 fallback: "After you stop simulating, Wander waits this long and then drops its tunnel, handing the VPN slot back. Starting a new spoof — or connecting the tunnel yourself — cancels the wait, so clearing a pin to pick another spot never costs you a reconnect."))
+                            }
+                        }
+                    } else {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "info.circle")
+                                .foregroundStyle(Wander.inactive)
+                            Text(localized: "settings.tunnel.unsupported",
+                                 fallback: "This install can't run the built-in tunnel — the Network Extension entitlement isn't in its signature, which is what free-Apple-ID sideloading removes when it re-signs the app. Use the LocalDevVPN app as your tunnel instead.")
+                                .wanderDetail()
+                        }
+                    }
                 } header: {
                     HStack(spacing: 6) {
                         Text(localized: "settings.tunnel.header", fallback: "Wander Tunnel")
                         wipBadge
                     }
                 } footer: {
+                    // Wander now KNOWS whether the entitlement is present before it tries anything,
+                    // so this no longer says "likely" or blames the account tier on a hunch.
                     if let e = tunnel.lastError {
-                        Text("Couldn't start the built-in tunnel (\(e)).\n\niOS restricts VPNs to paid Apple accounts, so on a free install this can't activate — use the LocalDevVPN app instead. No Wi-Fi? Turn on Airplane Mode, then connect LocalDevVPN.")
+                        Text("Couldn't start the built-in tunnel (\(e)).\n\nUse the LocalDevVPN app instead — on Wi-Fi, or on cellular by turning on Airplane Mode first, then connecting it.")
                             .foregroundStyle(.secondary)
+                    } else if WanderTunnel.isSupported {
+                        Text("Built-in on-device tunnel. This install IS signed with the Network Extension entitlement, so it can run its own tunnel — no LocalDevVPN needed. On cellular, turn on Airplane Mode first, then connect.")
                     } else {
-                        Text("Built-in on-device tunnel. iOS restricts VPNs to paid Apple accounts, so on a free install use the LocalDevVPN app instead — on Wi-Fi, or on cellular by turning on Airplane Mode first, then connecting it.")
+                        Text("Built-in on-device tunnel. This install isn't signed with the Network Extension entitlement, so it can't activate here — use the LocalDevVPN app instead, on Wi-Fi, or on cellular by turning on Airplane Mode first, then connecting it.")
                     }
                 }
 

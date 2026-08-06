@@ -73,7 +73,7 @@ final class RealGPSSeeder: NSObject, ObservableObject, CLLocationManagerDelegate
     func seedRealFirstFix(pairingFilePath: String) async {
         guard Self.isEnabled else { return }
         guard let real = await currentRealFix() else { return }
-        LocationSimulationCommandQueue.shared.async {
+        LocationSimulationCommandQueue.submit {
             // Ordered on the serial queue ahead of the caller's target inject: the device sees the
             // real "you are here" fix first, then the jump to the target as the next command.
             // Bail if a Stop/Clear landed during the async real-GPS fetch, so this one-shot can't

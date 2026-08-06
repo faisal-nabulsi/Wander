@@ -76,6 +76,11 @@ extension Wander.Icon {
     static let help = "questionmark.circle"
     static let tunnelConnected = "checkmark.shield.fill"
     static let tunnelDown = "shield.slash"
+    /// The PREFERENCE that lets Wander bring its own tunnel up when you start spoofing. Deliberately
+    /// not `tunnelConnected`: that glyph reports live status, and a switch is not a status.
+    static let tunnelAutoConnect = "bolt.horizontal.circle"
+    /// The other half of that preference — putting the tunnel back to sleep once nothing is spoofing.
+    static let tunnelAutoDisconnect = "powersleep"
     static let heartbeat = "waveform.path.ecg"
     static let sync = "arrow.triangle.2.circlepath"
     static let syncRoutes = "point.topleft.down.to.point.bottomright.curvepath"

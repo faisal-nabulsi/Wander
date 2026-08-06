@@ -10,6 +10,7 @@
 import SwiftUI
 import MapKit
 import CoreLocation
+import UniformTypeIdentifiers   // UTType — the GPX content type for the route exporter
 
 private struct RouteWaypoint: Identifiable {
     let id = UUID()
@@ -443,12 +444,8 @@ struct RouteModeView: View {
     @State private var showPaywall = false
     @StateObject private var currentLocation = CurrentLocation()
     @State private var visibleCenter: CLLocationCoordinate2D?
-    /// How far UP (as a fraction of screen height) the crosshair + drop-point sit from centre, so the
-    /// bottom controls card never covers the "add a point here" target — even with a full waypoint
-    /// list. The map's `.ignoresSafeArea()` means map height ≈ screen height, so this fraction maps
-    /// 1:1 to the latitude-span shift applied to `visibleCenter` below (keeping the dropped point
-    /// exactly under the crosshair).
-    private let crosshairLift: CGFloat = 0.18
+    // The crosshair lift used to be a hardcoded 0.18 here, a measured value in MapSelectionView and
+    // nothing at all in WalkModeView. It now lives in Support/MapModeChrome.swift for all three.
     @State private var currentPosition: CLLocationCoordinate2D?
 
     @State private var speedMode: RouteSpeedMode = .realistic
@@ -510,6 +507,15 @@ struct RouteModeView: View {
 
     @State private var isComputing = false
     @State private var isDriving = false
+
+    /// Consecutive failed location writes since the last one that landed. Reset on every success.
+    /// See `noteWriteOutcome` — this is what keeps the pin from driving a route the device isn't on.
+    @State private var writeFailures = 0
+
+    /// How many consecutive failed writes a drive tolerates before it stands itself down. Enough to
+    /// ride out a transient; not enough for the map to narrate a fictional journey. A dead tunnel is
+    /// definitive and doesn't spend this budget at all.
+    private static let maxConsecutiveWriteFailures = 3
 
     /// True while this view holds the background keep-alive.
     ///
@@ -588,7 +594,43 @@ struct RouteModeView: View {
     /// Presents the route-file importer (GPX / KML / GeoJSON / CSV → waypoints).
     @State private var showRouteFileImporter = false
 
+    // Writing the CURRENT route back out as a .gpx. Reached from the map toolbar's "…" menu.
+    //
+    // WHY THIS TAB HAS ITS OWN EXPORTER: the toolbar's Export GPX acts on the tab you're looking
+    // at, and this tab's subject is the route being built — its waypoints and the previewed line
+    // through them. The Teleport screen's exporter writes its own pin and saved places and knows
+    // nothing about these, so pointing this menu item at that one would have written the wrong
+    // file. Only the presentation is local: the GPX itself comes from the shared `GPXBuilder` /
+    // `GPXDocument` that Teleport already uses, so there is one GPX writer in the app.
+    @State private var showGPXExporter = false
+    @State private var gpxDocument = GPXDocument(text: "")
+
     private var manualMetersPerSecond: Double { max(manualSpeedMps, 1) }
+
+    /// The file actions this tab hands the shared map toolbar. They act on THIS tab's subject —
+    /// the route — so Import feeds the same waypoint importer the "Import file" button in the
+    /// controls card uses (two doors, one action), and Export writes the route rather than the
+    /// Teleport screen's pin.
+    ///
+    /// ⚠️ IMPORT IS OMITTED WHILE DRIVING, and that is load-bearing, not tidiness. The
+    /// `.fileImporter` that `showRouteFileImporter` drives is mounted inside the `if !isDriving`
+    /// controls card, while the toolbar hangs off the NavigationStack root — so during a drive the
+    /// menu item stayed tappable after the modifier that presents the picker had left the
+    /// hierarchy. Tapping it did nothing (the silent no-op this bar exists to avoid) AND left the
+    /// flag true, so a file picker popped up unprompted the moment the drive stopped and the card
+    /// came back. Appending waypoints to a route that is already playing back is meaningless
+    /// anyway, so the honest fix is no row rather than a dead one. Export stays: a running drive
+    /// still has a line worth writing out.
+    ///
+    /// If you ever want Import back mid-drive, move the `.fileImporter` up next to the
+    /// `.fileExporter` at the NavigationStack root FIRST — it has to be mounted whenever anything
+    /// can set its flag.
+    private var routeFileActions: MapModeFileActions {
+        MapModeFileActions(
+            importCoordinates: isDriving ? nil : { showRouteFileImporter = true },
+            exportGPX: { exportRouteGPX() }
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -596,7 +638,25 @@ struct RouteModeView: View {
                 map
                 controls
             }
+            // The shared navigation treatment — inline, not the large title this had before.
+            // See "THE NAVIGATION RULE" in MapModeChrome: a large title is ~96pt of bar against an
+            // inline bar's ~44, so the three tabs would still have started at different heights.
             .navigationTitle(L("route.title", fallback: "Route"))
+            .navigationBarTitleDisplayMode(.inline)
+            // The bar all three map tabs share (Places, Offline maps, "…"). See `routeFileActions`
+            // above for what this tab puts in the menu's file section, and why Import disappears
+            // once a drive is running.
+            .mapModeToolbar(files: routeFileActions)
+            .fileExporter(
+                isPresented: $showGPXExporter,
+                document: gpxDocument,
+                contentType: UTType(filenameExtension: "gpx", conformingTo: .xml) ?? .xml,
+                defaultFilename: "wander-route-\(Self.gpxTimestamp())"
+            ) { result in
+                if case .failure(let error) = result {
+                    alertText = error.localizedDescription
+                }
+            }
             .alert(L("route.title", fallback: "Route"), isPresented: Binding(get: { alertText != nil }, set: { if !$0 { alertText = nil } })) {
                 Button(L("action.ok", fallback: "OK"), role: .cancel) {}
             } message: { Text(alertText ?? "") }
@@ -655,20 +715,13 @@ struct RouteModeView: View {
             showUserDot = MapLocationAuthWatcher.shared.isAuthorized
         }
         .onMapCameraChange(frequency: .continuous) { context in
-            // The crosshair is lifted up (below) so the bottom controls card can't cover it. The drop
-            // point must follow the crosshair, not the map's geometric centre — so shift the reported
-            // centre NORTH by the same fraction of the visible latitude span.
-            visibleCenter = CLLocationCoordinate2D(
-                latitude: context.region.center.latitude + crosshairLift * context.region.span.latitudeDelta,
-                longitude: context.region.center.longitude)
+            // The crosshair is lifted so the bottom controls card can't cover it, so the drop point
+            // must follow the crosshair rather than the map's geometric centre. One shared helper,
+            // so the shift can never fall out of step with where the crosshair is drawn.
+            visibleCenter = MapModeChrome.dropPoint(in: context.region)
             visibleRegion = context.region
         }
-        .overlay(alignment: .center) {
-            if !isDriving {
-                MapCrosshair()
-                    .offset(y: -UIScreen.main.bounds.height * crosshairLift)
-            }
-        }
+        .wanderMapCrosshair(!isDriving)
         .overlay(alignment: .topTrailing) {
             if isDriving { followButton }
         }
@@ -684,7 +737,7 @@ struct RouteModeView: View {
     @MapContentBuilder private var waypointMarkers: some MapContent {
         ForEach(Array(waypoints.enumerated()), id: \.element.id) { index, wp in
             Marker(waypointLabel(index), coordinate: wp.coordinate)
-                .tint(index == 0 ? .green : (index == waypoints.count - 1 ? .red : .orange))
+                .tint(index == 0 ? Wander.good : (index == waypoints.count - 1 ? Wander.blocked : Wander.caution))
         }
     }
 
@@ -978,25 +1031,27 @@ struct RouteModeView: View {
                 .background(followCamera ? Wander.brand : Color(.systemBackground), in: Circle())
                 .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
         }
-        .padding(.top, 110)
-        .padding(.trailing, 16)
+        // Clear of the navigation bar, from the SAME assumption the crosshair uses. This was a
+        // hardcoded 110 — a second, independent copy of MapModeChrome's `topChrome`, which meant
+        // two numbers describing one bar and either free to rot alone. It also assumed a notched
+        // iPhone: on an SE the bar ends at 64, so the button floated 46pt lower than it should.
+        .padding(.top, MapModeChrome.topFloatInset)
+        .padding(.trailing, MapModeChrome.cardPadding)
         .accessibilityLabel(followCamera ? "Stop following" : "Follow location")
     }
 
     private var controls: some View {
         WanderCard {
-        VStack(spacing: 12) {
+        VStack(spacing: MapModeChrome.rowSpacing) {
             if isComputing {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text(localized: "route.working", fallback: "Working…").font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: MapModeChrome.groupSpacing) {
+                    ProgressView().controlSize(.small).tint(Wander.brand)
+                    Text(localized: "route.working", fallback: "Working…").wanderDetail()
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             if let routeNotice {
-                Label(routeNotice, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                WanderPanelNote(status: .caution, text: routeNotice)
             }
             if gslocMode && !isDriving {
                 gslocTeleportOnlyNote
@@ -1010,36 +1065,7 @@ struct RouteModeView: View {
                         cameraPosition = .region(region)
                     }
                 }
-                HStack {
-                    Button { addWaypoint() } label: {
-                        Label(String(format: L("route.add_point", fallback: "Add point (%d)"), waypoints.count), systemImage: Wander.Icon.add)
-                    }
-                    Button { showRouteFileImporter = true } label: {
-                        Label(L("route.import_file", fallback: "Import file"), systemImage: "square.and.arrow.down")
-                    }
-                    if waypoints.count >= 2 {
-                        Button { showSaveRouteSheet = true } label: {
-                            Label(L("route.save", fallback: "Save"), systemImage: "bookmark")
-                        }
-                    }
-                    Spacer()
-                    if !waypoints.isEmpty {
-                        Button(role: .destructive) { clearAll() } label: {
-                            Label(L("route.clear", fallback: "Clear"), systemImage: Wander.Icon.clear)
-                        }
-                    }
-                }
-                .font(.subheadline)
-                .fileImporter(isPresented: $showRouteFileImporter,
-                              allowedContentTypes: RouteFileImporter.contentTypes,
-                              allowsMultipleSelection: false) { result in
-                    handleRouteFileImport(result)
-                }
-
-                if !waypoints.isEmpty {
-                    Text(waypointSummary).font(.caption).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                waypointControls
 
                 reorderableStopsList
 
@@ -1061,39 +1087,11 @@ struct RouteModeView: View {
                 // road-following DRIVE/WALK modes. The other modes run at their own cruise
                 // speed, so we show a short explanation instead of the speed controls.
                 if transportMode == .drive || transportMode == .walk {
-
-                Picker("Speed", selection: $speedMode) {
-                    ForEach(RouteSpeedMode.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-
-                if speedMode == .realistic {
-                    Text(routeExpectedTime > 0
-                         ? "Real-world time ≈ \(Int((routeExpectedTime / 60).rounded())) min — paced like an actual drive (slows for turns, varies speed)."
-                         : "Follows the real road time. Tap Preview route to estimate it.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    HStack {
-                        Text(speedMode == .manual ? "Speed" : "Fallback speed")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Slider(
-                            value: Binding(
-                                get: { SpeedFormat.fromMps(manualSpeedMps, useMph: useMph) },
-                                set: { manualSpeedMps = SpeedFormat.toMps($0, useMph: useMph) }
-                            ),
-                            in: SpeedFormat.sliderRange(useMph: useMph),
-                            step: 1
-                        )
-                        Text("\(Int(SpeedFormat.fromMps(manualSpeedMps, useMph: useMph))) \(SpeedFormat.unitLabel(useMph: useMph))")
-                            .font(.caption).monospacedDigit().frame(width: 70, alignment: .trailing)
-                    }
-                }
-
+                    pacePicker
                 } else if let hint = modeHint {
                     // CYCLE/TRANSIT/BOAT/PLANE explanation (great-circle + no-altitude note for PLANE).
                     Text(hint)
-                        .font(.caption).foregroundStyle(.secondary)
+                        .wanderDetail()
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
@@ -1103,7 +1101,7 @@ struct RouteModeView: View {
                 if transportMode == .plane {
                     Button { showFlightPlanner = true } label: {
                         Label(L("flight.open", fallback: "Flight Planner"), systemImage: "airplane.departure")
-                            .frame(maxWidth: .infinity).frame(height: 30)
+                            .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
@@ -1113,7 +1111,7 @@ struct RouteModeView: View {
                 // Secondary options collapsed by default so the screen stays uncluttered —
                 // the core flow (points → mode → Preview/Drive) is what shows first.
                 DisclosureGroup(isExpanded: $showRouteExtras) {
-                    VStack(spacing: 12) {
+                    VStack(spacing: MapModeChrome.rowSpacing) {
                         Toggle(isOn: Binding(
                             get: { loopRoute },
                             set: { newValue in
@@ -1126,19 +1124,19 @@ struct RouteModeView: View {
                             }
                         )) {
                             Label(L("route.loop", fallback: "Loop route"), systemImage: "repeat")
-                                .font(.subheadline)
+                                .font(.wanderDetail)
                         }
                         .tint(Wander.brand)
 
                         Toggle(isOn: $weatherAwarePace) {
                             Label(L("route.weather_pace", fallback: "Weather-aware pace"), systemImage: "cloud.rain")
-                                .font(.subheadline)
+                                .font(.wanderDetail)
                         }
                         .tint(Wander.brand)
                         if weatherAwarePace {
                             Text(localized: "route.weather_pace.footer",
                                  fallback: "Slows the drive in rain or snow at the destination — checked once when the route starts.")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .wanderMicro()
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
 
@@ -1146,18 +1144,18 @@ struct RouteModeView: View {
                         if transportMode == .drive {
                             Toggle(isOn: $avoidHighways) {
                                 Label(L("route.avoid_highways", fallback: "Avoid highways"), systemImage: "road.lanes")
-                                    .font(.subheadline)
+                                    .font(.wanderDetail)
                             }
                             .tint(Wander.brand)
                             Toggle(isOn: $avoidTolls) {
                                 Label(L("route.avoid_tolls", fallback: "Avoid tolls"), systemImage: "dollarsign.circle")
-                                    .font(.subheadline)
+                                    .font(.wanderDetail)
                             }
                             .tint(Wander.brand)
                             if avoidHighways || avoidTolls {
                                 Text(localized: "route.avoid.footer",
                                      fallback: "Uses Google routing (Pro) to honor these — tap Preview.")
-                                    .font(.caption).foregroundStyle(.secondary)
+                                    .wanderMicro()
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
@@ -1168,15 +1166,15 @@ struct RouteModeView: View {
 
                         aiRoutineControls
                     }
-                    .padding(.top, 6)
+                    .padding(.top, MapModeChrome.groupSpacing)
                 } label: {
                     Label(L("route.more_options", fallback: "More options — loop, weather, save, record, AI day"),
                           systemImage: "slider.horizontal.3")
-                        .font(.subheadline.weight(.medium))
+                        .font(.wanderLabel)
                 }
                 .tint(Wander.brand)
 
-                HStack(spacing: 10) {
+                HStack(spacing: MapModeChrome.rowSpacing) {
                     Button {
                         // Guard in the ACTION rather than via .disabled — a disabled bordered button
                         // renders a muted grey label that's invisible on the dark card in dark mode,
@@ -1188,7 +1186,7 @@ struct RouteModeView: View {
                         Task { await computeRoute() }
                     } label: {
                         Label(L("route.preview", fallback: "Preview"), systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                            .frame(maxWidth: .infinity).frame(height: 30)
+                            .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                     }
                     .buttonStyle(.bordered)
                     .tint(Wander.brand)
@@ -1203,8 +1201,8 @@ struct RouteModeView: View {
                         Task { await startDrive() }
                     } label: {
                         Label(L("route.drive", fallback: "Drive"), systemImage: Wander.Icon.play)
-                            .font(.headline)
-                            .frame(maxWidth: .infinity).frame(height: 30)
+                            .font(.wanderLabel)
+                            .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(Wander.brand)
@@ -1217,12 +1215,21 @@ struct RouteModeView: View {
                 .disabled(gslocMode)
                 .opacity(gslocMode ? 0.5 : 1)
             } else {
-                HStack {
-                    Text("\(Int(progress * 100))%").font(.caption.bold()).monospacedDigit()
+                HStack(spacing: MapModeChrome.rowSpacing) {
+                    // The focal value while driving: how far through the trip we are. `wanderMetric`
+                    // at `.primary`, the same token and the same colour rule as the other focal
+                    // sites (this tab's ETA, Teleport's summary, Joystick's speed). It used to be a
+                    // smaller, brand-tinted `.title3` — so hitting Drive changed the size AND the
+                    // colour of the one number the panel exists to show. Brand colour is for things
+                    // you can touch; the answer is read, not tapped.
+                    Text("\(Int(progress * 100))%")
+                        .wanderMetric(Int(progress * 100))
                     ProgressView(value: progress)
+                        .tint(Wander.brand)
                     if remainingSeconds > 0 {
                         Text(String(format: L("route.time_left", fallback: "~%d min left"), Int((remainingSeconds / 60).rounded())))
-                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            .font(.wanderNumeric(.caption, weight: .medium))
+                            .foregroundStyle(.secondary)
                     }
                 }
                 Picker("Rate", selection: $playbackRate) {
@@ -1232,46 +1239,117 @@ struct RouteModeView: View {
                     Text("4×").tag(4.0)
                 }
                 .pickerStyle(.segmented)
-                HStack(spacing: 10) {
+                .wanderFeedback(.selection, on: playbackRate)
+                HStack(spacing: MapModeChrome.rowSpacing) {
                     Button { isPaused.toggle() } label: {
                         Label(isPaused ? "Resume" : "Pause", systemImage: isPaused ? Wander.Icon.play : Wander.Icon.pause)
-                            .frame(maxWidth: .infinity).frame(height: 30)
+                            .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
                     Button(role: .destructive) { stopDrive() } label: {
                         Label(L("route.stop", fallback: "Stop"), systemImage: Wander.Icon.stop)
-                            .font(.headline)
-                            .frame(maxWidth: .infinity).frame(height: 30)
+                            .font(.wanderLabel)
+                            .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.red)
+                    .tint(Wander.blocked)
                     .controlSize(.large)
                 }
             }
         }
-        .hugScrollCard(maxHeight: UIScreen.main.bounds.height * 0.44)
+        // THE canonical panel height, shared with Teleport and Joystick (see MapModeChrome), and
+        // the SAME height with "More options" open or shut — the extra rows overflow the panel's
+        // fixed frame and scroll inside it rather than growing it.
+        .wanderMapPanel()
+        .wanderAnimation(WanderMotion.layout, on: isDriving)
         }
     }
 
     /// Shown atop the Route controls while PoGo (gs-loc) mode is on: routes don't hold through the gs-loc
     /// network path, so the builder below is disabled and the user is pointed back to teleport.
     private var gslocTeleportOnlyNote: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "hand.raised.fill")
-                .font(.caption)
-                .foregroundStyle(.orange)
-            Text(L("route.gsloc_teleport_only",
-                   fallback: "PoGo mode is teleport-only. Joystick, routes & auto-walk work in every other app and mode."))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        WanderPanelNote(
+            status: .caution,
+            text: L("route.gsloc_teleport_only",
+                    fallback: "PoGo mode is teleport-only. Joystick, routes & auto-walk work in every other app and mode."),
+            icon: "hand.raised.fill"
+        )
     }
 
     // MARK: - Waypoints
+
+    /// Choosing WHERE TO GO — the primary action of this tab, and now built as one.
+    ///
+    /// "Add point" is the Route tab's answer to Teleport's "Set pin here" and the Joystick's
+    /// "Set start point": it is literally how the user picks a destination. It was a
+    /// `.wanderDetail` text button sharing one line with Import file / Save / Clear, i.e. the
+    /// most important control on the screen drawn at the smallest size the type scale has. It is
+    /// a `WanderPrimaryButton` now — the same component, the same 60pt, the same tint the other
+    /// two modes use for the same decision.
+    ///
+    /// THAT ROW WAS ALSO THE "EMPTY BAND". MEASURED at the shared panel's content width (346pt on
+    /// an iPhone 17, 337 on an iPhone 16): the four `.wanderDetail` labels do not fit on one line
+    /// once "Save" appears at two waypoints, so `Label("Add point (2)")` WRAPPED and left a blank
+    /// rectangle beside "(2)" — and at one waypoint the `Spacer()` between "Import file" and
+    /// "Clear" left ~150pt of blank in the middle of the row. Neither is slack in the panel (the
+    /// panel has none — see the note on the totals below); both are holes inside a row, which is
+    /// what the screenshots show.
+    ///
+    /// Button + secondary row + summary are ONE group at `groupSpacing`, not three rows at
+    /// `rowSpacing`: they are one decision ("which points is this route made of") and the token
+    /// rule for that is the group gap.
+    private var waypointControls: some View {
+        VStack(spacing: MapModeChrome.groupSpacing) {
+            WanderPrimaryButton(
+                title: String(format: L("route.add_point", fallback: "Add point (%d)"), waypoints.count),
+                icon: Wander.Icon.add
+            ) {
+                addWaypoint()
+            }
+
+            // Secondary by WEIGHT, not by being small enough to miss: plain buttons at detail
+            // size under a prominent one. Import also lives in the map toolbar's file menu
+            // (see `routeFileActions`); it stays here because the panel is where a route is
+            // built and a second door to one room is cheaper than a hidden one.
+            HStack(spacing: MapModeChrome.rowSpacing) {
+                Button { showRouteFileImporter = true } label: {
+                    Label(L("route.import_file", fallback: "Import file"), systemImage: Wander.Icon.importFile)
+                }
+                if waypoints.count >= 2 {
+                    Button { showSaveRouteSheet = true } label: {
+                        Label(L("route.save", fallback: "Save"), systemImage: "bookmark")
+                    }
+                }
+                Spacer(minLength: 0)
+                if !waypoints.isEmpty {
+                    Button(role: .destructive) { clearAll() } label: {
+                        Label(L("route.clear", fallback: "Clear"), systemImage: Wander.Icon.clear)
+                    }
+                    .tint(Wander.blocked)
+                }
+            }
+            .font(.wanderDetail)
+
+            // ONE waypoint only. At one point this line is the instruction that gets you to a
+            // route ("add at least one more point"); from two onwards it was restating a count
+            // the button above already shows and a list right below already enumerates, i.e. a
+            // whole row of the panel spent saying nothing new. Measured: 24pt back at every
+            // waypoint count above one.
+            if waypoints.count == 1 {
+                Text(waypointSummary).wanderDetail()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        // Mounted on the group the Import button lives in, exactly as before — it must be in the
+        // hierarchy whenever anything can set `showRouteFileImporter`, and the toolbar's Import
+        // is withdrawn during a drive for the same reason (see `routeFileActions`).
+        .fileImporter(isPresented: $showRouteFileImporter,
+                      allowedContentTypes: RouteFileImporter.contentTypes,
+                      allowsMultipleSelection: false) { result in
+            handleRouteFileImport(result)
+        }
+    }
 
     private func waypointLabel(_ index: Int) -> String {
         if index == 0 { return "Start" }
@@ -1301,9 +1379,14 @@ struct RouteModeView: View {
     /// Changing the mode invalidates the previewed path (it must be regenerated for the
     /// new mode's routing engine + speed).
     private var modePicker: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
             Text(localized: "route.mode", fallback: "Mode")
-                .font(.caption).foregroundStyle(.secondary)
+                .wanderMicro()
+            // ⚠️ DO NOT "FIX" THE SEGMENT WIDTHS HERE. They are already equal, and it is measured:
+            // see the note on `pacePicker`. A `.frame(maxWidth: .infinity)` on these labels was
+            // tried and reverted — it changes NOTHING (byte-identical segment frames on iOS 18.6
+            // and 26.5), because a `.segmented` picker already rasterises each label into a
+            // segment-sized box. Shipping it would have been a no-op wearing a fix's comment.
             Picker("Mode", selection: $transportMode) {
                 ForEach(RouteTransportMode.allCases) { mode in
                     Label(mode.title, systemImage: mode.icon).tag(mode)
@@ -1316,6 +1399,94 @@ struct RouteModeView: View {
                 routeCoordinates = []; routeAlternatives = []
                 routeExpectedTime = 0
             }
+            .wanderFeedback(.selection, on: transportMode)
+        }
+    }
+
+    /// How fast the pin moves along the path — the SECOND segmented row in this panel, and now
+    /// built from the same parts as the first.
+    ///
+    /// WHY IT IS A GROUP NOW. `modePicker` above is a labelled group (micro header → control →
+    /// nothing) while this was a BARE `Picker` with its explanation floating a full `rowSpacing`
+    /// below it. Two segmented controls stacked on each other, one wearing a header and one not,
+    /// is two different objects pretending to be a pair — which is what "they're not even" is
+    /// describing. Same header level, same gap, same shape: one system.
+    ///
+    /// THE SEGMENTS THEMSELVES WERE NEVER UNEQUAL — measured, not assumed, so nobody re-opens it.
+    /// `UIHostingController.sizeThatFits` plus a walk of the backing `UISegmentedControl` on iOS
+    /// 18.6 AND 26.5, at the panel's real content width: `apportionsSegmentWidthsByContent` is
+    /// `false`, Mode's five segments come out 69/69/69/69/70pt of 346 and Pace's three 115/115/116
+    /// — equal to the rounding, and unchanged at `.accessibilityMedium`.
+    ///
+    /// What a screenshot actually shows is that iOS draws NO boundary between UNSELECTED segments,
+    /// so the only visible segment edge on either row is the SELECTED capsule — and a 5-segment
+    /// capsule (69pt) sitting directly above a 3-segment one (115pt) reads as "these two rows
+    /// aren't even". That is a real thing to see and it is not fixable by resizing anything: three
+    /// choices and five choices cannot have the same segment width in the same width of panel. The
+    /// fixable half is that the two rows were different KINDS of object, and that is what changed.
+    private var pacePicker: some View {
+        VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
+            Text(localized: "route.pace", fallback: "Pace")
+                .wanderMicro()
+            Picker("Pace", selection: $speedMode) {
+                ForEach(RouteSpeedMode.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .wanderFeedback(.selection, on: speedMode)
+
+            // WHAT EACH MODE ACTUALLY DOES WITH `manualSpeedMps`, read off `startDrive()` rather
+            // than assumed — this is the whole reason the speed row moves around below:
+            //
+            //   .realistic   buildRealisticSamples(totalDuration: routeExpectedTime,
+            //                fallbackSpeed: manualMetersPerSecond). The fallback is consulted ONLY
+            //                when there is no previewed ETA (`target = totalDuration > 0 ?
+            //                totalDuration : totalDist / fallbackSpeed`). With an ETA the slider
+            //                is dead, which is why it isn't drawn here.
+            //   .speedLimit  prefetchRoutePlaybackSamples(fallbackSpeedMetersPerSecond:), which
+            //                per segment takes `nearestSpeedLimit(...) ?? fallback`. So the slider
+            //                is REAL here: it paces every stretch with no posted limit in OSM, and
+            //                if the OSM lookup fails outright (`(try? await …) ?? []`) it paces the
+            //                WHOLE drive. It is not a lying control and it is not an override — it
+            //                is the fallback, and it now says so instead of leaving the user to
+            //                guess from a two-word label.
+            //   .manual      buildPlaybackSamples(speedWays: []) — the slider IS the speed.
+            switch speedMode {
+            case .realistic:
+                Text(routeExpectedTime > 0
+                     ? String(format: L("route.pace.realistic.measured", fallback: "≈%d min — paced like a real drive, slowing for turns."),
+                              Int((routeExpectedTime / 60).rounded()))
+                     : L("route.pace.realistic", fallback: "Follows the real road time — tap Preview to measure it."))
+                    .wanderDetail()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            case .speedLimit:
+                speedRow(label: L("route.pace.fallback", fallback: "Fallback speed"))
+                Text(localized: "route.pace.speed_limit.footer",
+                     fallback: "Follows each road's posted limit. The speed above is used only where no limit is published.")
+                    .wanderMicro()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            case .manual:
+                speedRow(label: L("route.pace.speed", fallback: "Speed"))
+            }
+        }
+    }
+
+    /// The manual speed slider. One definition, two callers (Manual and Speed limit's fallback),
+    /// so the two can't drift into two different rows for one value.
+    private func speedRow(label: String) -> some View {
+        HStack(spacing: MapModeChrome.groupSpacing) {
+            Text(label).wanderMicro()
+            Slider(
+                value: Binding(
+                    get: { SpeedFormat.fromMps(manualSpeedMps, useMph: useMph) },
+                    set: { manualSpeedMps = SpeedFormat.toMps($0, useMph: useMph) }
+                ),
+                in: SpeedFormat.sliderRange(useMph: useMph),
+                step: 1
+            )
+            Text("\(Int(SpeedFormat.fromMps(manualSpeedMps, useMph: useMph))) \(SpeedFormat.unitLabel(useMph: useMph))")
+                .font(.wanderNumeric(.subheadline))
+                .frame(width: 76, alignment: .trailing)
+                .wanderTick(Int(SpeedFormat.fromMps(manualSpeedMps, useMph: useMph)))
         }
     }
 
@@ -1336,32 +1507,37 @@ struct RouteModeView: View {
     /// and clears the previewed path so playback re-routes to follow the new order.
     @ViewBuilder private var reorderableStopsList: some View {
         if waypoints.count >= 2 {
-            VStack(alignment: .leading, spacing: 4) {
+            // Section header → list → footnote is one row group, so it takes `groupSpacing`, and
+            // the row itself takes the same glyph-to-text gap every other row in these three panels
+            // uses. This block used to run at 4 / 8 / 10 while the panel around it ran at 6 / 12.
+            VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
                 HStack {
                     Text(localized: "route.stops", fallback: "Stops")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .wanderMicro()
                     Spacer()
                     if waypoints.count >= 4 {
                         Button { optimizeStopOrder() } label: {
                             Label(L("route.optimize", fallback: "Optimize"), systemImage: "wand.and.stars")
-                                .font(.caption)
                         }
                     }
                     Button { reverseWaypoints() } label: {
                         Label(L("route.reverse", fallback: "Reverse"), systemImage: "arrow.up.arrow.down")
-                            .font(.caption)
                     }
                     EditButton()
-                        .font(.caption)
                 }
+                // One font for the whole action strip instead of three separate `.caption`s.
+                .font(.wanderDetail)
+                .tint(Wander.brand)
                 List {
                     ForEach(Array(waypoints.enumerated()), id: \.element.id) { index, wp in
-                        HStack(spacing: 10) {
+                        HStack(spacing: MapModeChrome.groupSpacing) {
                             Image(systemName: index == 0 ? "flag.fill"
                                   : (index == waypoints.count - 1 ? "flag.checkered" : "\(min(index, 50)).circle.fill"))
-                                .foregroundStyle(index == 0 ? .green : (index == waypoints.count - 1 ? .red : .orange))
+                                .foregroundStyle(index == 0 ? Wander.good : (index == waypoints.count - 1 ? Wander.blocked : Wander.caution))
+                            // A stop is a ROW TITLE — the level WanderStyle reserves for exactly
+                            // this and the level this panel had none of.
                             Text(stopRowLabel(index: index, coordinate: wp.coordinate))
-                                .font(.subheadline)
+                                .wanderLabel()
                                 .lineLimit(1)
                         }
                     }
@@ -1369,15 +1545,24 @@ struct RouteModeView: View {
                     .onDelete(perform: deleteWaypoints)
                 }
                 .listStyle(.plain)
-                .frame(height: min(CGFloat(waypoints.count) * 44 + 8, 200))
+                // Tokenised, because a `List` inside a panel can't size itself and the three
+                // numbers that used to be typed here (44 / +8 / 200) were the last magic geometry
+                // left in the one panel whose height everything else is derived from.
+                .frame(height: MapModeChrome.listHeight(rows: waypoints.count))
                 .scrollContentBackground(.hidden)
 
                 if canUndoOptimize {
                     optimizeResultRow
                 } else {
+                    // This wraps to two lines at every phone width and 20pt of the panel is on
+                    // the table for shortening it — but `route.reorder_hint` is TRANSLATED in
+                    // every shipped language, and `L()` prefers the table over the fallback, so
+                    // the only way to shorten it is a new key that resolves to English for every
+                    // non-English user. 20pt is not worth that; shorten it in the string tables
+                    // (all of them) or leave it.
                     Text(localized: "route.reorder_hint",
                          fallback: "Drag to reorder your stops — the route follows the new order.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .wanderDetail()
                 }
             }
         }
@@ -1387,22 +1572,25 @@ struct RouteModeView: View {
     /// because the one thing the user needs to know right now is what just changed and how to take
     /// it back — and because a reorder they didn't ask for would be unnerving without the numbers.
     private var optimizeResultRow: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
+        HStack(spacing: MapModeChrome.groupSpacing) {
+            VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
+                // The result LEADS this row and the explanation follows it, instead of both being
+                // caption-sized and neither leading.
                 Label(String(format: L("route.optimize.result", fallback: "Loop %@ → %@"),
                              distanceText(optimizeBeforeMeters), distanceText(optimizeAfterMeters)),
                       systemImage: "wand.and.stars")
-                    .font(.caption.weight(.semibold))
+                    .font(.wanderLabel)
                     .foregroundStyle(Wander.brand)
                 Text(String(format: L("route.optimize.saved", fallback: "%@ shorter — your stops, reordered. Nothing was added."),
                             distanceText(max(optimizeBeforeMeters - optimizeAfterMeters, 0))))
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .wanderDetail()
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
             Button(L("route.optimize.undo", fallback: "Undo")) { undoOptimize() }
                 .buttonStyle(.bordered)
-                .font(.caption)
+                .tint(Wander.brand)
+                .font(.wanderDetail)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1607,6 +1795,38 @@ struct RouteModeView: View {
         }
     }
 
+    // MARK: - Route export
+
+    /// Write the route you are looking at to a .gpx file.
+    ///
+    /// Prefers the PREVIEWED line (`routeCoordinates`) over the raw stops, because that is what is
+    /// drawn on the map and what a drive would actually follow — exporting three pins when the
+    /// screen shows a road-following track would be exporting something the user never saw. Falls
+    /// back to the stops so a route that hasn't been previewed yet is still exportable.
+    ///
+    /// Refuses out loud rather than writing an empty file. The toolbar can't grey this item
+    /// honestly (the menu is built before the tap), so an empty route has to say why.
+    private func exportRouteGPX() {
+        let line = routeCoordinates.count >= 2 ? routeCoordinates : waypoints.map(\.coordinate)
+        guard !line.isEmpty else {
+            alertText = L("route.export.nothing",
+                          fallback: "Add at least one point before exporting — a GPX file needs somewhere to go.")
+            return
+        }
+        // One point isn't a track; write it as a waypoint so the file still round-trips through
+        // our own importer instead of coming out as an empty <gpx>.
+        gpxDocument = line.count >= 2
+            ? GPXDocument(text: GPXBuilder.makeGPX(route: line))
+            : GPXDocument(text: GPXBuilder.makeGPX(waypoints: [(name: "Stop 1", coordinate: line[0])]))
+        showGPXExporter = true
+    }
+
+    private static func gpxTimestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: Date())
+    }
+
     // MARK: - Route computation
 
     private func coordinates(from polyline: MKPolyline) -> [CLLocationCoordinate2D] {
@@ -1622,22 +1842,30 @@ struct RouteModeView: View {
     @ViewBuilder private var routeSummaryLine: some View {
         let v = routeSummaryValues()
         if v.eta > 0 || v.dist > 0 {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
+                HStack(spacing: MapModeChrome.rowSpacing) {
                     if v.eta > 0 {
                         Label(etaText(v.eta), systemImage: "clock.fill").wanderTick(Int(v.eta))
                     }
                     if v.dist > 0 { Label(distanceText(v.dist), systemImage: "arrow.triangle.turn.up.right.diamond.fill") }
                     Spacer(minLength: 0)
                 }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Wander.brand)
+                // THE focal value of this panel: how long the trip takes. `wanderMetric` at
+                // `.primary` — the ONE size and colour the focal value takes in all three modes
+                // (see the token's own note in WanderStyle). It used to be a title3 in brand blue,
+                // Teleport's pin a title3 in primary and the Joystick's speed a full title, so the
+                // one line you look at first was a different size on every tab.
+                .font(.wanderMetric)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                // Two labels at title size need more give than one number does: this line carries
+                // "1 hr 12 min" AND "45.2 km" with a glyph each.
+                .minimumScaleFactor(0.6)
                 // The clock the user actually cares about: not "42 minutes" but "you land at 14:32",
                 // in the DESTINATION's wall clock when we know it.
                 if let arrival = arrivalText(v.eta) {
                     Label(arrival, systemImage: "flag.checkered")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .wanderMicro()
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1692,16 +1920,16 @@ struct RouteModeView: View {
     @ViewBuilder private var legBreakdownRow: some View {
         let legs = displayedLegs
         if legs.count > 1 {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
                 Text(localized: "route.portions", fallback: "Portions")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .wanderMicro()
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: MapModeChrome.chipSpacing) {
                         ForEach(Array(legs.enumerated()), id: \.element.id) { idx, leg in
                             legChip(leg)
                             if idx < legs.count - 1 {
                                 Image(systemName: "arrow.right")
-                                    .font(.caption2.weight(.bold))
+                                    .font(.wanderMicro)
                                     .foregroundStyle(.tertiary)
                             }
                         }
@@ -1711,7 +1939,7 @@ struct RouteModeView: View {
                 .scrollClipDisabled()
                 Text(localized: "route.portions.hint",
                      fallback: "Tap a portion to zoom the map to it.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .wanderDetail()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -1722,13 +1950,15 @@ struct RouteModeView: View {
         return Button {
             focusLeg(leg)
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: leg.mode.icon).font(.caption2.weight(.bold))
+            // Same geometry and the same numeric token as WanderStatusChip, so a portion chip and
+            // a status chip are visibly the same kind of object.
+            HStack(spacing: MapModeChrome.chipSpacing) {
+                Image(systemName: leg.mode.icon).imageScale(.small)
                 Text("\(leg.title) \(shortDurationText(leg.duration))")
-                    .font(.caption.weight(.semibold)).monospacedDigit()
+                    .font(.wanderNumeric(.subheadline))
             }
             .foregroundStyle(leg.mode.color)
-            .padding(.horizontal, 9)
+            .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(leg.mode.color.opacity(focused ? 0.26 : 0.14), in: Capsule())
             .overlay(Capsule().stroke(leg.mode.color.opacity(focused ? 0.9 : 0), lineWidth: 1.5))
@@ -1805,26 +2035,29 @@ struct RouteModeView: View {
     @ViewBuilder private var transitBreakdown: some View {
         let rows = journeyRows
         if !rows.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
+            // Same header token as "Stops" and "Portions", same row rhythm, same title/subtitle
+            // levels — three sibling sections inside one panel that were three different designs.
+            VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
                 Text(L("route.journey", fallback: "Journey"))
-                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    .wanderMicro()
                 ForEach(rows) { row in
-                    HStack(spacing: 10) {
+                    HStack(spacing: MapModeChrome.groupSpacing) {
                         Image(systemName: row.icon)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(row.isTransit ? Wander.brand : Color.secondary)
+                            .font(.wanderDetail.weight(.semibold))
+                            .foregroundStyle(row.isTransit ? Wander.brand : Wander.inactive)
                             .frame(width: 22)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(row.title).font(.footnote.weight(.medium))
+                        VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
+                            Text(row.title).wanderLabel()
                             let sub = journeySubtitle(row)
                             if !sub.isEmpty {
-                                Text(sub).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                Text(sub).wanderDetail().lineLimit(1)
                             }
                         }
-                        Spacer(minLength: 4)
+                        Spacer(minLength: MapModeChrome.groupSpacing)
                         if row.duration > 0 {
                             Text("\(max(1, Int((row.duration / 60).rounded()))) min")
-                                .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+                                .font(.wanderNumeric(.subheadline))
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -2136,39 +2369,44 @@ struct RouteModeView: View {
 
     /// The selectable list of 2–3 route options (shown only when more than one exists).
     @ViewBuilder private var routeOptionsPicker: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        // Same header token, same row rhythm and same title/subtitle levels as the Stops list and
+        // the Journey list it sits between — these three are siblings inside one panel.
+        VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
             Text(localized: "route.options", fallback: "Routes")
-                .font(.caption).foregroundStyle(.secondary)
+                .wanderMicro()
             ForEach(Array(routeAlternatives.enumerated()), id: \.element.id) { idx, opt in
                 Button { selectRoute(idx) } label: {
-                    HStack(spacing: 10) {
+                    HStack(spacing: MapModeChrome.groupSpacing) {
                         Image(systemName: idx == selectedRouteIndex ? "largecircle.fill.circle" : "circle")
-                            .foregroundStyle(idx == selectedRouteIndex ? Wander.brand : .secondary)
-                        VStack(alignment: .leading, spacing: 1) {
-                            HStack(spacing: 6) {
+                            .foregroundStyle(idx == selectedRouteIndex ? Wander.brand : Wander.inactive)
+                        VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
+                            HStack(spacing: MapModeChrome.chipSpacing) {
                                 Text(routeOptionPrimary(idx: idx, opt: opt))
-                                    .font(.subheadline.weight(idx == selectedRouteIndex ? .semibold : .regular))
+                                    .font(idx == selectedRouteIndex ? .wanderLabel : .wanderBody)
+                                    .foregroundStyle(.primary)
                                 // "Fastest" is now measured, not assumed from ordering — Apple
                                 // and Google both return routes in their own preferred order,
                                 // which is not always the quickest one.
                                 if idx == fastestRouteIndex {
+                                    // Same pill geometry as WanderStatusChip.
                                     Label(L("route.fastest", fallback: "Fastest"), systemImage: "bolt.fill")
-                                        .font(.caption2.weight(.semibold))
-                                        .padding(.horizontal, 6).padding(.vertical, 1)
-                                        .background(Wander.brand.opacity(0.15), in: Capsule())
+                                        .font(.wanderMicro)
+                                        .padding(.horizontal, 10).padding(.vertical, 5)
+                                        .background(Wander.brand.opacity(0.12), in: Capsule())
                                         .foregroundStyle(Wander.brand)
                                 }
                             }
                             if let arrival = arrivalText(opt.expectedTime) {
-                                Text(arrival).font(.caption2).foregroundStyle(.secondary)
+                                Text(arrival).wanderDetail()
                             }
                             if !opt.label.isEmpty {
-                                Text(opt.label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Text(opt.label).wanderDetail().lineLimit(1)
                             }
                         }
                         Spacer()
                         Text(routeDistanceLabel(opt.distanceMeters))
-                            .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                            .font(.wanderNumeric(.subheadline))
+                            .foregroundStyle(.secondary)
                     }
                     .contentShape(Rectangle())
                     .padding(.vertical, 4)
@@ -2454,16 +2692,54 @@ struct RouteModeView: View {
                 )
             }
         }
-        isComputing = false
-
         guard samples.count > 1 else {
+            isComputing = false
             alertText = "Couldn't build a playback path for this route."
             return
         }
 
+        // Bring Wander's own tunnel up before the first write, the way the Teleport tab does. Drive
+        // used to write straight into whatever transport happened to be there, so a Start after the
+        // tunnel auto-disconnected played the whole route into a closed socket. Skipped entirely
+        // (no await, no suspension) unless the user opted into Wander's own tunnel.
+        //
+        // ⚠️ `isComputing` MUST stay true across this await. The Drive button is `.disabled(isComputing)`,
+        // and `isDriving` — the only other thing that would gate it — is not set until after the gate
+        // returns. Clearing it before the await re-enabled the button for the whole bring-up (up to
+        // 12s), so two taps started two concurrent drives, i.e. two playback tasks both writing
+        // location. It is cleared on every exit path instead: the bail above, and just below.
+        let stopEpochAtStart = SimulationSession.shared.stopGeneration
+        if TunnelStartGate.isNeeded {
+            await WanderTunnel.shared.ensureStarted()
+        }
+        // A global Stop / Panic during the bring-up must win. Without this the deferred start runs
+        // anyway and begins a drive the user already cancelled — and re-arms the transport they just
+        // asked to be released.
+        guard SimulationSession.shared.stopGeneration == stopEpochAtStart else {
+            isComputing = false
+            return
+        }
+
+        // REFUSE TO START INTO A DEAD TUNNEL. Everything above only helps the minority running
+        // Wander's OWN tunnel; on LocalDevVPN — most users — nothing had checked that the transport
+        // existed, so Drive happily animated the pin along the entire route while every write
+        // bounced. `noteWriteOutcome` would stop it a few samples in, but a drive is a long,
+        // unattended thing and the honest answer is to not begin.
+        //
+        // Reuses the shipped bounded probe (`isTunnelSimEndpointReachable`) rather than adding
+        // another one, hopped off the main thread because it is a blocking TCP connect. Skipped in
+        // gs-loc mode, which injects through the proxy and has no dev tunnel to reach.
+        if !GslocMode.enabled, await !tunnelEndpointIsReachable() {
+            isComputing = false
+            alertText = "\(LocationSimulationOutcome.tunnelDownTitle) — \(LocationSimulationOutcome.tunnelDownMessage)"
+            return
+        }
+        isComputing = false
+
         holdKeepAlive()
         isDriving = true
         isPaused = false
+        writeFailures = 0   // fresh tolerance for this drive
         followCamera = true   // each drive starts tracking the pin
         progress = 0
         // Start the drive showing the whole route, not zoomed hard into the start pin.
@@ -2567,6 +2843,17 @@ struct RouteModeView: View {
         }
     }
 
+    /// `isTunnelSimEndpointReachable()` off the main thread. It is a blocking TCP connect with a
+    /// bounded wait, so it must never be called on the main thread; this is the async wrapper, not a
+    /// second probe.
+    private func tunnelEndpointIsReachable() async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: isTunnelSimEndpointReachable())
+            }
+        }
+    }
+
     private func stopDrive() {
         // Global stop: clears device location + broadcasts reset.
         SimulationSession.shared.stopAll()
@@ -2581,15 +2868,52 @@ struct RouteModeView: View {
         isDriving = false
         isPaused = false
         progress = 0
+        // Belongs to the drive that just ended — a stale count would shorten the next one's
+        // tolerance for a transient. See `noteWriteOutcome`.
+        writeFailures = 0
     }
 
+    /// Write one fix and REPORT WHAT HAPPENED TO IT. Same shape, and the same reason, as
+    /// `WalkModeView.send`: the return code used to be discarded, so a drive whose writes were all
+    /// bouncing off a dead tunnel still animated the pin along the whole route and counted down an
+    /// ETA for a journey the device never took.
     private func send(_ coord: CLLocationCoordinate2D) {
         guard let path = pairingFilePath() else { return }
         // "Approximate location": stable per-session ~3–5 km offset. No-op when off.
         let coord = CoarseLocation.apply(coord)
-        LocationSimulationCommandQueue.shared.async {
-            _ = simulate_location(DeviceConnectionContext.targetIPAddress, coord.latitude, coord.longitude, path)
+        LocationSimulationCommandQueue.submit {
+            let code = simulate_location(DeviceConnectionContext.targetIPAddress, coord.latitude, coord.longitude, path)
+            DispatchQueue.main.async { noteWriteOutcome(code) }
         }
+    }
+
+    /// Reconcile the drive with the device: did that fix actually land?
+    ///
+    /// A dead tunnel is DEFINITIVE (a bounded probe answered before anything was dialled) and stops
+    /// the drive on the first one. Anything else gets a few samples of tolerance, because a route can
+    /// legitimately ride out a momentary DVT hiccup and a drive that aborted on one bad write would
+    /// be its own bug.
+    private func noteWriteOutcome(_ code: Int32) {
+        guard isDriving else { return }   // already stopped — nothing left to reconcile
+        if code == 0 {
+            writeFailures = 0
+            return
+        }
+        let tunnelDown = LocationSimulationOutcome.isTunnelUnreachable(code)
+        if !tunnelDown {
+            writeFailures += 1
+            guard writeFailures >= Self.maxConsecutiveWriteFailures else { return }
+        }
+        writeFailures = 0
+        // The ONE global stop path: it clears the device fix and broadcasts, and this view's
+        // `.stopSimulationRequested` handler runs `localReset()`, which cancels the playback task and
+        // drops `isDriving` — so the pin stops advancing along a route the device isn't driving.
+        // `.automation` because nobody asked for this (see `SimulationSession.StopSource`).
+        SimulationSession.shared.stopAll(source: .automation)
+        alertText = tunnelDown
+            ? "\(LocationSimulationOutcome.tunnelDownTitle) — \(LocationSimulationOutcome.tunnelDownMessage)"
+            : L("route.write_failed",
+                fallback: "Wander couldn't send your location to your device (error \(code)), so the route was moving on the map but not on your device. Check that the tunnel is connected, then drive again.")
     }
 
     // MARK: - Record a real route (Pro)
@@ -2601,37 +2925,37 @@ struct RouteModeView: View {
     /// Record / Stop-and-save controls. Pro-gated (free/trial users get the paywall on tap),
     /// and DISABLED while a spoof is active with a clear "stop spoofing to record" hint.
     @ViewBuilder private var recordControls: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: MapModeChrome.rowSpacing) {
             if recorder.isRecording {
                 Button(role: .destructive) { finishRecording() } label: {
-                    HStack(spacing: 8) {
+                    HStack(spacing: MapModeChrome.groupSpacing) {
                         Image(systemName: "stop.circle.fill")
                         Text("Stop & save recording")
                         Spacer()
                         Text("\(recorder.fixCount) pts")
-                            .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                            .font(.wanderNumeric(.subheadline)).foregroundStyle(.secondary)
                     }
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity).frame(height: 30)
+                    .font(.wanderLabel)
+                    .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.red)
+                .tint(Wander.blocked)
                 .controlSize(.large)
 
                 Text("Recording your REAL location — \(recordedDistanceLabel). Move along your real route, then stop to save it.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .wanderDetail()
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Button { beginRecording() } label: {
-                    HStack(spacing: 8) {
+                    HStack(spacing: MapModeChrome.groupSpacing) {
                         Image(systemName: "record.circle")
                         Text("Record a real route")
                         if !License.shared.isLicensed {
-                            Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary)
+                            Image(systemName: "lock.fill").imageScale(.small).foregroundStyle(.secondary)
                         }
                     }
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity).frame(height: 30)
+                    .font(.wanderLabel)
+                    .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
@@ -2639,12 +2963,13 @@ struct RouteModeView: View {
                 .disabled(spoofActive)
 
                 if spoofActive {
-                    Text("Stop spoofing to record your real route — recording captures your device's real GPS, not the simulated location.")
-                        .font(.caption).foregroundStyle(.orange)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    WanderPanelNote(
+                        status: .caution,
+                        text: "Stop spoofing to record your real route — recording captures your device's real GPS, not the simulated location."
+                    )
                 } else {
                     Text("Captures your device's real GPS + timing while you physically move, so you can replay a believable commute later.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .wanderDetail()
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -2739,7 +3064,10 @@ struct RouteModeView: View {
     /// "Save this route" + "Saved routes" entry points. Both are gated: non-licensed
     /// users see the buttons but tapping opens the paywall (matching the Loop toggle).
     @ViewBuilder private var saveLoopControls: some View {
-        HStack(spacing: 10) {
+        // A peer-button pair, so it takes the same gap, the same control size and the same label
+        // font as Preview/Drive and Pause/Stop. It was a `.small` pair at `.subheadline` before,
+        // i.e. a third button size inside one panel.
+        HStack(spacing: MapModeChrome.rowSpacing) {
             Button {
                 if !License.shared.isLicensed { showPaywall = true; return }
                 guard waypoints.count >= 2 else {
@@ -2750,22 +3078,22 @@ struct RouteModeView: View {
                 showSaveRouteSheet = true
             } label: {
                 Label(L("route.save_route", fallback: "Save route"), systemImage: "square.and.arrow.down")
-                    .frame(maxWidth: .infinity).frame(height: 28)
+                    .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
             }
             .buttonStyle(.bordered)
-            .controlSize(.small)
+            .controlSize(.large)
 
             Button {
                 if !License.shared.isLicensed { showPaywall = true; return }
                 showSavedRoutes = true
             } label: {
                 Label(String(format: L("route.saved_count", fallback: "Saved (%d)"), savedRoutes.routes.count), systemImage: "list.bullet.rectangle")
-                    .frame(maxWidth: .infinity).frame(height: 28)
+                    .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
             }
             .buttonStyle(.bordered)
-            .controlSize(.small)
+            .controlSize(.large)
         }
-        .font(.subheadline)
+        .font(.wanderLabel)
     }
 
     private var saveRouteSheet: some View {
@@ -2813,7 +3141,7 @@ struct RouteModeView: View {
                             HStack(spacing: 12) {
                                 Image(systemName: route.isRecorded ? "record.circle.fill" : "point.topleft.down.to.point.bottomright.curvepath.fill")
                                     .font(.title3)
-                                    .foregroundStyle(route.isRecorded ? .red : Wander.brand)
+                                    .foregroundStyle(route.isRecorded ? Wander.blocked : Wander.brand)
                                     .frame(width: 28)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(route.name).font(.body).foregroundStyle(.primary)
@@ -2842,7 +3170,7 @@ struct RouteModeView: View {
                         }
                         .buttonStyle(.plain)
                         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            shareLink(for: route).tint(.green)
+                            shareLink(for: route).tint(Wander.good)
                         }
                         // Long-press too: a swipe action is invisible until you try it, and trading
                         // routes is the whole point of having them shareable.
@@ -2992,7 +3320,7 @@ struct RouteModeView: View {
     /// free/trial users see the button but tapping opens the paywall. On Pro, it POSTs the
     /// current map center (or device location) to the Worker and shows the returned stops.
     @ViewBuilder private var aiRoutineControls: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: MapModeChrome.rowSpacing) {
             // Describe the day/persona. Leave blank and tap "Surprise me" for a random day.
             TextField("Describe the day (e.g. a nurse on a night shift)", text: $aiStylePrompt)
                 .textFieldStyle(.roundedBorder)
@@ -3008,12 +3336,12 @@ struct RouteModeView: View {
                     }
                 }
 
-            HStack(spacing: 10) {
+            HStack(spacing: MapModeChrome.rowSpacing) {
                 // Prompt path: uses whatever the user typed as the `style`.
                 Button {
                     generateAIRoutine(style: aiStylePrompt)
                 } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: MapModeChrome.groupSpacing) {
                         if isGeneratingAI {
                             ProgressView().controlSize(.small)
                         } else {
@@ -3021,11 +3349,11 @@ struct RouteModeView: View {
                         }
                         Text(isGeneratingAI ? "Generating…" : "Generate day")
                         if !License.shared.isLicensed {
-                            Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary)
+                            Image(systemName: "lock.fill").imageScale(.small).foregroundStyle(.secondary)
                         }
                     }
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity).frame(height: 30)
+                    .font(.wanderLabel)
+                    .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -3036,12 +3364,12 @@ struct RouteModeView: View {
                 Button {
                     generateAIRoutine(style: nil)
                 } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: MapModeChrome.groupSpacing) {
                         Image(systemName: "dice.fill")
                         Text("Surprise me")
                     }
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity).frame(height: 30)
+                    .font(.wanderLabel)
+                    .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)

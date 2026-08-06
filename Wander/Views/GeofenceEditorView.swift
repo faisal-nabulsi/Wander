@@ -57,6 +57,10 @@ struct GeofenceEditorView: View {
                                 visibleCenter = context.region.center
                             }
                         }
+                        // Deliberately the bare crosshair, NOT `wanderMapCrosshair`: this is a
+                        // 240pt map inline in a Form with nothing floating over it, so the centre
+                        // of the map really is the centre of what the user can see. The lift in
+                        // MapModeChrome exists to clear a bottom control panel there isn't one of.
                         MapCrosshair()
                             .allowsHitTesting(false)
                     }

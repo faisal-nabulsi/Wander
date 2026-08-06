@@ -27,5 +27,20 @@ extension UserDefaults {
         static let tunnelInterfaceIP = "TunnelInterfaceIP"
         /// Subnet mask for the tunnel addresses. Default 255.255.255.0.
         static let tunnelSubnetMask = "TunnelSubnetMask"
+        /// EXPERIMENT, default OFF: run the whole developer-tunnel loopback over IPv6 (ULA) instead of
+        /// IPv4, so an IPv6-only cellular carrier doesn't need the Airplane Mode toggle. Only has any
+        /// effect together with `useOwnTunnel` on a build signed with the Network Extension
+        /// entitlement — LocalDevVPN/StosVPN are IPv4-only. Every dial still falls back to IPv4.
+        static let useIPv6TunnelLoopback = "UseIPv6TunnelLoopback"
+
+        /// Opt-in, default OFF: bring Wander's OWN tunnel back DOWN a grace period after the user
+        /// deliberately stops spoofing, so the VPN slot isn't held while nothing is using it.
+        /// Only meaningful together with `useOwnTunnel` — we never stop a tunnel we didn't start.
+        static let tunnelAutoDisconnectWhenIdle = "tunnelAutoDisconnectWhenIdle"
+        /// How long to wait after a deliberate stop before dropping the tunnel, in SECONDS.
+        /// Raw seconds, never a menu index: the choices offered are a UI decision that may change,
+        /// and an ordinal would silently re-point an existing user's setting at a different length.
+        /// Unset (0) reads as `TunnelIdleDisconnect.defaultDelay` (30 s).
+        static let tunnelAutoDisconnectDelay = "tunnelAutoDisconnectDelaySeconds"
     }
 }

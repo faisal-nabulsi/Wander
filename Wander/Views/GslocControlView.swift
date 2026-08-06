@@ -52,11 +52,22 @@ struct GslocQuickControlsCard: View {
                                                  source: .gsloc, accepted: true)
                 }
             }
+            // GENERIC on purpose: this is the system-wide Location Services switch, not any one
+            // app's permission. It only takes you to the switch — iOS gives no app (and no Shortcut)
+            // a way to flip it, so the copy must never suggest Wander does the toggling.
             controlRow(icon: "location.fill.viewfinder",
                        tint: .orange,
                        title: "Flush — toggle Location Services",
-                       subtitle: "The one step that makes a teleport take. Off a full ~10s — not a quick flick — then back on.") {
-                openURLString("prefs:root=Privacy&path=LOCATION")
+                       subtitle: "Takes you to the switch; you flip it. Off a full ~10s — not a quick flick — then back on. That's the step that makes a teleport take.") {
+                AppLocationSettings.openLocationServicesPane()
+            }
+            // APP-SPECIFIC: the "Always + Precise" advice is about Pokémon GO's own permission, so
+            // this lands on the game's location screen instead of the system-wide list.
+            controlRow(icon: "gamecontroller.fill",
+                       tint: Wander.brand,
+                       title: "Pokémon GO location — Always + Precise",
+                       subtitle: "Opens the game's own location screen. Set Always and turn Precise Location ON — a coarse fix fights the spoofed one and is a common Error 12 cause.") {
+                AppLocationSettings.openLocationScreen(forBundleID: AppLocationSettings.BundleID.pokemonGo)
             }
             controlRow(icon: "arrow.triangle.2.circlepath",
                        tint: Wander.brand,

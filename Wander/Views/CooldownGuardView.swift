@@ -189,7 +189,7 @@ struct CooldownPreviewLabel: View {
         if let status = CooldownPreview.status(for: destination) {
             switch status {
             case .ready:
-                label(L("cooldown.preview.ready", fallback: "Ready now"), tint: .green)
+                label(L("cooldown.preview.ready", fallback: "Ready now"), tint: Wander.good)
             case .cost(let seconds):
                 label(CooldownPreview.shortCost(seconds)
                       + " " + L("cooldown.preview.noun", fallback: "cooldown"),
@@ -200,7 +200,7 @@ struct CooldownPreviewLabel: View {
                 label(L("cooldown.preview.wait", fallback: "Wait")
                       + " " + timeString(remaining)
                       + (seconds.map { " · " + CooldownPreview.shortCost($0) } ?? ""),
-                      tint: .orange)
+                      tint: Wander.caution)
             }
         }
     }

@@ -964,6 +964,48 @@ private enum LocationSimulationStatus {
     static let locationSimulation: Int32 = 10
     static let locationSet: Int32 = 11
     static let locationClear: Int32 = 12
+    /// The developer-tunnel endpoint did not answer the bounded reachability probe, so NO
+    /// un-timeout-able FFI call was attempted. One source of truth — see `LocationSimulationOutcome`.
+    static let tunnelUnreachable: Int32 = LocationSimulationOutcome.tunnelUnreachable
+}
+
+/// The public half of the status codes: the one thing the UI is allowed to ask about a raw code, and
+/// the words it says when the answer is yes.
+///
+/// WHY IT EXISTS. Every failure used to arrive as an opaque number that the UI rendered as
+/// "…(error 3)" plus a paragraph of guesses (LocalDevVPN? Developer Mode? Airplane Mode?). "The
+/// tunnel is not connected" is not a guess — it is a bounded TCP probe's answer, established before
+/// anything was dialled — and it deserves to reach the user as such.
+///
+/// THE COPY DELIBERATELY OPENS WITH THE CHIP'S OWN WORDS ("Tunnel: disconnected"), so the sentence
+/// the user reads in the alert is the same sentence they can see on the pill at the bottom of the
+/// map. Two different vocabularies for one condition is how a user concludes they have two problems.
+enum LocationSimulationOutcome {
+    /// A location write / clear was refused because the tunnel endpoint (ip:49152) did not answer.
+    static let tunnelUnreachable: Int32 = 13
+
+    /// Did this code mean "the tunnel is not connected"?
+    static func isTunnelUnreachable(_ code: Int32) -> Bool { code == tunnelUnreachable }
+
+    static var tunnelDownTitle: String {
+        L("tunnel.down.title", fallback: "Tunnel: disconnected")
+    }
+
+    static var tunnelDownMessage: String {
+        L("tunnel.down.message",
+          fallback: "Wander couldn't reach the connection it injects location through, so nothing was sent to your device. Connect LocalDevVPN (or turn on Wander's own tunnel in Settings), wait for the chip to read \"Tunnel: connected\", then try again.")
+    }
+
+    /// Used when a location command has not reported back at all — we know the queue is waiting on
+    /// the transport, but not that the transport is definitively gone, so the wording says so.
+    static var tunnelStalledTitle: String {
+        L("tunnel.stalled.title", fallback: "Tunnel: not responding")
+    }
+
+    static var tunnelStalledMessage: String {
+        L("tunnel.stalled.message",
+          fallback: "Wander is still waiting on the connection it injects location through, so your location hasn't been sent. The controls are unlocked again so you can Stop or retry. Check that LocalDevVPN (or Wander's own tunnel) is connected.")
+    }
 }
 
 private enum LocationSimulationState {
@@ -972,7 +1014,24 @@ private enum LocationSimulationState {
     static var remoteServer: OpaquePointer?
     static var locationSimulation: OpaquePointer?
 
+    /// The endpoint the LIVE session was actually established over.
+    ///
+    /// Without this, nothing downstream can tell which address family is carrying the session, and the
+    /// code has to guess — which is how the clear path ended up probing IPv4 for a session running on
+    /// IPv6 and silently refusing to clear it. Recorded at the one moment it is known for certain (the
+    /// successful rebuild) and torn down with the session.
+    ///
+    /// Lock-protected because the health monitor reads it from a utility queue while the serial
+    /// LocationSimulationCommandQueue writes it; a `String` is not a word-sized atomic value.
+    private static let liveTargetLock = NSLock()
+    private static var _liveTarget: DeviceConnectionContext.DialTarget?
+    static var liveTarget: DeviceConnectionContext.DialTarget? {
+        get { liveTargetLock.lock(); defer { liveTargetLock.unlock() }; return _liveTarget }
+        set { liveTargetLock.lock(); _liveTarget = newValue; liveTargetLock.unlock() }
+    }
+
     static func cleanup() {
+        liveTarget = nil
         if let locationSimulation {
             location_simulation_free(locationSimulation)
             self.locationSimulation = nil
@@ -1010,6 +1069,7 @@ private enum LocationSimulationState {
     /// detached FFI thread may still be using the pointers. Leaks one dead session; the alternative is a
     /// use-after-free. The next inject rebuilds, which is what actually restores the spoof.
     static func dropReferencesUnsafeToFree() {
+        liveTarget = nil
         locationSimulation = nil
         remoteServer = nil
         handshake = nil
@@ -1061,37 +1121,47 @@ enum LocationSimulationCommandQueue {
 /// a dead tunnel (e.g. LocalDevVPN dropped) — which would wedge the serial LocationSimulationCommandQueue
 /// so even Stop/Panic's clear could never run. We probe first and fail fast instead. Mirrors
 /// JITEnableContext.isTunnelEndpointReachable.
+///
+/// Family-agnostic: probes whatever address it is handed (IPv4 or IPv6), because with the opt-in IPv6
+/// loopback the address being dialled may be a ULA. A hardcoded AF_INET probe would fail the gate
+/// before the v6 dial was ever attempted.
+///
+/// The socket work lives in `EndpointProbe`, which CAPTURES the failure reason (errno number, its
+/// symbolic name, strerror's text) and logs it in the `[spoof]` style. This function's contract is
+/// deliberately untouched — same default address, same 3 s default bound, same "true only on a
+/// completed handshake" Bool — because it gates the real dial path and this change is diagnostics
+/// only. `EndpointProbe.probe` is also the ONLY place the errno is read, in the statement right after
+/// the syscall, which is what keeps the reported number from being a stale one.
 private func _isSimEndpointReachable(_ deviceIP: String = DeviceConnectionContext.targetIPAddress,
                                      timeoutSeconds: Double = 3) -> Bool {
-    let fd = socket(AF_INET, SOCK_STREAM, 0)
-    guard fd >= 0 else { return false }
-    defer { close(fd) }
-    let flags = fcntl(fd, F_GETFL, 0)
-    _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
-    var addr = sockaddr_in()
-    addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = in_port_t(49152).bigEndian
-    guard deviceIP.withCString({ inet_pton(AF_INET, $0, &addr.sin_addr) }) == 1 else { return false }
-    let rc = withUnsafePointer(to: &addr) { p in
-        p.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-            connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.stride))
-        }
-    }
-    if rc == 0 { return true }
-    if errno != EINPROGRESS { return false }
-    var pfd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-    guard poll(&pfd, 1, Int32(max(timeoutSeconds, 0.1) * 1000)) > 0 else { return false }
-    var soError: Int32 = 0
-    var len = socklen_t(MemoryLayout<Int32>.size)
-    guard getsockopt(fd, SOL_SOCKET, SO_ERROR, &soError, &len) == 0 else { return false }
-    return soError == 0
+    let result = EndpointProbe.probe(deviceIP, timeoutSeconds: timeoutSeconds)
+    EndpointProbeLog.record(result, context: "sim endpoint:")
+    return result.isReachable
 }
 
 /// Public, lightly-bounded reachability probe used by TunnelHealthMonitor's light poll. Wraps the
 /// private `_isSimEndpointReachable` TCP probe (ip:49152) so the health chip can classify "down"
 /// (endpoint unreachable) without hammering the real inject FFI. Runs off the main thread by callers.
 func isTunnelSimEndpointReachable() -> Bool {
-    _isSimEndpointReachable()
+    // A LIVE session has exactly one answer, and it is not "either family": the session is carried by
+    // one family, and only that family can say whether it is still up. Answering "reachable" because
+    // the OTHER family happens to respond is how a dead IPv6 session would read green on a dual-stack
+    // device — TunnelHealthMonitor feeds this straight into `reachable`, so its `!reachable` branch
+    // would never fire and the chip would only recover via the slower consecutive-failure threshold.
+    if let live = LocationSimulationState.liveTarget {
+        return _isSimEndpointReachable(live.address)
+    }
+
+    // No session yet (e.g. WanderTunnel.ensureStarted polling for the loopback to come up). Here the
+    // question really is "can ANY family carry a dial", so try the candidates. IPv4 is probed FIRST
+    // (see reachabilityProbeTargets) and the v6 leg carries the tighter bound, so with the experiment
+    // off this is the identical single 3s probe that shipped, and with it on the common case still
+    // returns on the first probe.
+    for target in DeviceConnectionContext.reachabilityProbeTargets()
+    where _isSimEndpointReachable(target.address, timeoutSeconds: target.probeTimeoutSeconds) {
+        return true
+    }
+    return false
 }
 
 /// Thread-safe record of recent inject outcomes, fed by every `simulate_location` call regardless of
@@ -1317,12 +1387,22 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
 
     SpoofTrace.log("  REBUILDING session (tunnel_create_rppairing -> remote_server -> location_simulation_new)")
 
-    var address = sockaddr_in()
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_port = in_port_t(49152).bigEndian
+    // Candidate endpoints, in dial order. Default (IPv6 experiment off) this is EXACTLY one element —
+    // the caller's IPv4 address — so the loop below runs the identical single attempt, in the same
+    // order, with the same cleanup and the same return codes as before. With the experiment on, IPv6 is
+    // tried first and IPv4 is still tried after it, so the working path is never taken away.
+    //
+    // `deviceIP` (the caller's argument) stays the IPv4 candidate rather than being replaced, so a user
+    // who moved the tunnel onto their Wi-Fi subnet on iOS 26.4+ keeps that address.
+    let dialTargets = DeviceConnectionContext.dialTargets(ipv4Address: deviceIP)
 
-    let inetResult = deviceIP.withCString { inet_pton(AF_INET, $0, &address.sin_addr) }
-    guard inetResult == 1 else {
+    // Parsed BEFORE the pairing file is read, so an unusable address still returns `invalidIP` at the
+    // same point in the sequence it always did.
+    let endpoints = dialTargets.compactMap { target -> (DeviceConnectionContext.DialTarget, DeviceConnectionContext.SocketAddress)? in
+        guard let endpoint = DeviceConnectionContext.makeSocketAddress(target.address) else { return nil }
+        return (target, endpoint)
+    }
+    guard !endpoints.isEmpty else {
         return LocationSimulationStatus.invalidIP
     }
 
@@ -1339,11 +1419,42 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
 
     defer { rp_pairing_file_free(pairingHandle) }
 
-    let providerError = withUnsafePointer(to: &address) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+    // One pass per candidate endpoint. `pairing_file` is BORROWED by the FFI, not consumed (see
+    // idevice.h), so the same handle is safe to reuse across attempts.
+    var established = false
+    var failureStatus = LocationSimulationStatus.providerCreate
+
+    for entry in endpoints {
+        let (target, endpoint) = entry
+        let attemptLabel = endpoints.count > 1 ? " [\(target.familyLabel) \(target.address)]" : ""
+
+        // ── THE GATE THAT KEEPS THE SERIAL QUEUE ALIVE ───────────────────────────────────────────
+        // `tunnel_create_rppairing` has NO timeout. Against a route that BLACKHOLES the SYN — which
+        // is exactly what a half-dead LocalDevVPN or a tunnel that was just auto-disconnected looks
+        // like — it sits in TCP retransmit for over a minute, wedging this serial queue and with it
+        // every Stop and Panic that has to ride it. So probe first, always, and fail fast instead.
+        //
+        // ⚠️ THIS USED TO BE GUARDED ON `index < endpoints.count - 1`, i.e. it ran only for a
+        // candidate that still had a fallback behind it. With the IPv6 experiment off there is
+        // exactly ONE candidate, so `0 < 0` was false and the probe never ran at all — the single
+        // shipping path, taken by every LocalDevVPN user, dialled a dead tunnel completely unbounded.
+        // That is the wedge behind "Simulate goes grey and Stop does nothing". The bound still comes
+        // from the target itself so the speculative v6 leg keeps its tighter one (see
+        // DialTarget.probeTimeoutSeconds); the cost on a HEALTHY tunnel is one loopback TCP connect
+        // that completes in microseconds.
+        if !_isSimEndpointReachable(target.address, timeoutSeconds: target.probeTimeoutSeconds) {
+            SpoofTrace.log("  rebuild: endpoint unreachable\(attemptLabel) — no dial attempted")
+            // Distinct from `providerCreate`: nothing was dialled, and the reason is one the UI can
+            // state plainly instead of printing a number. A later candidate that gets FURTHER than
+            // this overwrites it with its own, more specific failure.
+            failureStatus = LocationSimulationStatus.tunnelUnreachable
+            continue
+        }
+
+        let providerError = endpoint.withSockaddr { pointer, length in
             tunnel_create_rppairing(
-                $0,
-                socklen_t(MemoryLayout<sockaddr_in>.stride),
+                pointer,
+                length,
                 "StikDebugLocation",
                 pairingHandle,
                 nil,
@@ -1352,42 +1463,62 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
                 &LocationSimulationState.handshake
             )
         }
+
+        if let providerError {
+            SpoofTrace.log("  rebuild FAILED at tunnel_create_rppairing\(attemptLabel): " + _ffiDetail(providerError))
+            idevice_error_free(providerError)
+            SpoofTrace.log("  rebuild: tunnel_create_rppairing FAILED")
+            LocationSimulationState.cleanup()
+            failureStatus = LocationSimulationStatus.providerCreate
+            continue
+        }
+
+        // The SECOND hop is a separate listener and a separate gamble: after pairing, the FFI asks the
+        // device to open a fresh TCP listener and dials it, inheriting the family of the first dial. So
+        // a failure here (rather than above) means the dynamically created listener, not remotepairingd,
+        // is the one that isn't answering on this family — worth being able to tell apart in the log.
+        let remoteServerError = remote_server_connect_rsd(
+            LocationSimulationState.adapter,
+            LocationSimulationState.handshake,
+            &LocationSimulationState.remoteServer
+        )
+        if let remoteServerError {
+            SpoofTrace.log("  rebuild FAILED at remote_server_connect_rsd\(attemptLabel): " + _ffiDetail(remoteServerError))
+            idevice_error_free(remoteServerError)
+            SpoofTrace.log("  rebuild: remote_server_connect_rsd FAILED")
+            LocationSimulationState.cleanup()
+            failureStatus = LocationSimulationStatus.remoteServer
+            continue
+        }
+
+        let locationSimulationError = location_simulation_new(
+            LocationSimulationState.remoteServer,
+            &LocationSimulationState.locationSimulation
+        )
+        if let locationSimulationError {
+            SpoofTrace.log("  rebuild FAILED at location_simulation_new\(attemptLabel): " + _ffiDetail(locationSimulationError))
+            idevice_error_free(locationSimulationError)
+            SpoofTrace.log("  rebuild: location_simulation_new FAILED")
+            LocationSimulationState.cleanup()
+            failureStatus = LocationSimulationStatus.locationSimulation
+            continue
+        }
+
+        LocationSimulationState.remoteServer = nil
+        // The one point where the carrying family is known for certain. Everything that later has to
+        // act on the LIVE session — the clear path's reachability gate, the health chip — reads this
+        // instead of re-deriving it from a preference that may since have changed.
+        LocationSimulationState.liveTarget = target
+        if endpoints.count > 1 {
+            SpoofTrace.log("  rebuild: session established over \(target.familyLabel) (\(target.address))")
+        }
+        established = true
+        break
     }
 
-    if let providerError {
-        SpoofTrace.log("  rebuild FAILED at tunnel_create_rppairing: " + _ffiDetail(providerError))
-        idevice_error_free(providerError)
-        SpoofTrace.log("  rebuild: tunnel_create_rppairing FAILED")
-        LocationSimulationState.cleanup()
-        return LocationSimulationStatus.providerCreate
+    guard established else {
+        return failureStatus
     }
-
-    let remoteServerError = remote_server_connect_rsd(
-        LocationSimulationState.adapter,
-        LocationSimulationState.handshake,
-        &LocationSimulationState.remoteServer
-    )
-    if let remoteServerError {
-        SpoofTrace.log("  rebuild FAILED at remote_server_connect_rsd: " + _ffiDetail(remoteServerError))
-        idevice_error_free(remoteServerError)
-        SpoofTrace.log("  rebuild: remote_server_connect_rsd FAILED")
-        LocationSimulationState.cleanup()
-        return LocationSimulationStatus.remoteServer
-    }
-
-    let locationSimulationError = location_simulation_new(
-        LocationSimulationState.remoteServer,
-        &LocationSimulationState.locationSimulation
-    )
-    if let locationSimulationError {
-        SpoofTrace.log("  rebuild FAILED at location_simulation_new: " + _ffiDetail(locationSimulationError))
-        idevice_error_free(locationSimulationError)
-        SpoofTrace.log("  rebuild: location_simulation_new FAILED")
-        LocationSimulationState.cleanup()
-        return LocationSimulationStatus.locationSimulation
-    }
-
-    LocationSimulationState.remoteServer = nil
 
     let locationSetError = location_simulation_set(
         LocationSimulationState.locationSimulation,
@@ -1427,9 +1558,24 @@ func clear_simulated_location() -> Int32 {
     // Don't call the un-timeout-able clear over a dead tunnel (it would hang the serial queue). If
     // unreachable, drop the handle — the device can't be cleared until the tunnel returns, but the
     // app stays responsive and Stop/teleport work again once it's back.
-    if !_isSimEndpointReachable() {
+    //
+    // PROBE THE FAMILY THAT CARRIES THIS SESSION, not the IPv4 default. On an IPv6-only carrier —
+    // the exact case the experiment exists for — 10.7.0.1 is unreachable by definition, so the old
+    // default-argument probe failed for a perfectly healthy v6 session, dropped the handle without
+    // ever calling location_simulation_clear, and left the device spoofed with no way to clear it
+    // from the UI. `liveTarget` is non-nil whenever `locationSimulation` is (both are set on the
+    // successful rebuild and cleared together); the fallback keeps the old behaviour for a handle
+    // established before this bookkeeping existed.
+    let clearProbeAddress = LocationSimulationState.liveTarget?.address
+        ?? DeviceConnectionContext.targetIPAddress
+    if !_isSimEndpointReachable(clearProbeAddress) {
         LocationSimulationState.cleanup()
-        return LocationSimulationStatus.locationClear
+        // NOT a failure the user should be alarmed by, and it must not read like one. The DVT
+        // location session is connection-scoped: with the transport gone the device is not holding
+        // our fix any more, so there is nothing live left to clear — we are only freeing a local
+        // handle. Returning the distinct code lets Stop say "stopped; the tunnel was down" instead
+        // of the old "Clear Failed (error 12)", which is what made a successful stop look broken.
+        return LocationSimulationStatus.tunnelUnreachable
     }
 
     let ffiError = location_simulation_clear(locationSimulation)
