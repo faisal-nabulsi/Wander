@@ -466,46 +466,19 @@ struct StartTunnelIntent: AppIntent {
     /// after the app comes forward, so the airplane-off step still fires.
     static var openAppWhenRun: Bool = true
 
-    /// "This action is running inside a Cellular Mode run, so the radio is OFF right now."
+    /// NO "Cellular Mode run" PARAMETER, DELETED ON PURPOSE — do not put it back.
     ///
-    /// THE SAFETY NET'S ONLY WAY IN FROM OUTSIDE THE APP. The stranding marker used to be armed by
-    /// the two Cellular Mode buttons in Wander and nowhere else, so a run started from the Shortcuts
-    /// app, Siri, the Action Button, Control Center or an automation armed nothing — and an
-    /// interrupted one of those left the phone in Airplane Mode with the app silent, while shipped
-    /// copy promised recovery. Running the shortcut from outside Wander is the MAIN path, not an
-    /// edge case, so the marker is armed here: the shortcut always runs this action, wherever it was
-    /// launched from, and it runs it immediately after Airplane Mode goes on.
+    /// It used to exist so a run started outside the app could tell Wander "the radio is off right
+    /// now", arming a stranding detector. It was a switch the user had to remember to flip, on an
+    /// action that is also perfectly ordinary on Wi-Fi, feeding an inference iOS cannot support (see
+    /// `CellularModeBanner`). The shortcut now reports the one fact that matters — "I have just
+    /// turned Airplane Mode on" — from a BAKED `wander://cellular-airplane-on` action sitting inside
+    /// the branch that flips the switch. Nothing for the user to configure, nothing for this action
+    /// to guess, and correct on the Wi-Fi path for free, because that path never reaches it.
     ///
-    /// It is a parameter rather than an unconditional arm because "Start Wander Tunnel" is also a
-    /// perfectly ordinary action on its own, on Wi-Fi, with no airplane involvement anywhere — and
-    /// arming a stranding marker for THAT would hand the user a recovery banner for a phone nobody
-    /// stranded, which is worse than the bug it fixes.
-    ///
-    /// `false` by default, so a shortcut built before this parameter existed keeps behaving exactly
-    /// as it does today: it decodes as off and this action arms nothing on its own account.
-    /// `CellularModeRun.armForTunnelIntent` covers most of those stale copies anyway, by noticing
-    /// that the phone has no transport at all at the moment the action runs — see its doc comment
-    /// for what that second signal can and cannot see.
-    @Parameter(title: "Cellular Mode run",
-               description: "Switch this on in the Wander Cellular Mode shortcut, where Airplane Mode has just been turned on. It lets Wander notice if the run is interrupted before Airplane Mode goes back off. Leave it off when running this action on its own.",
-               default: false)
-    var cellularMode: Bool
-
-    static var parameterSummary: some ParameterSummary {
-        Summary("Start the Wander tunnel") {
-            \.$cellularMode
-        }
-    }
+    /// This action is therefore back to doing exactly one thing, on every path: bring the tunnel up.
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        // ── 0. ARM THE STRANDING MARKER, BEFORE ANY DECISION IS TAKEN. ───────────────────────────
-        // Deliberately ahead of every early return below: whether this action then finds the tunnel
-        // already up, refuses because gs-loc owns the VPN slot, or bails on a missing entitlement,
-        // the radio is ALREADY off by the time we are asked, and the shortcut still has an
-        // Airplane-Mode-OFF step left to reach. What the tunnel decides has no bearing on whether
-        // this phone can be stranded.
-        await MainActor.run { CellularModeRun.shared.armForTunnelIntent(declaredCellularRun: cellularMode) }
-
         // ── 1. ALREADY USABLE ⇒ done. ────────────────────────────────────────────────────────────
         // Checked FIRST, and deliberately before the entitlement check: on a free sideload
         // `isSupported` is false while LocalDevVPN may be carrying the loopback perfectly well, and

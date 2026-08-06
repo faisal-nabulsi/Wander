@@ -114,7 +114,13 @@ struct MainTabView: View {
     // A sheet and an alert both present ABOVE every `.overlay`, whatever order the overlays are
     // declared in, so there is no arrangement of this view that would let the banner simply win on
     // top — it has to be suppression. Neither is deleted: both return the moment the banner is
-    // dismissed or the stranding clears (see `onChange(of: cellularRun.isStranded)`).
+    // dismissed or the radio comes back (see `onChange(of: cellularRun.airplaneModeLeftOn)`).
+    //
+    // `airplaneModeLeftOn` is what this used to call `isStranded`. The rename is not cosmetic: the
+    // old flag was INFERRED from `NWPathMonitor` — "no transports, therefore stranded" — which is
+    // equally a lift, a basement, or a carrier blip. The new one is REPORTED, set only when the
+    // radio is confirmed off and cleared only when it is confirmed back (or the user taps the card).
+    // Same suppression, honest premise.
     @ObservedObject private var cellularRun = CellularModeRun.shared
     /// True only while the checklist sheet is being HELD BACK by a stranding — i.e. it wanted to be
     /// on screen and we closed it (or never opened it). It is what makes the restore give back
@@ -165,13 +171,67 @@ struct MainTabView: View {
         ZStack {
             Color.clear.ignoresSafeArea()
 
-            TabView(selection: $selection) {
-                ForEach(AppFeature.mainTabs) { feature in
-                    feature.destination
-                        .tabItem { Label(feature.title, systemImage: feature.systemImage) }
-                        .tag(feature.id)
+            tabsWithOverlays
+                .animation(.easeInOut(duration: 0.25), value: session.cooldownActive)
+                .animation(.easeInOut(duration: 0.25), value: bannerVisible)
+                .animation(.easeInOut(duration: 0.25), value: panicToastVisible)
+                .animation(.easeInOut(duration: 0.25), value: updater.available != nil)
+                .animation(.easeInOut(duration: 0.25), value: session.isActive)
+                .animation(.easeInOut(duration: 0.25), value: tunnelHealth.state)
+                .animation(.easeInOut(duration: 0.25), value: tunnelHealth.memoryPressureWarning)
+                .onChange(of: snapBack.didBounceBack) { _, bounced in
+                    // The opp-5 snap-back watcher just detected a real bounce-back. That's a strong signal
+                    // the tunnel dropped, so kick a best-effort reconnect alongside the recovery prompt.
+                    // Honest: this only TRIES — it never claims to have fixed it.
+                    if bounced { tunnelHealth.attemptReconnectNow() }
                 }
+                .onChange(of: session.isActive) { _, active in
+                    if active { flashBanner() } else { withAnimation { bannerVisible = false } }
+                }
+                .onChange(of: tunnel.status) { _, status in
+                    // The tunnel is usually still connecting at launch when the first auto-install
+                    // attempt runs; retry the silent install the moment it connects.
+                    if status == .connected {
+                        // A silent auto-install re-sign runs at the root (no sheet), so claim the 2FA
+                        // prompt for the root before it can raise one — but NOT while an interactive 2FA
+                        // prompt is already open, or reassigning the presenter would dismiss it mid-entry
+                        // (the "vanishing 2FA prompt" class). Skip both the claim and the install then.
+                        if !wanderAccount.awaiting2FA {
+                            wanderAccount.twoFactorPresenter = .system
+                            Task { await WanderUpdater.shared.autoInstallIfAvailable() }
+                        }
+                    }
+                }
+                .onChange(of: updater.latestManifest?.build) { _, _ in
+                    maybeShowWhatsNew()
+                }
+                .modifier(consolidatedAlerts)
+        }
+    }
+
+    /// The tab bar and everything presented FROM it — sheets, dialogs, overlays, banners.
+    ///
+    /// Split out of `body` for the compiler, not for tidiness: with these ~35 modifiers and the
+    /// animation/onChange tail in one chain, Swift gave up type-checking it
+    /// ("unable to type-check this expression in reasonable time"). Two expressions each check fine.
+    /// The same reason `consolidatedAlerts` was extracted earlier. If you add modifiers here and the
+    /// build starts timing out again, split again rather than reaching for `AnyView`.
+    /// Just the tab bar. Its own expression because the `.tabItem`/`.tag` inference inside the
+    /// `ForEach` is where the type-checker actually ran out of budget.
+    private var tabStrip: some View {
+        TabView(selection: $selection) {
+            ForEach(AppFeature.mainTabs) { feature in
+                feature.destination
+                    .tabItem { Label(feature.title, systemImage: feature.systemImage) }
+                    .tag(feature.id)
             }
+        }
+    }
+
+    /// The tab bar plus everything that reacts to the app's lifecycle: launch, quick actions,
+    /// scene phase, incoming URLs, and the sheets those raise.
+    private var tabs: some View {
+        tabStrip
             .onAppear {
                 ensureSelectionIsValid()
                 if !didSetInitialHome {
@@ -215,10 +275,10 @@ struct MainTabView: View {
                 // to someone whose phone has no radio. It is DEFERRED, not skipped — the flag below
                 // owes it back when the banner goes.
                 guard ran && !setupChecker.allReady else { return }
-                if cellularRun.isStranded { setupSuppressedByStranding = true }
+                if cellularRun.airplaneModeLeftOn { setupSuppressedByStranding = true }
                 else { showSetup = true }
             }
-            .onChange(of: cellularRun.isStranded) { _, stranded in
+            .onChange(of: cellularRun.airplaneModeLeftOn) { _, stranded in
                 if stranded {
                     // Get out of the banner's way. The checklist sheet is only ever raised
                     // automatically (this is its single presenting flag), so closing it here cannot
@@ -255,11 +315,12 @@ struct MainTabView: View {
                 if phase == .background { WanderQuickActions.refresh() }
                 if phase == .active {
                     SimulationSession.shared.rescheduleIfActive()
-                    // Re-ask "did a Cellular Mode run leave this phone in Airplane Mode?" on every
-                    // return to the app. Its own ticker covers the case where we are ALREADY
-                    // frontmost (StartTunnelIntent foregrounds Wander mid-sequence, so a stranded
-                    // user is often already looking at us and never generates a foreground event).
-                    CellularModeRun.shared.evaluate()
+                    // No Cellular Mode re-check here any more. This used to call
+                    // `CellularModeRun.evaluate()`, which re-answered "is this phone stranded in
+                    // Airplane Mode?" from `NWPathMonitor`'s transport flags on every foreground —
+                    // a guess that reads a lift, a basement and a carrier blip as a stranding.
+                    // `airplaneModeLeftOn` is now set and cleared by explicit signals only, and a
+                    // published property already redraws the banner without being asked.
                     gate.refresh()
                     License.shared.refresh()   // re-check so an expired subscription re-locks
                     if session.isActive {
@@ -278,6 +339,12 @@ struct MainTabView: View {
             .onOpenURL { url in
                 handleURL(url)
             }
+    }
+
+    /// The confirmation dialogs for externally-requested actions, plus the detached-feature sheet.
+    /// Grouped together because they are all "something arrived from outside the app".
+    private var tabsWithDialogs: some View {
+        tabs
             .confirmationDialog(
                 pendingLocationAction?.title ?? "External Location Request",
                 isPresented: Binding(
@@ -351,13 +418,22 @@ struct MainTabView: View {
                         }
                 }
             }
+    }
+
+    /// The banner/overlay stack that sits on top of the tabs, in the order it is layered.
+    ///
+    /// A THIRD expression, for the same compiler reason as `tabs` and `consolidatedAlerts` — the
+    /// two-way split still timed out. Keeping the overlays together is also the honest grouping:
+    /// their DECLARATION ORDER is their z-order, and several of the comments below depend on it.
+    private var tabsWithOverlays: some View {
+        tabsWithDialogs
             // Hidden while the low-memory nudge is up (both are top banners) so they don't stack —
             // and, for the same reason, while a Cellular Mode stranding is on screen. Both banners
             // sit at `.padding(.top, 52)`, and a stranded run very often DID get its teleport in
             // before the airplane-off step was interrupted, so "Spoofing active" and the recovery
             // card land on the same pixels. The recovery card is the one with something to do.
             .overlay(alignment: .top) {
-                if !tunnelHealth.memoryPressureWarning && !cellularRun.isStranded { spoofingBanner }
+                if !tunnelHealth.memoryPressureWarning && !cellularRun.airplaneModeLeftOn { spoofingBanner }
             }
             .overlay(alignment: .bottomTrailing) { if panicButtonEnabled { panicButton } }
             .overlay(alignment: .top) { panicToast }
@@ -402,41 +478,6 @@ struct MainTabView: View {
             // overlay regardless — the setup checklist and the reboot-resume alert are suppressed
             // for the duration instead. See `cellularRun`.
             .overlay(alignment: .top) { CellularModeBanner() }
-            .animation(.easeInOut(duration: 0.25), value: session.cooldownActive)
-            .animation(.easeInOut(duration: 0.25), value: bannerVisible)
-            .animation(.easeInOut(duration: 0.25), value: panicToastVisible)
-            .animation(.easeInOut(duration: 0.25), value: updater.available != nil)
-            .animation(.easeInOut(duration: 0.25), value: session.isActive)
-            .animation(.easeInOut(duration: 0.25), value: tunnelHealth.state)
-            .animation(.easeInOut(duration: 0.25), value: tunnelHealth.memoryPressureWarning)
-            .onChange(of: snapBack.didBounceBack) { _, bounced in
-                // The opp-5 snap-back watcher just detected a real bounce-back. That's a strong signal
-                // the tunnel dropped, so kick a best-effort reconnect alongside the recovery prompt.
-                // Honest: this only TRIES — it never claims to have fixed it.
-                if bounced { tunnelHealth.attemptReconnectNow() }
-            }
-            .onChange(of: session.isActive) { _, active in
-                if active { flashBanner() } else { withAnimation { bannerVisible = false } }
-            }
-            .onChange(of: tunnel.status) { _, status in
-                // The tunnel is usually still connecting at launch when the first auto-install
-                // attempt runs; retry the silent install the moment it connects.
-                if status == .connected {
-                    // A silent auto-install re-sign runs at the root (no sheet), so claim the 2FA
-                    // prompt for the root before it can raise one — but NOT while an interactive 2FA
-                    // prompt is already open, or reassigning the presenter would dismiss it mid-entry
-                    // (the "vanishing 2FA prompt" class). Skip both the claim and the install then.
-                    if !wanderAccount.awaiting2FA {
-                        wanderAccount.twoFactorPresenter = .system
-                        Task { await WanderUpdater.shared.autoInstallIfAvailable() }
-                    }
-                }
-            }
-            .onChange(of: updater.latestManifest?.build) { _, _ in
-                maybeShowWhatsNew()
-            }
-            .modifier(consolidatedAlerts)
-        }
     }
 
     /// Bundles the single consolidated plain-alert presentation (see `ActiveAlert`) plus the source
@@ -613,12 +654,12 @@ struct MainTabView: View {
         // screen: it can arm at launch and would sit over the recovery banner, and "resume your
         // spoof?" is an offer the user cannot act on until the radio is back anyway. `pendingResume`
         // still holds the target, so the moment the banner clears this list includes `.resume` again
-        // and `onChange(of: cellularRun.isStranded)` re-runs this.
+        // and `onChange(of: cellularRun.airplaneModeLeftOn)` re-runs this.
         //
         // Filtering it out of `armed` (rather than skipping the append at presentation time) is what
         // also DISMISSES it if it is already up: the "don't disturb the alert on screen" check below
         // asks whether the current alert is still armed, and this one no longer is.
-        if pendingResume != nil && !cellularRun.isStranded { armed.append(.resume) }
+        if pendingResume != nil && !cellularRun.airplaneModeLeftOn { armed.append(.resume) }
         if session.showCellularTip { armed.append(.cellularTip) }
 
         // If the one on screen is still armed, don't disturb it — let it finish.
@@ -888,18 +929,19 @@ struct MainTabView: View {
         // flag would offer a one-tap button that lands on an x-error every time.
         // Arrives TWICE on a healthy run and must stay idempotent: the shortcut's own last action
         // opens it (so completion is recorded even if the x-callback is lost), and Shortcuts fires
-        // x-success at the same host a moment later. Reaching here proves the run got past its
-        // Airplane-Mode-Off step, which is what retires the stranding marker; `noteRunFinished` then
-        // answers the question the user cannot — whether anything is actually simulating.
+        // x-success at the same host a moment later. It says the run REACHED ITS LAST ACTION and
+        // nothing about the radio — those are two different events now, so this deliberately does not
+        // clear `airplaneModeLeftOn`. `noteRunFinished` answers the one question the user cannot:
+        // whether anything is actually simulating.
         case "cellular-done":
             ShortcutRunner.cellularModeReady = true
             CellularModeRun.shared.noteRunFinished()
         // x-error: the shortcut is missing or renamed, so NOTHING ran and nothing touched the radio.
-        // Retire the marker rather than leave it to time out into a recovery banner for a run that
-        // never happened.
+        // There is no marker to retire — `airplaneModeLeftOn` is only ever set by the radio actually
+        // going off, so a run that never started never armed it. (It used to need retiring, back when
+        // the marker was armed optimistically at hand-off time and guessed at from the network path.)
         case "cellular-missing":
             ShortcutRunner.cellularModeReady = false
-            CellularModeRun.shared.noteRunNeverStarted()
         case "cancel", "error":
             break
         // A shared spot/route. UNLIKE teleport/reset above this is NOT run directly: those come from

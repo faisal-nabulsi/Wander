@@ -893,8 +893,15 @@ struct LocationSimulationView: View {
     /// `ShortcutRunner.cellularModeReady` writes — as an `@AppStorage` so the button re-labels itself
     /// the instant the setup sheet (or an x-error callback) flips it. Same pattern, same reason, as
     /// `SetupChecklistView`'s read of `shortcutsReady`.
-    @AppStorage("cellularModeShortcutReady") private var cellularModeReady = false
+    @AppStorage("cellularModeShortcutReady") private var legacyCellularModeReady = false
+    /// The one-action `Wander Airplane` shortcut. Read alongside the legacy flag rather than replacing
+    /// it, so somebody who did the old Shortcuts-editor work is not told to set up again.
+    @AppStorage("wanderAirplaneShortcutReady") private var airplaneShortcutReady = false
+    private var cellularModeReady: Bool { airplaneShortcutReady || legacyCellularModeReady }
     @State private var showCellularSetup = false
+    /// Drives the in-place progress line and the failure alert for a Cellular Mode run. Wander is the
+    /// conductor now, so unlike the old Shortcut-driven flow there is something to report.
+    @ObservedObject private var cellularSequence = CellularModeSequence.shared
     // "First fix is real" guardrail (OFF by default — see RealGPSSeeder). When enabled, seeds the
     // device's real location before a teleport so the opening jump isn't an instant impossible delta.
     @StateObject private var realGPSSeeder = RealGPSSeeder()
@@ -1581,6 +1588,24 @@ struct LocationSimulationView: View {
             } message: {
                 Text(alertMessage)
             }
+            // FAIL LOUDLY. Every way a Cellular Mode run can go wrong — Shortcuts missing, the radio
+            // never switching, the tunnel or teleport failing — surfaces here as a sentence about what
+            // happened, with the manual route named in the copy. `offerSetup` is what separates "that
+            // didn't work" from "the shortcut isn't installed": only the second one sends the user
+            // back to the setup card, where the hand-add fallback also lives.
+            .alert(cellularSequence.failure?.title ?? "",
+                   isPresented: Binding(get: { cellularSequence.failure != nil },
+                                        set: { if !$0 { cellularSequence.failure = nil } })) {
+                if cellularSequence.failure?.offerSetup == true {
+                    Button(L("map.cellular.fix", fallback: "Set up Cellular Mode")) {
+                        cellularSequence.failure = nil
+                        showCellularSetup = true
+                    }
+                }
+                Button(L("action.ok", fallback: "OK"), role: .cancel) { cellularSequence.failure = nil }
+            } message: {
+                Text(cellularSequence.failure?.message ?? "")
+            }
             .alert("Save Bookmark", isPresented: $showSaveBookmark) {
                 TextField("Name", text: $newBookmarkName)
                 Button("Save") { addBookmark() }
@@ -2180,11 +2205,9 @@ struct LocationSimulationView: View {
                         showPaywall = true
                         return
                     }
-                    // Armed BEFORE the hand-off, so the marker exists even if the hand-off is what
-                    // fails. This is what lets the app notice it may have left the phone in
-                    // Airplane Mode — see CellularModeRun.
-                    CellularModeRun.shared.markLaunched(latitude: coord.latitude, longitude: coord.longitude)
-                    // The pin the user actually selected, handed to the shortcut as its text input.
+                    // Routes to whichever shortcut this user has: the one-action `Wander Airplane`
+                    // file with `CellularModeSequence` conducting, or the legacy all-in-one shortcut.
+                    // Both record the pin for the recovery card's "Try again".
                     ShortcutRunner.runCellularMode(latitude: coord.latitude, longitude: coord.longitude)
                 } else {
                     showCellularSetup = true
@@ -2200,17 +2223,30 @@ struct LocationSimulationView: View {
             .buttonStyle(.borderedProminent)
             .tint(Wander.brand)
             .controlSize(.large)
-            .disabled(isBusy || isLoadingRoute)
-            .opacity((isBusy || isLoadingRoute) ? 0.5 : 1)
+            .disabled(isBusy || isLoadingRoute || cellularSequence.isRunning)
+            .opacity((isBusy || isLoadingRoute || cellularSequence.isRunning) ? 0.5 : 1)
 
-            if cellularModeReady {
+            // WHAT THE OLD FLOW COULD NOT DO. While a Shortcut conducted the sequence, Wander was in
+            // the background with nothing to say; the user watched a dead screen and a dark radio.
+            // Wander conducts it now, so each step can name itself as it happens.
+            if let status = cellularSequence.statusText {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small).tint(Wander.brand)
+                    Text(status).wanderMicro()
+                    Spacer(minLength: 0)
+                    Button(L("action.cancel", fallback: "Cancel")) { cellularSequence.cancel() }
+                        .font(.caption)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Wander.brand)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else if cellularModeReady {
                 // HONEST NUMBER. The old copy said "a few seconds"; the run is a 4 s settle, up to
-                // 12 s in `WanderTunnel.ensureStarted()`, up to ~12 s in the teleport, and the
-                // shortcut's own trailing step. Someone waiting on a call notices the difference
-                // between that and "a few seconds", and a promise we break costs more than a number
-                // that sounds bad. See `CellularModeRun.worstCaseRunSeconds`.
+                // 12 s in `WanderTunnel.ensureStarted()`, up to ~12 s in the teleport, and the second
+                // Shortcuts hop. Someone waiting on a call notices the difference between that and
+                // "a few seconds", and a promise we break costs more than a number that sounds bad.
                 Text(localized: "map.cellular.cost",
-                     fallback: "Shortcuts opens for a moment, then calls and data are off for up to about 30 seconds — usually less.")
+                     fallback: "Shortcuts flashes twice, and calls and data are off for up to about 30 seconds — usually less.")
                     .wanderMicro()
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

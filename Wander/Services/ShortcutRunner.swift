@@ -27,19 +27,22 @@ enum ShortcutRunner {
     /// "Set VPN → Shadowrocket → Connect → Open App Wander" — connects the PoGo/games proxy and bounces
     /// back to Wander (unlike shadowrocket://connect, which strands you in Shadowrocket).
     static let shadowrocketConnectName = "Wander Connect Shadowrocket"
-    /// THE CELLULAR SEQUENCE. Checks Wi-Fi; with none, turns Airplane Mode ON, waits for iOS to drop the
-    /// cellular interface, runs Wander's `Start Wander Tunnel` + `Teleport to Place` App Intents (both of
-    /// which BLOCK until they're actually done — that's why they're intents and not `wander://` links),
-    /// then turns Airplane Mode back OFF and returns here. On Wi-Fi the airplane steps are skipped
-    /// entirely. Takes the coordinate as its text input, so the app passes the pin the user picked.
+    /// THE ONLY SHORTCUT CELLULAR MODE NEEDS. One job: flip Airplane Mode. Input "on" turns it on and
+    /// waits ~4 s for the radio to settle; ANYTHING else — including a hand-run with no input — turns
+    /// it off, which is the safe default for an empty variable.
     ///
-    /// The `Start Wander Tunnel` action inside it must have its "Cellular Mode run" toggle switched
-    /// ON (see `StartTunnelIntent.cellularMode`, and step 4 of `CellularModeSetupView`). That toggle
-    /// is how a run launched from ANYWHERE — the Shortcuts app, Siri, the Action Button, Control
-    /// Centre, an automation — arms the stranding marker; without it only runs started from a button
-    /// inside Wander could ever be recovered. A copy of the shortcut predating the toggle still works
-    /// and is still covered in the common case, by inference rather than declaration — see
-    /// `CellularModeRun.armForTunnelIntent`.
+    /// WHY IT IS THIS SMALL. Everything else in the old sequence (tunnel up, teleport) was an App
+    /// Intent action purely so the Shortcut could WAIT for it, and an App Intent action serialises the
+    /// target app's bundle id + team id — values that differ for every install, which is why those two
+    /// actions could never be shipped pre-filled and had to be added by hand in the editor. Wander
+    /// conducts the sequence itself now (`CellularModeSequence`), so this file contains only
+    /// `is.workflow.actions.*` built-ins, carries no app identity, and imports ready to run under every
+    /// signature. See `CellularModeSequence` for the full argument.
+    static let airplaneName = "Wander Airplane"
+
+    /// THE OLD ALL-IN-ONE SEQUENCE. Kept, not deleted, as the documented fallback: someone who set it
+    /// up before still has it, and it is what the setup card points at if the new one won't install.
+    /// Requires the two hand-added Wander actions (see `CellularModeSetupView`'s fallback section).
     static let cellularModeName = "Wander Cellular Mode"
 
     /// Persisted "the Wander shortcuts are installed" flag. Set optimistically after onboarding; flipped
@@ -49,7 +52,18 @@ enum ShortcutRunner {
         set { UserDefaults.standard.set(newValue, forKey: "shortcutsReady") }
     }
 
-    /// Same idea as `ready`, but for the Cellular Mode shortcut ALONE.
+    /// "The one-action `Wander Airplane` shortcut is installed." Its own flag, for the same reason
+    /// `cellularModeReady` has one: installing the gs-loc/flush pack says nothing about this file
+    /// existing, and a shared flag would offer a one-tap button that fails every time.
+    ///
+    /// Self-heals like the rest: `CellularModeSequence` clears it when a run proves Airplane Mode never
+    /// switched on, which is what "the shortcut is missing or renamed" looks like from Wander's side.
+    static var airplaneReady: Bool {
+        get { UserDefaults.standard.bool(forKey: "wanderAirplaneShortcutReady") }
+        set { UserDefaults.standard.set(newValue, forKey: "wanderAirplaneShortcutReady") }
+    }
+
+    /// Same idea as `ready`, but for the LEGACY all-in-one Cellular Mode shortcut.
     ///
     /// Deliberately NOT folded into `ready`: that flag means "the gs-loc/flush pack is installed", and a
     /// user who set those up years ago has not thereby installed this one. Sharing the flag would show a
@@ -60,7 +74,15 @@ enum ShortcutRunner {
         set { UserDefaults.standard.set(newValue, forKey: "cellularModeShortcutReady") }
     }
 
-    /// Where the Cellular Mode shortcut is published, for the one-tap install in the setup card.
+    /// Either shortcut will do, so the button says "Simulate" rather than "Set up" for both. New
+    /// installs get the one-tap file; people who already did the editor work keep working.
+    static var cellularModeUsable: Bool { airplaneReady || cellularModeReady }
+
+    /// Where the one-action Airplane shortcut is published, for the one-tap install in the setup card.
+    static let airplaneInstallURL =
+        "https://wanderspoofer.com/downloads/shortcuts/wander-airplane.shortcut"
+
+    /// Where the LEGACY all-in-one shortcut is published, kept for the fallback path.
     static let cellularModeInstallURL =
         "https://wanderspoofer.com/downloads/shortcuts/wander-cellular-mode.shortcut"
 
@@ -112,29 +134,51 @@ enum ShortcutRunner {
         }
     }
 
-    /// One-tap Cellular Mode: hand the shortcut the pin the user actually selected and let it do the
-    /// airplane dance around Wander's own `Start Wander Tunnel` + `Teleport to Place` App Intents.
+    /// Flip Airplane Mode, and nothing else. One leg of a `CellularModeSequence` run.
     ///
-    /// The coordinate goes over as plain `"lat, lng"` because that is exactly what `TeleportIntent`
-    /// already parses (`WanderLocationIntent.resolveCoordinate`), so the shortcut needs no formatting
-    /// logic of its own and a hand-built copy can't get the format subtly wrong. Five decimals is ~1 m —
-    /// far finer than anything downstream of this can resolve, and short enough to read in the run log.
-    /// `en_US_POSIX` because a comma-decimal locale would otherwise emit "40,68922" and turn one
-    /// coordinate into four numbers.
+    /// The success callback is `wander://open`, which is already a documented no-op in the app's link
+    /// table ("opening the app is the whole effect") — deliberately, because the SEQUENCE is what
+    /// advances on the return, not the link. Wander watches its own foreground transition and then
+    /// checks the actual network path, so a leg that silently did nothing is caught by looking at the
+    /// radio rather than by trusting a callback.
+    ///
+    /// The error callback goes to a host nothing handles for the same reason: an x-error still brings
+    /// Wander forward, and `CellularModeSequence` will find the radio unchanged and say so with a
+    /// sentence about the actual problem. There is nothing useful for a URL case to add.
+    static func runAirplane(on: Bool, onOpenFailure: @escaping () -> Void) {
+        run(name: airplaneName,
+            successHost: "open",
+            input: on ? "on" : "off",
+            errorHost: "airplane-missing",
+            onOpenFailure: onOpenFailure)
+    }
+
+    /// One-tap Cellular Mode.
+    ///
+    /// Routes to whichever shortcut the user actually has, so a single call site serves both. New
+    /// installs take the one-action `Wander Airplane` file and let `CellularModeSequence` conduct;
+    /// anyone who already did the Shortcuts-editor work for the old all-in-one file keeps using it,
+    /// unchanged, rather than being told to set up again.
+    ///
+    /// The legacy path's coordinate goes over as plain `"lat, lng"` because that is exactly what
+    /// `TeleportIntent` already parses (`WanderLocationIntent.resolveCoordinate`), so the shortcut needs
+    /// no formatting logic of its own and a hand-built copy can't get the format subtly wrong. Five
+    /// decimals is ~1 m — far finer than anything downstream of this can resolve, and short enough to
+    /// read in the run log. `en_US_POSIX` because a comma-decimal locale would otherwise emit
+    /// "40,68922" and turn one coordinate into four numbers.
+    @MainActor
     static func runCellularMode(latitude: Double, longitude: Double) {
+        if airplaneReady {
+            CellularModeSequence.shared.start(latitude: latitude, longitude: longitude)
+            return
+        }
         let text = String(format: "%.5f, %.5f", locale: Locale(identifier: "en_US_POSIX"),
                           latitude, longitude)
         run(name: cellularModeName,
             successHost: "cellular-done",
             input: text,
             errorHost: "cellular-missing",
-            onOpenFailure: {
-                cellularModeReady = false
-                // iOS could not even open Shortcuts, so nothing ran and nothing touched the radio.
-                // Retire the stranding marker the caller armed rather than let it age into a
-                // recovery banner for a run that never started.
-                Task { @MainActor in CellularModeRun.shared.noteRunNeverStarted() }
-            })
+            onOpenFailure: { cellularModeReady = false })
     }
 
     /// Open the Shortcuts app (onboarding step: running any shortcut once un-grays the untrusted toggle).

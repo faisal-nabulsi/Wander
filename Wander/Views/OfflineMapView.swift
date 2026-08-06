@@ -56,6 +56,13 @@ final class MapLocationAuthWatcher: NSObject, CLLocationManagerDelegate {
 
     var status: CLAuthorizationStatus { manager.authorizationStatus }
 
+    /// The last fix CoreLocation already had, or nil. Read-only and never starts updates, so it
+    /// costs nothing and prompts nobody — it exists so a map opening cold can centre somewhere
+    /// meaningful instead of a hardcoded city.
+    var lastKnownLocation: CLLocation? {
+        isAuthorized ? manager.location : nil
+    }
+
     var isAuthorized: Bool {
         switch status {
         case .authorizedAlways, .authorizedWhenInUse: return true
@@ -78,6 +85,14 @@ struct OfflineMapView: UIViewRepresentable {
     /// When true, the overlay serves only cached tiles (offline preview) — no network.
     var cacheOnly: Bool
 
+    /// Bump to force the tile overlay to be rebuilt and every visible tile re-requested.
+    ///
+    /// Needed because MapKit keeps the tiles it has already rendered and will not ask this overlay
+    /// for them again — so deleting a saved region freed the bytes on disk while the screen carried
+    /// on showing the map, which reads as "delete did nothing". Rebuilding is the only way to make
+    /// a cache change visible; the same trick the cacheOnly toggle already relies on.
+    var tileReloadToken: Int = 0
+
     /// Reports the map's region as the user pans — together with THE COORDINATE UNDER THE SHARED
     /// CROSSHAIR, measured from this view's own geometry — so the parent's "Set pin here" keeps
     /// working while this offline map is the active surface.
@@ -92,6 +107,15 @@ struct OfflineMapView: UIViewRepresentable {
     /// The region is still reported because the host needs it to track the camera; it must not be
     /// used to place the pin.
     var onRegionChange: ((MKCoordinateRegion, CLLocationCoordinate2D) -> Void)?
+
+    /// Reports how much of the tile grid the overlay could actually draw.
+    ///
+    /// The host needs this because a missing tile is INVISIBLE as a failure: the overlay replaces
+    /// Apple's base map, so "no tiles" renders as MapKit's empty cream grid, which looks like a
+    /// broken app rather than "you haven't saved this area". Only the overlay knows whether a tile
+    /// came from its own zoom, from a scaled stand-in, or from nowhere — so it reports, and the
+    /// host puts it in words. Nil ⇒ the host doesn't care (satellite hosts, mainly).
+    var onCoverageChange: ((WanderTileOverlay.Coverage) -> Void)?
 
     /// Draw the floating layer button on the map itself.
     ///
@@ -118,13 +142,17 @@ struct OfflineMapView: UIViewRepresentable {
         selectedCoordinate: Binding<CLLocationCoordinate2D?>,
         region: Binding<MKCoordinateRegion>,
         cacheOnly: Bool,
+        tileReloadToken: Int = 0,
         onRegionChange: ((MKCoordinateRegion, CLLocationCoordinate2D) -> Void)? = nil,
+        onCoverageChange: ((WanderTileOverlay.Coverage) -> Void)? = nil,
         showsStyleSwitcher: Bool = false
     ) {
         self._selectedCoordinate = selectedCoordinate
         self._region = region
         self.cacheOnly = cacheOnly
+        self.tileReloadToken = tileReloadToken
         self.onRegionChange = onRegionChange
+        self.onCoverageChange = onCoverageChange
         self.showsStyleSwitcher = showsStyleSwitcher
     }
 
@@ -141,7 +169,7 @@ struct OfflineMapView: UIViewRepresentable {
         mapView.delegate = context.coordinator
         mapView.setRegion(region, animated: false)
 
-        context.coordinator.applyStyle(mapStyleMode, cacheOnly: cacheOnly, on: mapView)
+        context.coordinator.applyStyle(mapStyleMode, cacheOnly: cacheOnly, reloadToken: tileReloadToken, on: mapView)
         context.coordinator.applyUserLocation(showsReportedLocation, on: mapView)
         context.coordinator.startObservingAuthorization(on: mapView)
 
@@ -164,7 +192,7 @@ struct OfflineMapView: UIViewRepresentable {
 
         // Imagery + tile overlay in one place: which of the two draws the ground depends on
         // the chosen style, so they can't be decided independently.
-        context.coordinator.applyStyle(mapStyleMode, cacheOnly: cacheOnly, on: mapView)
+        context.coordinator.applyStyle(mapStyleMode, cacheOnly: cacheOnly, reloadToken: tileReloadToken, on: mapView)
         context.coordinator.applyUserLocation(showsReportedLocation, on: mapView)
         context.coordinator.refreshStyleButton()
 
@@ -189,6 +217,7 @@ struct OfflineMapView: UIViewRepresentable {
         /// updateUIView from tearing the map down and rebuilding it on every redraw.
         private var appliedMode: MapStyleMode?
         private var appliedCacheOnly: Bool?
+        private var appliedReloadToken: Int?
         private var styleButton: UIButton?
         private weak var mapView: MKMapView?
         private var authObserver: NSObjectProtocol?
@@ -233,10 +262,12 @@ struct OfflineMapView: UIViewRepresentable {
             return imageryAvailable(cacheOnly: cacheOnly) ? mode : .standard
         }
 
-        func applyStyle(_ mode: MapStyleMode, cacheOnly: Bool, on mapView: MKMapView) {
+        func applyStyle(_ mode: MapStyleMode, cacheOnly: Bool, reloadToken: Int, on mapView: MKMapView) {
             self.mapView = mapView
             let effective = Self.effectiveMode(mode, cacheOnly: cacheOnly)
-            guard effective != appliedMode || cacheOnly != appliedCacheOnly else { return }
+            guard effective != appliedMode
+                    || cacheOnly != appliedCacheOnly
+                    || reloadToken != appliedReloadToken else { return }
 
             switch effective {
             case .standard:
@@ -251,8 +282,27 @@ struct OfflineMapView: UIViewRepresentable {
                 }
                 let fresh = WanderTileOverlay()
                 fresh.cacheOnly = cacheOnly
+                fresh.onCoverageChange = { [weak self] coverage in
+                    // Only the LIVE overlay may speak: a stale instance from a previous style
+                    // switch can still have tile requests in flight, and its verdict would
+                    // contradict what is now on screen.
+                    guard let self, self.overlay === fresh else { return }
+                    self.parent.onCoverageChange?(coverage)
+                }
                 mapView.addOverlay(fresh, level: .aboveLabels)
                 overlay = fresh
+                // Don't let the camera reach a zoom the tile overlay cannot be DRAWN at.
+                //
+                // MEASURED: past roughly street level MapKit still asks the overlay for tiles —
+                // the trace shows 48 z18 requests, all answered with valid 256×256 CARTO PNGs
+                // that are sitting on disk — and then renders none of them, leaving the empty
+                // cream grid. Raising `maximumZ` gets the requests flowing but cannot make MapKit
+                // paint them, so the only way to keep this band off the user's screen is to keep
+                // the camera out of it. 400 m still shows building outlines and house numbers.
+                mapView.setCameraZoomRange(
+                    MKMapView.CameraZoomRange(minCenterCoordinateDistance: 400),
+                    animated: false
+                )
 
             case .satellite, .hybrid:
                 // The tile overlay declares canReplaceMapContent, so it hides Apple's imagery
@@ -264,10 +314,17 @@ struct OfflineMapView: UIViewRepresentable {
                 mapView.preferredConfiguration = effective == .satellite
                     ? MKImageryMapConfiguration()
                     : MKHybridMapConfiguration()
+                // Apple's imagery draws far deeper than a raster tile overlay can, so hand the
+                // zoom range back rather than carrying the overlay's ceiling into satellite.
+                mapView.setCameraZoomRange(nil, animated: false)
+                // Apple's imagery is drawing the ground now, so any "nothing saved here" the tile
+                // overlay left on screen is stale and has to be withdrawn.
+                parent.onCoverageChange?(.exact)
             }
 
             appliedMode = effective
             appliedCacheOnly = cacheOnly
+            appliedReloadToken = reloadToken
             refreshStyleButton()
         }
 
@@ -422,7 +479,7 @@ struct OfflineMapView: UIViewRepresentable {
             // changes on the same frame as the tap instead of one hop later.
             parent.mapStyleModeRaw = mode.rawValue
             if let mapView {
-                applyStyle(mode, cacheOnly: parent.cacheOnly, on: mapView)
+                applyStyle(mode, cacheOnly: parent.cacheOnly, reloadToken: parent.tileReloadToken, on: mapView)
             }
             refreshStyleButton()
         }
@@ -449,6 +506,19 @@ struct OfflineMapView: UIViewRepresentable {
             // User panned/zoomed: report the region up (and mark it applied so this write-back
             // doesn't bounce back through updateUIView as a re-center).
             lastAppliedRegion = mapView.region
+            // A coverage verdict describes one camera position. Start a fresh window here or the
+            // old view's successful tiles keep out-voting the new view's holes.
+            //
+            // Withdraw the notice at the same time, and let real tiles re-raise it. MEASURED: when
+            // the camera jumps somewhere MapKit has already rendered, it serves that view from its
+            // OWN cache and never asks this overlay for anything — so with no new outcomes the last
+            // verdict would sit there forever, warning "lower-detail saved tiles" over a map that
+            // is fully drawn. A stale warning over good content is worse than a late one: the host
+            // delays warnings by ~0.6 s anyway, so a genuinely empty view re-raises almost at once.
+            if overlay != nil {
+                overlay?.resetCoverageWindow()
+                parent.onCoverageChange?(.exact)
+            }
             let region = mapView.region
             // Measured HERE, on the live view, and not recomputed by the host from `region` —
             // see the note on `onRegionChange`. Read synchronously so it can't drift from the

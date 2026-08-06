@@ -36,6 +36,24 @@ struct OfflineRegion: Codable, Identifiable, Equatable {
     var bytes: Int64
     var createdAt: Date
 
+    /// A human place name for this area ("Mission District, San Francisco"), filled in once the
+    /// shared reverse-geocoder answers and then PERSISTED — because the one time a saved map is
+    /// most useful is the one time the geocoder can't run (offline), and a list of raw coordinates
+    /// is unreadable. Nil until resolved; `name` remains the fallback.
+    ///
+    /// OPTIONAL, and every field added here must stay optional: a manifest written by an older
+    /// build has no such key, and a non-optional would fail the whole decode — which
+    /// `loadRegions` treats as "no saved maps", silently wiping the user's list.
+    var placeName: String?
+
+    /// True for the rolling "recently viewed" cache that the main map fills as you browse, as
+    /// opposed to a deliberate save. Older rows carry no flag, so `isAutoRow` falls back to the
+    /// name they were written with.
+    var isAuto: Bool?
+
+    /// Whether this row is the disposable rolling cache rather than something the user asked for.
+    var isAutoRow: Bool { isAuto ?? (name == OfflineTileStore.autoRegionName) }
+
     var region: MKCoordinateRegion {
         let centerLat = (minLatitude + maxLatitude) / 2
         let centerLng = (minLongitude + maxLongitude) / 2
@@ -97,9 +115,15 @@ final class OfflineTileStore {
     /// de-dupe logic agree on which manifest rows are the disposable rolling cache.
     static let autoRegionName = "Recently viewed (auto)"
 
-    /// How many "Recently viewed (auto)" rows to keep — it's a rolling convenience cache, not a
-    /// curated save, so panning the map can't flood the Saved-maps list with dozens of copies.
-    private static let maxAutoRegions = 3
+    /// How many auto "recently viewed" rows to keep — it's a rolling convenience cache, not a
+    /// curated save, so panning the map can't flood the Saved-maps list with copies.
+    ///
+    /// TWO, not three: with `materiallyOverlaps` now merging neighbouring views into one row,
+    /// browsing around a city produces a single growing row, so the cap only has to hold "here"
+    /// and "the last other place I looked at". Three rows was itself the bug report — the owner's
+    /// list showed exactly three identical "Recently viewed (auto)" lines, which was the cap doing
+    /// its job and still reading as breakage.
+    private static let maxAutoRegions = 2
 
     private let fileManager = FileManager.default
     private let rootURL: URL
@@ -237,9 +261,33 @@ final class OfflineTileStore {
         return result
     }
 
+    /// The lowest zoom a download reaches down to for CONTEXT tiles.
+    ///
+    /// A saved region used to start at whatever zoom the user was looking at, which meant one pinch
+    /// outwards left the screen completely empty — there was nothing at a lower zoom to scale up,
+    /// and MapKit's base map is hidden, so "empty" meant a cream grid with no map on it at all.
+    /// That is the reported bug.
+    ///
+    /// The fix is nearly free: the same area at zoom 2–9 is only a handful of tiles (a city is ONE
+    /// tile at zoom 6), so every download now also grabs its own ancestor chain out to the world
+    /// view. Roughly 10–40 extra tiles per save, and zooming out of a saved area always has
+    /// something to draw.
+    static let contextFloorZoom = 2
+
+    /// The tiles a save actually writes: the requested range PLUS the ancestor chain below it.
+    private func tilesWithContext(in region: MKCoordinateRegion, minZoom: Int, maxZoom: Int) -> [(z: Int, x: Int, y: Int)] {
+        let clamped = clampedZoomRange(minZoom: minZoom, maxZoom: maxZoom)
+        var result: [(z: Int, x: Int, y: Int)] = []
+        if clamped.lowerBound > Self.contextFloorZoom {
+            result += tiles(in: region, minZoom: Self.contextFloorZoom, maxZoom: clamped.lowerBound - 1)
+        }
+        result += tiles(in: region, minZoom: clamped.lowerBound, maxZoom: clamped.upperBound)
+        return result
+    }
+
     /// How many tiles a region+zoom-range would produce, and roughly how many bytes.
     func estimate(region: MKCoordinateRegion, minZoom: Int, maxZoom: Int) -> OfflineDownloadEstimate {
-        let count = tiles(in: region, minZoom: minZoom, maxZoom: maxZoom).count
+        let count = tilesWithContext(in: region, minZoom: minZoom, maxZoom: maxZoom).count
         return OfflineDownloadEstimate(
             tileCount: count,
             approximateBytes: Int64(count) * Self.averageTileBytes,
@@ -263,7 +311,7 @@ final class OfflineTileStore {
         maxZoom: Int,
         progress: @escaping (_ done: Int, _ total: Int) -> Void
     ) async throws -> OfflineRegion {
-        let allTiles = tiles(in: region, minZoom: minZoom, maxZoom: maxZoom)
+        let allTiles = tilesWithContext(in: region, minZoom: minZoom, maxZoom: maxZoom)
         let total = allTiles.count
         var downloadedBytes: Int64 = 0
         var done = 0
@@ -326,11 +374,14 @@ final class OfflineTileStore {
             maxLatitude: maxLat,
             minLongitude: minLng,
             maxLongitude: maxLng,
-            minZoom: clamped.lowerBound,
+            // Record the CONTEXT floor, not the requested floor: those tiles are on disk and this
+            // row is what `deleteRegion` uses to find them again.
+            minZoom: min(clamped.lowerBound, Self.contextFloorZoom),
             maxZoom: clamped.upperBound,
             tileCount: total,
             bytes: downloadedBytes,
-            createdAt: Date()
+            createdAt: Date(),
+            isAuto: name == Self.autoRegionName
         )
         appendRegion(saved)
         return saved
@@ -356,23 +407,36 @@ final class OfflineTileStore {
 
     // MARK: Manifest
 
+    /// The saved regions, newest first — and the MIGRATION POINT for lists an older build already
+    /// flooded. Healing here rather than only at launch matters: the owner's duplicates have to
+    /// disappear the moment the sheet is opened, on the build they already have, without a
+    /// reinstall — and the launch-time tidy can't do that for a manifest written since launch.
     func loadRegions() -> [OfflineRegion] {
         manifestQueue.sync {
             guard let data = try? Data(contentsOf: manifestURL),
                   let regions = try? JSONDecoder().decode([OfflineRegion].self, from: data) else {
                 return []
             }
-            return regions.sorted { $0.createdAt > $1.createdAt }
+            let cleaned = deduped(regions)
+            // Compare BY ID, not element-by-element: `deduped` also reorders, and an order-only
+            // difference would rewrite the manifest on every single load.
+            func byID(_ rows: [OfflineRegion]) -> [UUID: OfflineRegion] {
+                Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            }
+            if byID(cleaned) != byID(regions), let out = try? JSONEncoder().encode(cleaned) {
+                try? out.write(to: manifestURL, options: .atomic)
+            }
+            return cleaned.sorted { $0.createdAt > $1.createdAt }
         }
     }
 
+    /// Record a completed download. NOT an append: a save that materially overlaps one already in
+    /// the list UPDATES that row instead of stacking a second copy of the same place.
     private func appendRegion(_ region: OfflineRegion) {
         manifestQueue.sync {
             var current = (try? Data(contentsOf: manifestURL))
                 .flatMap { try? JSONDecoder().decode([OfflineRegion].self, from: $0) } ?? []
             current.append(region)
-            // Replace an identical prior save (same spot re-downloaded, or the auto-prefetch
-            // re-running on the same view) instead of stacking a duplicate row; cap the auto cache.
             current = deduped(current)
             if let data = try? JSONEncoder().encode(current) {
                 try? data.write(to: manifestURL, options: .atomic)
@@ -380,20 +444,37 @@ final class OfflineTileStore {
         }
     }
 
-    /// Collapse same-coverage duplicate saves to their newest copy, then cap the rolling auto cache.
+    /// Persist a resolved human name for one row, so the Saved-maps list still reads as places
+    /// rather than coordinates when the geocoder isn't reachable. No-op if nothing changes.
+    func setPlaceName(_ placeName: String, forRegionID id: UUID) {
+        manifestQueue.sync {
+            var current = (try? Data(contentsOf: manifestURL))
+                .flatMap { try? JSONDecoder().decode([OfflineRegion].self, from: $0) } ?? []
+            guard let index = current.firstIndex(where: { $0.id == id }),
+                  current[index].placeName != placeName else { return }
+            current[index].placeName = placeName
+            if let data = try? JSONEncoder().encode(current) {
+                try? data.write(to: manifestURL, options: .atomic)
+            }
+        }
+    }
+
+    /// Collapse overlapping saves into one row each, then cap the rolling auto cache.
     /// Pure — safe to call inside `manifestQueue.sync` (does no queue work itself).
     private func deduped(_ regions: [OfflineRegion]) -> [OfflineRegion] {
         var kept: [OfflineRegion] = []
-        // Newest copy wins; break createdAt ties by id so the cull is deterministic.
+        // Newest copy leads the merge; break createdAt ties by id so the result is deterministic.
         let ordered = regions.sorted {
             $0.createdAt != $1.createdAt ? $0.createdAt > $1.createdAt : $0.id.uuidString > $1.id.uuidString
         }
         for region in ordered {
-            if !kept.contains(where: { sameCoverage($0, region) }) {
+            if let index = kept.firstIndex(where: { materiallyOverlaps($0, region) }) {
+                kept[index] = merged(kept[index], region)
+            } else {
                 kept.append(region)
             }
         }
-        let autos = kept.filter { $0.name == Self.autoRegionName }
+        let autos = kept.filter(\.isAutoRow)
         if autos.count > Self.maxAutoRegions {
             let doomed = Set(autos.dropFirst(Self.maxAutoRegions).map(\.id))
             kept.removeAll { doomed.contains($0.id) }
@@ -401,19 +482,69 @@ final class OfflineTileStore {
         return kept
     }
 
-    /// Two saved regions cover the same thing: same name + zoom window + (rounded) bounding box.
-    /// Rounding to ~1e-4° (~11 m) so float noise from recomputing the same view doesn't defeat it.
-    private func sameCoverage(_ a: OfflineRegion, _ b: OfflineRegion) -> Bool {
-        func r(_ v: Double) -> Double { (v * 1e4).rounded() / 1e4 }
-        return a.name == b.name
-            && a.minZoom == b.minZoom && a.maxZoom == b.maxZoom
-            && r(a.minLatitude) == r(b.minLatitude) && r(a.maxLatitude) == r(b.maxLatitude)
-            && r(a.minLongitude) == r(b.minLongitude) && r(a.maxLongitude) == r(b.maxLongitude)
+    /// Whether two saved areas are the SAME SAVE and should be one row.
+    ///
+    /// The old rule was exact equality — same name, same zoom window, same bounding box to ~11 m —
+    /// and it missed the case that actually shipped: download an area at "Detailed", download the
+    /// same area again at "Max", and the zoom windows differ by one level, so two rows appear with
+    /// an identical coordinate label. That is what the owner saw twice over.
+    ///
+    /// "Materially overlaps" is therefore, concretely:
+    ///   1. the same KIND of row — the disposable auto cache never absorbs a deliberate save, or
+    ///      the other way round, because they mean different things to the user;
+    ///   2. a COMPARABLE detail level — deepest zooms within two levels of each other. Compared at
+    ///      the deep end because that is the end the "Detail" picker moves and the end that decides
+    ///      how sharp the saved map is; every row shares the same shallow floor (`contextFloorZoom`)
+    ///      so the floor carries no information. Two levels apart absorbs Standard-vs-Detailed and
+    ///      Detailed-vs-Max of one place, while a street-level save and a regional one stay
+    ///      separate rows because they are genuinely different things to keep; and
+    ///   3. at least 60% of the SMALLER bounding box lying inside the larger. Sixty per cent is
+    ///      the point where "I re-downloaded roughly this" stops and "that's the next area over"
+    ///      begins; two views that share a corner stay separate rows.
+    private func materiallyOverlaps(_ a: OfflineRegion, _ b: OfflineRegion) -> Bool {
+        guard a.isAutoRow == b.isAutoRow else { return false }
+        guard abs(a.maxZoom - b.maxZoom) <= 2 else { return false }
+
+        let latOverlap = min(a.maxLatitude, b.maxLatitude) - max(a.minLatitude, b.minLatitude)
+        let lngOverlap = min(a.maxLongitude, b.maxLongitude) - max(a.minLongitude, b.minLongitude)
+        guard latOverlap > 0, lngOverlap > 0 else { return false }
+
+        let areaA = (a.maxLatitude - a.minLatitude) * (a.maxLongitude - a.minLongitude)
+        let areaB = (b.maxLatitude - b.minLatitude) * (b.maxLongitude - b.minLongitude)
+        let smaller = max(min(areaA, areaB), 1e-12)
+        return (latOverlap * lngOverlap) / smaller >= 0.6
     }
 
-    /// Rewrite the manifest with duplicates collapsed + the auto cache capped. Runs at launch to
-    /// clean up lists that older builds already flooded. Async on the manifest queue so it never
-    /// blocks the main thread during singleton init (the migration is fire-and-forget).
+    /// Fold `other` into `keep`, which keeps its identity (id) so the row doesn't jump around the
+    /// list when a merge happens under the user.
+    ///
+    /// The box and the zoom window become the UNION deliberately: the merged row is the one thing
+    /// left pointing at both sets of tiles, so `deleteRegion` has to be able to reach all of them —
+    /// otherwise merging would strand tiles that only "Delete all" could ever reclaim.
+    ///
+    /// `tileCount`/`bytes` take the MAX rather than the sum: the two areas share their middle, so
+    /// adding them would double-count it. Max is a floor, never an overstatement, and the header's
+    /// total is measured from disk anyway.
+    private func merged(_ keep: OfflineRegion, _ other: OfflineRegion) -> OfflineRegion {
+        var out = keep
+        out.minLatitude = min(keep.minLatitude, other.minLatitude)
+        out.maxLatitude = max(keep.maxLatitude, other.maxLatitude)
+        out.minLongitude = min(keep.minLongitude, other.minLongitude)
+        out.maxLongitude = max(keep.maxLongitude, other.maxLongitude)
+        out.minZoom = min(keep.minZoom, other.minZoom)
+        out.maxZoom = max(keep.maxZoom, other.maxZoom)
+        out.createdAt = max(keep.createdAt, other.createdAt)
+        out.tileCount = max(keep.tileCount, other.tileCount)
+        out.bytes = max(keep.bytes, other.bytes)
+        out.isAuto = keep.isAutoRow
+        // Never lose a human name to a merge — a resolved place beats a coordinate string.
+        out.placeName = keep.placeName ?? other.placeName
+        return out
+    }
+
+    /// Rewrite the manifest with duplicates collapsed + the auto cache capped. Runs at launch so a
+    /// list flooded by an older build is already clean before anything reads it. Async on the
+    /// manifest queue so it never blocks the main thread during singleton init.
     private func migrateManifest() {
         manifestQueue.async { [self] in
             guard let data = try? Data(contentsOf: manifestURL),
@@ -444,11 +575,27 @@ final class OfflineTileStore {
                     stillNeeded.insert(tileKey(tile))
                 }
             }
+            var emptiedDirectories = Set<URL>()
             for key in doomed.subtracting(stillNeeded) {
                 let parts = key.split(separator: "/")
                 guard parts.count == 3,
                       let z = Int(parts[0]), let x = Int(parts[1]), let y = Int(parts[2]) else { continue }
-                try? fileManager.removeItem(at: tileURL(z: z, x: x, y: y))
+                let url = tileURL(z: z, x: x, y: y)
+                try? fileManager.removeItem(at: url)
+                emptiedDirectories.insert(url.deletingLastPathComponent())
+            }
+            // Sweep up the z/x folders the delete just emptied. They hold no bytes worth counting,
+            // but leaving thousands of them behind makes every later `totalCacheBytes` walk (and
+            // the cache-cap sweep) crawl through a tree of nothing.
+            for directory in emptiedDirectories {
+                if (try? fileManager.contentsOfDirectory(atPath: directory.path))?.isEmpty == true {
+                    try? fileManager.removeItem(at: directory)
+                }
+                let parent = directory.deletingLastPathComponent()
+                if parent != rootURL,
+                   (try? fileManager.contentsOfDirectory(atPath: parent.path))?.isEmpty == true {
+                    try? fileManager.removeItem(at: parent)
+                }
             }
         }
     }
