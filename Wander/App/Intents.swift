@@ -540,6 +540,33 @@ struct StartTunnelIntent: AppIntent {
     }
 }
 
+/// "Freeze my location with Wander."
+///
+/// App Intents DO work on a free-sideload install, and it is worth being precise about that because
+/// the shorthand "Shortcuts stuff is stripped" is wrong here. What fails on sideload is a
+/// DOWNLOADABLE `.shortcut` FILE that hard-codes an `AppIntentDescriptor` containing our per-install
+/// bundle id — Wander's bundle id differs on every install, so one published file imports with its
+/// actions greyed out (see `CellularModeSequence`). The intents themselves live in the main binary
+/// and survive re-signing. So this is the ONE Pause surface that needs no user setup at all: the
+/// phrases below appear in Siri and Spotlight the moment the app is installed.
+///
+/// `openAppWhenRun` is true, unlike `StopSpoofingIntent`: Pause may have to acquire a real fix and
+/// show progress (and, if it cannot get a good one, ASK), and none of that can happen from a
+/// background intent. Stopping needs no such conversation, which is why it stays backgroundable.
+struct PauseLocationIntent: AppIntent {
+    static var title: LocalizedStringResource = "Pause My Location"
+    static var description = IntentDescription(
+        "Freezes your location where it is now, so apps you share with keep showing you there after you leave.",
+        categoryName: "Wander")
+    static var openAppWhenRun: Bool = true
+
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        await MainActor.run { PauseController.shared.request(state: true) }
+        return .result(value: L("intent.pause.started",
+                                fallback: "Freezing your location — Wander will confirm once it's sure where you are."))
+    }
+}
+
 struct StopSpoofingIntent: AppIntent {
     static var title: LocalizedStringResource = "Stop Location Spoofing"
     static var description = IntentDescription(
@@ -610,6 +637,18 @@ struct StikDebugShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Start Tunnel",
             systemImageName: "cable.connector.horizontal"
+        )
+        AppShortcut(
+            intent: PauseLocationIntent(),
+            phrases: [
+                "Pause my location with \(.applicationName)",
+                "Freeze my location with \(.applicationName)",
+                "\(.applicationName) pause my location",
+                "\(.applicationName) freeze my location",
+                "Keep me here with \(.applicationName)"
+            ],
+            shortTitle: "Pause Location",
+            systemImageName: "snowflake"
         )
         AppShortcut(
             intent: StopSpoofingIntent(),

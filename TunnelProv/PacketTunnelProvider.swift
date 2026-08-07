@@ -102,24 +102,34 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         //
         // This provider used to declare an inert IPv6 config (a ULA plus a /128 route to the tunnel's
         // OWN address) unconditionally, on the theory that an IPv4-only NEPacketTunnelProvider can't
-        // bind on an IPv6-only cellular carrier (Apple DTS, Developer Forums 670367). ⚠️ TESTED ON
-        // DEVICE 2026-08-04 AND IT DOES NOT WORK: cellular-only, Wi-Fi off, no Airplane toggle, cert
-        // build, and the inject still failed with ENETUNREACH ("network unreachable … adapter closed")
-        // — no route to 10.7.0.1, not the ECONNREFUSED you get on airplane-OFF. Declaring a second
-        // address family cannot help while the endpoint we dial is still IPv4
-        // (DeviceConnectionContext.targetIPAddress, and simulate_location does inet_pton(AF_INET)).
-        // THE AIRPLANE TRICK IS STILL REQUIRED ON CELLULAR, for Wander's own tunnel exactly as for
-        // LocalDevVPN. See memory wander-tunnel-cellular-ipv6.
+        // bind on an IPv6-only cellular carrier (Apple DTS, Developer Forums 670367). That inert config
+        // bought nothing — a /128 route to our own address covers no peer — and it was not free: it put
+        // an IPv6 address on the utun, so AF_INET6 packets (the kernel's own MLD reports and router
+        // solicitations, at minimum) got handed to the read loop below, where with the experiment off
+        // they were written back UNCHANGED into the same interface they came from. The reference
+        // implementation declares no IPv6 at all. With the experiment off this now matches it exactly.
         //
-        // So it bought nothing, and it was not free: it put an IPv6 address on the utun, which means
-        // AF_INET6 packets (the kernel's own MLD reports and router solicitations, at minimum) get
-        // handed to the read loop below — where, with the experiment off, they are written back
-        // UNCHANGED into the same interface they came from. The reference implementation declares no
-        // IPv6 at all. With the experiment off this now matches it exactly.
+        // ⚠️ HISTORY, CORRECTED 2026-08-06 — the note that used to live here was WRONG and it sent a
+        // whole investigation down a dead end, so it is spelled out rather than deleted. The 2026-08-04
+        // device failure (cellular-only, Wi-Fi off, no Airplane toggle, cert build; inject failed with
+        // ENETUNREACH, "no route to 10.7.0.1") was the V4-ONLY dial: the code then dialled 10.7.0.1
+        // unconditionally. The old note concluded "declaring a second address family cannot help while
+        // the endpoint we dial is still IPv4 (simulate_location does inet_pton(AF_INET))", and that the
+        // Airplane trick is therefore unavoidable on cellular. THAT CONCLUSION NO LONGER HOLDS. The dial
+        // now runs through DeviceConnectionContext.dialTargets → makeSocketAddress, which does
+        // inet_pton(AF_INET6) FIRST and dials the v6 peer FIRST whenever this SAME opt-in is on (see
+        // DeviceConnectionContext.swift and IdeviceFFIBridge `_simulate_location`). So the endpoint
+        // dialled is v6, not v4, and the 2026-08-04 result does not speak to the full v6 path at all —
+        // that path is UNPROVEN on device and is exactly the experiment this branch exists to run.
+        // See memory wander-tunnel-cellular-ipv6.
         //
-        // The opt-in branch is the real fix and is unchanged: an address for the interface, and an
-        // included route that COVERS the peer the app dials (::2) rather than the /128-to-ourselves
-        // that covered nothing. The app only dials a v6 literal when the same opt-in is on.
+        // The opt-in branch is the real fix: an address for the interface, and an included route that
+        // COVERS the peer the app dials (::2, or the derived carrier-prefix peer) rather than the
+        // /128-to-ourselves that covered nothing. Because that peer sits INSIDE the tunnel's own
+        // included route, dialling it is delivered into the tunnel and looped locally — it does not
+        // depend on the carrier having any v4 route, which is why it can succeed where the v4 dial got
+        // ENETUNREACH on an IPv6-only carrier. The app only dials a v6 literal when this same opt-in is
+        // on.
         if ipv6LoopbackEnabled {
             let ipv6 = NEIPv6Settings(addresses: [tunnelDeviceIpv6],
                                       networkPrefixLengths: [tunnelIpv6PrefixLength])

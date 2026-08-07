@@ -142,6 +142,10 @@ struct MainTabView: View {
     @State private var activeAlert: ActiveAlert?
     @ObservedObject private var license = License.shared
     @ObservedObject private var session = SimulationSession.shared
+    /// Pause / Frozen. Observed here because both of its surfaces are global: the persistent frozen
+    /// chip sits on top of every tab, and the acquisition sheet is raised by a deep link or a
+    /// Home-screen quick action, neither of which has a screen of its own.
+    @ObservedObject private var pause = PauseController.shared
     @ObservedObject private var updater = WanderUpdater.shared
     @ObservedObject private var tunnel = WanderTunnel.shared
     @State private var bannerVisible = false
@@ -306,6 +310,28 @@ struct MainTabView: View {
             .sheet(isPresented: $showLinkPaywall) {
                 PaywallView(onClose: { showLinkPaywall = false })
             }
+            // The Pause flow: "finding you…", the best-effort offer, a refusal, or a write failure.
+            // `.sheet(item:)` on the controller's own optional, so there is exactly one place that
+            // decides whether it is up — and it is never up during the instant path (freezing a live
+            // teleport writes nothing and completes in well under a second, so a sheet would only
+            // flash).
+            .sheet(item: $pause.flow) { flow in
+                PauseFlowSheet(flow: flow)
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.hidden)
+                    // Backing out with a swipe must cancel the acquisition, not orphan it — the
+                    // finder would otherwise keep the GPS on for the rest of its deadline.
+                    .interactiveDismissDisabled(false)
+                    .onDisappear { pause.cancelFlow() }
+            }
+            // Pause draws down the same teleport allowance a tapped Simulate does, so a free user
+            // out of allowance gets the paywall rather than a dead-end. Routed through the existing
+            // link paywall so there is one paywall presentation on this screen, not two.
+            .onChange(of: pause.needsPaywall) { _, needs in
+                guard needs else { return }
+                pause.needsPaywall = false
+                showLinkPaywall = true
+            }
             .fullScreenCover(isPresented: Binding(get: { gate.locked && !license.isLicensed }, set: { _ in })) {
                 PaywallView()
             }
@@ -433,8 +459,18 @@ struct MainTabView: View {
             // before the airplane-off step was interrupted, so "Spoofing active" and the recovery
             // card land on the same pixels. The recovery card is the one with something to do.
             .overlay(alignment: .top) {
-                if !tunnelHealth.memoryPressureWarning && !cellularRun.airplaneModeLeftOn { spoofingBanner }
+                // Also hidden while FROZEN. The frozen chip occupies the same slot and says strictly
+                // more ("frozen here — anyone sharing sees you at this spot" implies "spoofing
+                // active"), so showing both would stack two banners on the same pixels to say one
+                // thing. The chip is persistent; this one is a 4.5 s flash.
+                if !tunnelHealth.memoryPressureWarning && !cellularRun.airplaneModeLeftOn && !pause.isFrozen {
+                    spoofingBanner
+                }
             }
+            // THE frozen state, persistent for the whole session. Declared after `spoofingBanner` so
+            // it draws above it in the one frame where both could be armed, and before
+            // `CellularModeBanner`, which must stay the topmost `.top` overlay.
+            .overlay(alignment: .top) { FrozenChip() }
             .overlay(alignment: .bottomTrailing) { if panicButtonEnabled { panicButton } }
             .overlay(alignment: .top) { panicToast }
             .overlay(alignment: .top) { updateBanner }
@@ -916,6 +952,15 @@ struct MainTabView: View {
         // apart with different safety postures is how someone gets surprised.)
         case "panic":
             panicStop()
+        // PAUSE — freeze me where I am. The inverse of panic, and the one verb that cannot move you
+        // anywhere you are not already, so it runs DIRECTLY with no confirmation, matching
+        // teleport/reset. `freeze` and `hold` are aliases because that is what half of users will
+        // type, and an alias costs one line.
+        //
+        // Deliberately not aliased to anything within a letter of `panic` — the same line the code
+        // above already draws between `panic` and the confirm-gated `stop-location`.
+        case "pause", "freeze", "hold":
+            pauseLocation(from: url)
         case "status":
             reportStatus(to: url)
         // Callbacks a Wander shortcut returns to (x-success/x-error/x-cancel). These just confirm the
@@ -1132,6 +1177,23 @@ struct MainTabView: View {
         WanderLinkAutomation.shared.startItinerary(steps: steps)
     }
 
+    /// `wander://pause` — freeze the location where it currently is.
+    ///
+    /// TOGGLE-AWARE rather than a blind setter, so ONE shortcut file can serve both directions:
+    /// bare `wander://pause` freezes, or unfreezes if already frozen; `state=on` / `state=off` are
+    /// the explicit forms for a shortcut that wants to be certain which way it is going.
+    private func pauseLocation(from url: URL) {
+        let raw = linkValue(["state", "set", "mode"], in: url)?.lowercased()
+        switch raw {
+        case "on", "1", "true", "yes", "freeze", "start":
+            PauseController.shared.request(state: true)
+        case "off", "0", "false", "no", "unfreeze", "resume", "stop":
+            PauseController.shared.request(state: false)
+        default:
+            PauseController.shared.request(state: nil)
+        }
+    }
+
     /// `wander://preset?game=pokemongo` — switch the game context that drives the cooldown curve and
     /// the speed guardrail. Changes a setting only; it never moves the location, so there's nothing
     /// here to gate.
@@ -1206,6 +1268,11 @@ struct MainTabView: View {
         let preset = GamePreset(rawValue: UserDefaults.standard.string(forKey: "pogoGamePreset") ?? "") ?? .pokemonGo
         var items = [
             URLQueryItem(name: "spoofing", value: session.isActive ? "true" : "false"),
+            // A Shortcut asking "what is Wander doing?" could not previously tell "parked
+            // deliberately" from "idle" — both read as no activity — so a shortcut that wanted to
+            // freeze-or-unfreeze had nothing to branch on. Both keys report it: `paused` as a plain
+            // flag, and `activity` as the word, since `.paused` is now one of the activities.
+            URLQueryItem(name: "paused", value: PauseController.shared.isFrozen ? "true" : "false"),
             URLQueryItem(name: "activity", value: WanderLinkAutomation.shared.activity.rawValue),
             URLQueryItem(name: "tunnel", value: tunnel.status.rawValue),
             URLQueryItem(name: "health", value: tunnelHealthWord),
@@ -1545,9 +1612,23 @@ final class WanderLinkAutomation {
     /// can tell "spoofing, parked" from "spoofing, halfway round a route".
     enum Activity: String {
         case idle, route, walk, itinerary
+        /// Frozen by Pause. A distinct state from `idle` on purpose: "spoofing, parked deliberately"
+        /// and "not spoofing" are the two things a Shortcut most needs to tell apart, and they were
+        /// indistinguishable before.
+        case paused
     }
 
     private(set) var activity: Activity = .idle
+
+    /// Set by `PauseController` when a freeze starts/ends, so the single `activity` word stays the
+    /// one place a Shortcut reads state from rather than a second, parallel flag.
+    func noteFrozen(_ frozen: Bool) {
+        if frozen {
+            activity = .paused
+        } else if activity == .paused {
+            activity = .idle
+        }
+    }
 
     /// Where our run currently is, for the `status` read-back. `SimulationSession.lastTeleportCoordinate`
     /// is the last PARKED point, so it goes stale the moment a walk or route starts moving away from
@@ -2006,6 +2087,8 @@ final class WanderLinkAutomation {
     /// the Map tab's resend behind our back.
     private func send(_ coordinate: CLLocationCoordinate2D) {
         guard let path = pairingFilePath() else { return }
+        // Where the link-driven run is right now, for Pause. See InjectedLocationRecord.
+        SimulationSession.noteInjected(coordinate)
         // "Approximate location": stable per-session offset. No-op when off.
         let target = CoarseLocation.apply(coordinate)
         LocationSimulationCommandQueue.suppressResends = true
@@ -2069,15 +2152,23 @@ enum WanderQuickActions {
         NotificationCenter.default.post(name: requested, object: nil, userInfo: ["url": url])
     }
 
-    /// Rebuild the item list: the user's first few saved places as one-tap teleports, plus the stop.
-    /// iOS shows at most four, so three favourites is the honest ceiling.
+    /// Rebuild the item list: the user's first couple of saved places as one-tap teleports, then
+    /// Pause, then Stop. iOS shows at most four.
+    ///
+    /// PAUSE DISPLACES THE THIRD BOOKMARK, and that is a real trade made on purpose: Pause is a
+    /// state change you need instantly, from the Home screen, on your way out of the door — there is
+    /// no other way to get it without unlocking into the app — whereas a third bookmark is one extra
+    /// tap once you are already inside. Pause sits immediately ABOVE Stop and Stop stays last,
+    /// because the menu renders top-down and the emergency exit should be in the same place every
+    /// time. Both carry a parenthetical ("freeze" / "real GPS") — that is what stops a hurried tap
+    /// hitting the opposite of what it meant.
     ///
     /// This REPLACES the static item declared in Info.plist. The static one exists to cover the only
     /// window this method can't — a fresh install that has never been launched, where there is no
     /// process to build a list — and it carries the same "wander://panic" link, so the Stop action is
     /// on the long-press menu from the moment the app lands on the Home screen.
     static func refresh() {
-        var items: [UIApplicationShortcutItem] = favourites().prefix(3).enumerated().map { index, place in
+        var items: [UIApplicationShortcutItem] = favourites().prefix(2).enumerated().map { index, place in
             UIApplicationShortcutItem(
                 // Unique per row: iOS treats `type` as the item's identity, and three items sharing
                 // one type is how a menu ends up showing the same entry three times.
@@ -2088,6 +2179,15 @@ enum WanderQuickActions {
                 userInfo: [userInfoURLKey: "wander://teleport?lat=\(place.latitude)&lon=\(place.longitude)" as NSString]
             )
         }
+        // Second-to-last: freeze me where I am. Directly above Stop so the pair reads as the two
+        // directions of the same thing.
+        items.append(UIApplicationShortcutItem(
+            type: staticPauseItemType,
+            localizedTitle: L("quickaction.pause", fallback: "Pause here (freeze)"),
+            localizedSubtitle: nil,
+            icon: UIApplicationShortcutIcon(systemImageName: "snowflake"),
+            userInfo: [userInfoURLKey: "wander://pause?state=on" as NSString]
+        ))
         // Always last, always present: the stop is the one action someone needs in a hurry, and it
         // only ever moves you back to your real GPS.
         items.append(UIApplicationShortcutItem(
@@ -2103,6 +2203,11 @@ enum WanderQuickActions {
     /// Must match `UIApplicationShortcutItemType` of the static entry in Info.plist, so the dynamic
     /// list replaces that entry rather than sitting beside a duplicate of it.
     static let staticStopItemType = "com.wander.quickaction.stop"
+
+    /// Same contract as `staticStopItemType`, for the Pause row: it is also declared statically in
+    /// Info.plist so it is on the long-press menu on a fresh install that has never been launched,
+    /// and this type is what makes the dynamic list REPLACE that entry instead of duplicating it.
+    static let staticPauseItemType = "com.wander.quickaction.pause"
 
     /// The saved places the Teleport bookmarks and the Places tab share, newest first.
     private static func favourites() -> [LocationBookmark] {

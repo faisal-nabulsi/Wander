@@ -1471,7 +1471,29 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
         // from the target itself so the speculative v6 leg keeps its tighter one (see
         // DialTarget.probeTimeoutSeconds); the cost on a HEALTHY tunnel is one loopback TCP connect
         // that completes in microseconds.
-        if !_isSimEndpointReachable(target.address, timeoutSeconds: target.probeTimeoutSeconds) {
+        //
+        // ── DIAL LEGIBILITY (the whole reason this reads the full probe result, not a Bool) ───────
+        // That bounded connect()'s errno is the SINGLE decisive signal for a cellular device test:
+        //   • NO ROUTE / errno 51 ENETUNREACH → the v6 route still isn't installed — routing is still
+        //     broken, the experiment did NOT move the needle.
+        //   • REFUSED / errno 61 ECONNREFUSED → the route works and the port refused the SYN — a
+        //     DIFFERENT and more interesting result (we now reach the device; the refusal is pairing
+        //     policy, the same gate as the airplane-OFF errno-61).
+        //   • CONNECTED → the handshake port answered; the real pairing dial (below) follows and, if it
+        //     also succeeds, the spoof holds.
+        // `_isSimEndpointReachable` throws that errno onto a SEPARATE, 30 s-throttled line. Here we call
+        // `EndpointProbe.probe` directly so the full result is in hand: the throttled health-style line
+        // is still recorded for the chip, and — ONLY when the opt-in added a second candidate, so the
+        // shipping single-IPv4 path logs byte-for-byte as before — one extra un-throttled line ties the
+        // family + address + outcome + errno to the exact attempt that produced them. The gate itself is
+        // unchanged: dial iff the handshake port answered.
+        let probe = EndpointProbe.probe(target.address, timeoutSeconds: target.probeTimeoutSeconds)
+        EndpointProbeLog.record(probe, context: "sim endpoint:")
+        if endpoints.count > 1 {
+            let errnoSuffix = probe.errnoValue != 0 ? " errno \(probe.errnoValue) \(probe.errnoName)" : ""
+            SpoofTrace.log("  dial attempt \(target.familyLabel) \(probe.destination) → \(probe.outcome.label)\(errnoSuffix) after \(probe.elapsedMilliseconds) ms")
+        }
+        if !probe.isReachable {
             SpoofTrace.log("  rebuild: endpoint unreachable\(attemptLabel) — no dial attempted")
             // Distinct from `providerCreate`: nothing was dialled, and the reason is one the UI can
             // state plainly instead of printing a number. A later candidate that gets FURTHER than

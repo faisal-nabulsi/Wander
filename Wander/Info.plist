@@ -75,14 +75,29 @@
 	</array>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Wander writes step and walking-distance samples that mirror your simulated movement, so fitness-reading games (like Pokémon GO's Adventure Sync) can credit the distance. This is opt-in and off by default.</string>
-	<!-- Home-screen quick actions (long-press the icon). Only the Stop item is declared statically:
-	     it's the one action that must be there even on an install that has never been launched, and
-	     it needs no user data to describe. The "Teleport: <saved place>" rows are registered at
+	<!-- Home-screen quick actions (long-press the icon). Only Pause and Stop are declared statically:
+	     they're the two actions that must be there even on an install that has never been launched,
+	     and neither needs user data to describe. The "Teleport: <saved place>" rows are registered at
 	     runtime by WanderQuickActions.refresh(), which replaces this list once the app has run.
 	     Every item carries the wander:// link it runs, so a tap goes through the same deep-link
-	     handler as everything else. -->
+	     handler as everything else.
+	     ORDER MATTERS: Pause above Stop, Stop last — the same order refresh() rebuilds, so the
+	     emergency exit never moves. -->
 	<key>UIApplicationShortcutItems</key>
 	<array>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.wander.quickaction.pause</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Pause here (freeze)</string>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>snowflake</string>
+			<key>UIApplicationShortcutItemUserInfo</key>
+			<dict>
+				<key>wanderURL</key>
+				<string>wander://pause?state=on</string>
+			</dict>
+		</dict>
 		<dict>
 			<key>UIApplicationShortcutItemType</key>
 			<string>com.wander.quickaction.stop</string>

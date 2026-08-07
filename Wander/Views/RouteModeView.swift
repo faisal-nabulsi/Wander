@@ -1241,7 +1241,21 @@ struct RouteModeView: View {
                 .pickerStyle(.segmented)
                 .wanderFeedback(.selection, on: playbackRate)
                 HStack(spacing: MapModeChrome.rowSpacing) {
-                    Button { isPaused.toggle() } label: {
+                    // Route Pause and location Pause are THE SAME BUTTON now, and that closes a real
+                    // hole rather than just adding a label. The playback loop answers `isPaused` by
+                    // sleeping in 200 ms slices and sending NOTHING, while the map's resend stays
+                    // suppressed for the whole drive — so a route paused for more than a minute had
+                    // no writer at all and iOS dropped the spoof. Pausing now hands the point to the
+                    // parked writer; resuming takes it back (our own `send` re-asserts
+                    // `suppressResends` on every fix).
+                    Button {
+                        isPaused.toggle()
+                        if isPaused, let here = currentPosition {
+                            PauseController.shared.noteRoutePaused(at: here)
+                        } else if !isPaused {
+                            PauseController.shared.noteRouteResumed()
+                        }
+                    } label: {
                         Label(isPaused ? "Resume" : "Pause", systemImage: isPaused ? Wander.Icon.play : Wander.Icon.pause)
                             .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
                     }
@@ -2879,6 +2893,9 @@ struct RouteModeView: View {
     /// ETA for a journey the device never took.
     private func send(_ coord: CLLocationCoordinate2D) {
         guard let path = pairingFilePath() else { return }
+        // Where the drive is right now, for Pause — recorded before the coarse shift. See
+        // InjectedLocationRecord.
+        SimulationSession.noteInjected(coord)
         // "Approximate location": stable per-session ~3–5 km offset. No-op when off.
         let coord = CoarseLocation.apply(coord)
         LocationSimulationCommandQueue.submit {

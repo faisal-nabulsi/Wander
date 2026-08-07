@@ -874,6 +874,10 @@ struct LocationSimulationView: View {
     // "browse then airplane mode" went dark.
     @State private var tilePrefetchTask: Task<Void, Never>?
     @StateObject private var currentLocation = CurrentLocation()
+    /// Observed for ONE layout decision — see the floating info card stack, which has to yield its
+    /// top strip to the persistent frozen chip. The Pause control itself is `PauseButton`, which
+    /// owns its own observation.
+    @ObservedObject private var pauseState = PauseController.shared
     /// The device's own coordinate, captured ONCE and only while nothing is known to
     /// be spoofing. This is the only thing allowed to be labelled "your real
     /// location" in the search header.
@@ -1509,6 +1513,15 @@ struct LocationSimulationView: View {
                                 nlTeleportBar
 
                                 sharingModeToggle
+
+                                // Pause sits directly under the Find My / Life360 toggle because
+                                // that is exactly its audience: "freeze me at home while I go out"
+                                // is the headline use, and this is the one control on the panel that
+                                // needs NO pin — it is about where you already are. Outside the
+                                // `if let coord` branch below for that reason. The panel is a
+                                // fixed-height ScrollView (see MapModeChrome), so an extra row
+                                // scrolls rather than resizing the box.
+                                PauseButton()
                             }
 
                             selectedFeatureRow
@@ -1533,6 +1546,15 @@ struct LocationSimulationView: View {
                 }
 
                 VStack(spacing: 6) {
+                    // MAKE ROOM FOR THE FROZEN CHIP. It is a GLOBAL top overlay on the tab view, so
+                    // it draws over this stack — and unlike the "Spoofing active" banner that shares
+                    // its slot, it is PERSISTENT, so the overlap is permanent rather than a 4.5 s
+                    // flash. Seen on screen: it sat across the weather line of the info card and cut
+                    // it in half. The chip cannot move (it belongs at the top, where a state banner
+                    // belongs), so the card yields to it for as long as it is up.
+                    if pauseState.isFrozen {
+                        Color.clear.frame(height: 62)
+                    }
                     if !reachability.isOnline {
                         offlinePill
                             .padding(.top, 8)
@@ -2865,6 +2887,10 @@ struct LocationSimulationView: View {
     }
 
     private func locationUpdateCode(for coordinate: CLLocationCoordinate2D) -> Int32 {
+        // Record where we are injecting, BEFORE the coarse shift, so Pause can freeze on the point
+        // the user thinks they are at rather than on the privacy-offset one. One line, at the
+        // existing single choke-point. See InjectedLocationRecord.
+        SimulationSession.noteInjected(coordinate)
         // "Approximate location" (privacy): shift every injected fix by a stable
         // per-session offset (~3–5 km) so the reported spot shares a neighborhood, not
         // the exact target. No-op when the toggle is off.

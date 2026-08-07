@@ -381,6 +381,11 @@ final class SimulationSession: ObservableObject {
         stopGeneration += 1
         clearResumeTarget()   // deliberate stop — never resurface as a "resume?" prompt next launch
         snapBack.stop()
+        // Nothing is injecting any more, so the live "where are we writing" record is now a stale
+        // point. Cleared here (and in stopAll) rather than left to whoever reads it, because Pause
+        // freezes onto exactly this value and a stale one would freeze someone at a finished run's
+        // last step. See InjectedLocationRecord.
+        InjectedLocationRecord.clear()
         TunnelHealthMonitor.shared.stopMonitoring()
         cancelReminder()
         // A deliberate stop ends the session — cancel the pending "cooldown cleared" ping so it can't
@@ -420,6 +425,7 @@ final class SimulationSession: ObservableObject {
         stopGeneration += 1
         clearResumeTarget()   // deliberate stop — never resurface as a "resume?" prompt next launch
         snapBack.stop()
+        InjectedLocationRecord.clear()   // see markStopped
         TunnelHealthMonitor.shared.stopMonitoring()
         // Suppress any already-queued resend SYNCHRONOUSLY (before the async clear below) so a
         // stray hold re-injection can't run after the clear and re-freeze the fake location — the

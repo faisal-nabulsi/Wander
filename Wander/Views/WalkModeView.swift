@@ -1785,6 +1785,8 @@ struct WalkModeView: View {
     @discardableResult
     private func send(_ coord: CLLocationCoordinate2D) -> Bool {
         guard let path = pairingFilePath() else { return false }
+        // Where the joystick is right now, for Pause. See InjectedLocationRecord.
+        SimulationSession.noteInjected(coord)
         LocationSimulationCommandQueue.submit {
             let code = simulate_location(DeviceConnectionContext.targetIPAddress, coord.latitude, coord.longitude, path)
             DispatchQueue.main.async { noteWriteOutcome(code) }

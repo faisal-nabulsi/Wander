@@ -190,6 +190,8 @@ final class ItineraryRunner: ObservableObject {
     /// Teleport: one location update on the shared command queue (same as MapSelectionView).
     private func sendOnce(_ coordinate: CLLocationCoordinate2D) {
         guard let path = pairingFilePath() else { return }
+        // Where the itinerary is right now, for Pause. See InjectedLocationRecord.
+        SimulationSession.noteInjected(coordinate)
         // "Hold perfectly still" disables jitter; "Approximate location" shifts by a stable
         // per-session offset. Both no-op when their toggles are off.
         let frozen = UserDefaults.standard.bool(forKey: LocationPrivacyKeys.frozenHold)
