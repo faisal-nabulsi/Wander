@@ -30,14 +30,35 @@
 //  thing an app is not allowed to do — flip the switch. That file is built entirely from Shortcuts'
 //  own actions, so it carries no identity, imports ready to run, and has nothing left to edit.
 //
-//  Setup is now: open Shortcuts once, turn on Private Sharing, add the file. Nothing in an editor,
-//  and nothing to rename — the file is published under its display name, so it imports already called
-//  "Wander Airplane".
+//  Setup is now: open Shortcuts once, turn on Private Sharing, add the file, check it. Nothing in an
+//  editor, and nothing to rename — the file is published under its display name, so it imports
+//  already called "Wander Cellular Mode", which is what the feature is called everywhere else in this
+//  app and what `ShortcutRunner` asks iOS for.
 //
-//  THE FALLBACK IS STILL HERE ON PURPOSE. A .shortcut file has to be SIGNED to import (iOS 15+), and
-//  if a published copy is ever unsigned, stale or unreachable the import simply refuses. So the old
-//  all-in-one shortcut and its hand-add instructions stay one disclosure away, and `ShortcutRunner`
-//  still runs whichever of the two the user actually has.
+//  ══ WHY THE LAST STEP IS A CHECK AND NOT A TICK ══
+//
+//  This card used to end with "I've added it — enable one-tap", a button that set a flag because the
+//  user said so. That was fine while the worst case was a wasted Shortcuts flash. It is not fine now:
+//  the name this feature runs is the name the OLD all-in-one shortcut was also published under, so a
+//  phone that still has that file can answer Wander's request with it — and that file turns Airplane
+//  Mode on, ignores our input, and can be suspended by iOS before it turns the radio back off.
+//
+//  So the button runs the shortcut instead of trusting the user. It asks for "off", which on the
+//  shipped file switches Airplane Mode off while it is already off — nothing happens — and the file
+//  answers `wander://airplane-ok` from inside itself. That answer, and only that answer, arms the
+//  feature. If the old file answers instead, Wander says so by name and tells the user what to delete.
+//
+//  ══ THE FALLBACK IS GONE, AND WHAT REPLACED IT ══
+//
+//  This card used to keep the old all-in-one shortcut one disclosure away, with a dozen taps of
+//  Shortcuts-editor work, because an import can fail for reasons that are not the user's fault and a
+//  working second route was worth the mess. That argument was written while the whole pack was
+//  shipping UNSIGNED and imports genuinely were being refused. Every published file now carries the
+//  signature, and — decisively — the fallback file is the one thing on this phone that can take
+//  somebody's signal away by accident. Offering it as a remedy would be handing out the hazard.
+//
+//  The escape hatch is still real, it is just not a second shortcut: turn Airplane Mode on yourself,
+//  teleport, turn it back off. Every failure message in `CellularModeSequence` says so.
 //
 
 import SwiftUI
@@ -45,16 +66,41 @@ import UIKit
 
 struct CellularModeSetupView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var showFallback = false
+    @ObservedObject private var sequence = CellularModeSequence.shared
 
     var body: some View {
         NavigationStack {
             List {
+                // ANSWERS "AM I DONE NOW?" — the question this screen used to leave open.
+                //
+                // The old last sentence was "Your spoof holds." True about the radio, and read by
+                // users as "you can put the phone away." It is not: the fake location lives INSIDE
+                // the tunnel connection (a DVT session, connection-scoped, nothing written to the
+                // phone), so closing Wander or dropping the tunnel ends the spoof instantly. Airplane
+                // Mode was only ever needed to make iOS ACCEPT the connection; turning it back off
+                // changes nothing about needing the connection. The "because" is stated rather than
+                // implied, because "keep it open" without a reason is the kind of rule people decide
+                // is superstition and ignore.
                 Section {
                     Text(localized: "cellular.setup.intro",
-                         fallback: "On mobile data with no Wi-Fi, iOS won't let the tunnel connect — but it stops checking once it's up. Cellular Mode turns Airplane Mode on just long enough to connect and set your location, then turns it back off. Your spoof holds.")
+                         fallback: "On mobile data with no Wi-Fi, iOS won't let the tunnel connect — but it stops checking once it's up. Cellular Mode turns Airplane Mode on just long enough to connect and set your location, then turns it back off. Your spoof holds — as long as the tunnel stays connected and Wander stays open, because your fake location lives in that connection and nothing is stored on your phone.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+
+                // FIRST, ABOVE THE STEPS, BECAUSE THE ORDER IS THE SAFETY. Adding the new file while
+                // an old one of the same name is still in the library gives iOS two shortcuts to
+                // choose between for every run, and Wander cannot see which one it got. Deleting
+                // afterwards works too — but only after a run that could have cost the user their
+                // signal, which is the run this paragraph exists to prevent.
+                Section {
+                    Label(L("cellular.setup.deleteold",
+                            fallback: "Set Cellular Mode up before today? You already have a shortcut called “\(ShortcutRunner.cellularModeName)” — the long one with Wander actions inside it. Open Shortcuts, press and hold it, tap Delete, and do that BEFORE you add the new one. Two shortcuts with one name is the one thing that can leave your phone in Airplane Mode."),
+                          systemImage: "trash")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text(localized: "cellular.setup.deleteold.header", fallback: "Do this first")
                 }
 
                 // Says the shape of the job before the numbered steps, because "three taps, nothing to
@@ -62,7 +108,7 @@ struct CellularModeSetupView: View {
                 // absence of a fourth step.
                 Section {
                     Label(L("cellular.setup.shape",
-                            fallback: "Three steps, then you're done. Nothing to edit in the Shortcuts app — the shortcut you add does one thing, and Wander drives the rest itself."),
+                            fallback: "Four steps, and the last one is Wander checking its own work. Nothing to edit in the Shortcuts app — the shortcut you add does one thing, and Wander drives the rest itself."),
                           systemImage: "checkmark.seal")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -116,32 +162,23 @@ struct CellularModeSetupView: View {
                      button: (L("cellular.setup.step2.button", fallback: "Open Settings"),
                               { openSettingsShortcuts() }))
 
-                // NO RENAME STEP. The file is published as "Wander Airplane.shortcut", and iOS names
-                // an import after the downloaded filename, so it arrives already called the one thing
-                // Wander looks for. Asking the user to check the name was never their job — it was us
-                // publishing a kebab-cased filename and making them fix it by hand.
+                // NO RENAME STEP. The file is published as "Wander Cellular Mode.shortcut", and iOS
+                // names an import after the downloaded filename, so it arrives already called the one
+                // thing Wander looks for. Asking the user to check the name was never their job — it
+                // was us publishing a kebab-cased filename and making them fix it by hand.
                 step(3,
                      L("cellular.setup.step3.noname.title", fallback: "Add the shortcut"),
                      L("cellular.setup.step3.noname.detail",
-                       fallback: "Tap below, then tap Add Shortcut. It arrives already named “\(ShortcutRunner.airplaneName)” — the name Wander looks for — so there is nothing to rename and nothing inside it to fill in."),
-                     button: (L("cellular.setup.step3.button", fallback: "Add “\(ShortcutRunner.airplaneName)”"),
-                              { openURLString(ShortcutRunner.airplaneInstallURL) }))
+                       fallback: "Tap below, then tap Add Shortcut. It arrives already named “\(ShortcutRunner.cellularModeName)” — the name Wander looks for — so there is nothing to rename and nothing inside it to fill in."),
+                     button: (L("cellular.setup.step3.button", fallback: "Add “\(ShortcutRunner.cellularModeName)”"),
+                              { openURLString(ShortcutRunner.cellularModeInstallURL) }))
 
-                Section {
-                    Button {
-                        ShortcutRunner.airplaneReady = true
-                        dismiss()
-                    } label: {
-                        Label(L("cellular.setup.done", fallback: "I've added it — enable one-tap"),
-                              systemImage: "checkmark.circle.fill")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                } footer: {
-                    Text(localized: "cellular.setup.footer",
-                         fallback: "If the button later asks you to set up again, the shortcut was renamed or deleted — re-add it. Nothing here toggles Airplane Mode on its own; it only ever runs when you tap.")
-                }
-
-                fallbackSection
+                verifySection
+            }
+            // A verdict is about the check the user just ran, not about this screen. Re-opening setup
+            // days later to a stale "that was the old shortcut" would be reporting history as news.
+            .onAppear {
+                if !sequence.isRunning { sequence.verificationResult = nil }
             }
             .navigationTitle(L("cellular.setup.title", fallback: "Cellular Mode setup"))
             .navigationBarTitleDisplayMode(.inline)
@@ -153,71 +190,103 @@ struct CellularModeSetupView: View {
         }
     }
 
-    // MARK: - Fallback
-    //
-    // COLLAPSED, NOT DELETED. Importing a .shortcut can fail for reasons that have nothing to do with
-    // the user — an unsigned or stale published file is refused outright by iOS — and when it does,
-    // the old all-in-one shortcut is still a working route. It costs a dozen taps in the Shortcuts
-    // editor, which is exactly why it is no longer the main path, and exactly why it must not vanish.
+    // MARK: - Step 4: prove it, don't promise it
 
     @ViewBuilder
-    private var fallbackSection: some View {
+    private var verifySection: some View {
         Section {
-            DisclosureGroup(isExpanded: $showFallback) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(localized: "cellular.setup.fallback.detail",
-                         fallback: "There is an older shortcut that does the whole sequence by itself. It works, but you have to add two Wander actions to it by hand, because an action that calls an app stores that app's ID — and your copy of Wander is signed with your own Apple ID, so no downloaded file can know it in advance.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Button(L("cellular.setup.fallback.add",
-                             fallback: "Add “\(ShortcutRunner.cellularModeName)” instead")) {
-                        openURLString(ShortcutRunner.cellularModeInstallURL)
-                    }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("4. " + L("cellular.setup.step4.title", fallback: "Check the shortcut"))
                     .font(.subheadline.weight(.semibold))
+                Text(localized: "cellular.setup.step4.detail",
+                     fallback: "This runs it once with “off”, which switches Airplane Mode off while it is already off — so nothing happens to your phone. It is how Wander confirms the name reaches the right shortcut, because it can run one by name but can't see inside it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                    actionToAdd("Start Wander Tunnel",
-                                L("cellular.setup.fallback.a",
-                                  fallback: "Open it, find the first “ADD THE WANDER ACTION HERE” comment, tap +, search “Start Wander Tunnel”, add it, delete the comment."))
-                    actionToAdd("Teleport to Place",
-                                L("cellular.setup.fallback.b",
-                                  fallback: "Same for the second comment: search “Teleport to Place”, add it, tap its Place field and choose Shortcut Input — that's how Wander hands it the pin you picked."))
-
-                    Button(L("cellular.setup.fallback.done",
-                             fallback: "I've added the old one — enable one-tap")) {
-                        ShortcutRunner.cellularModeReady = true
-                        dismiss()
+                // `isRunning`, not `isVerifying`: a check that reaches the old shortcut hands straight
+                // over to the radio-recovery leg, and that is the moment the user most needs to see
+                // that something is still happening. The sequence's own status line says which.
+                if sequence.isRunning {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small).tint(Wander.brand)
+                        Text(sequence.statusText
+                             ?? L("cellular.setup.step4.running", fallback: "Checking…"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 2)
+                } else {
+                    Button(L("cellular.setup.step4.button", fallback: "Check the shortcut")) {
+                        sequence.verify()
                     }
                     .font(.subheadline.weight(.semibold))
                     .padding(.top, 2)
                 }
-                .padding(.top, 4)
-            } label: {
-                Text(localized: "cellular.setup.fallback.title",
-                     fallback: "If it won't import")
-                    .font(.subheadline.weight(.semibold))
+
+                if let result = sequence.verificationResult {
+                    verdict(for: result)
+                }
             }
+        } footer: {
+            Text(localized: "cellular.setup.footer",
+                 fallback: "If the button later asks you to set up again, the shortcut was renamed or deleted — re-add it and check again. Nothing here toggles Airplane Mode on its own; it only ever runs when you tap.")
+        }
+    }
+
+    @ViewBuilder
+    private func verdict(for result: CellularModeSequence.VerificationResult) -> some View {
+        switch result {
+        case .verified:
+            outcome("checkmark.circle.fill", Wander.brand,
+                    L("cellular.setup.verdict.ok",
+                      fallback: "That's it — “\(ShortcutRunner.cellularModeName)” answered and Cellular Mode is ready. Nothing was switched."),
+                    dismissAfter: true)
+        case .legacyShortcut:
+            // NAMED, not hinted at. This is the one verdict where the user may be holding a phone with
+            // no signal, so it says what to press and what to delete rather than "something went
+            // wrong". The recovery run and the banner are already handling the radio; this explains it.
+            outcome("exclamationmark.triangle.fill", Wander.caution,
+                    L("cellular.setup.verdict.legacy",
+                      fallback: "An OLDER shortcut of the same name answered, and it switched Airplane Mode on by itself. If your signal hasn't come back: swipe down from the top-right corner and tap the airplane. Then open Shortcuts, press and hold the long “\(ShortcutRunner.cellularModeName)” that has Wander actions inside it, tap Delete, and check again."),
+                    dismissAfter: false)
+        case .notFound:
+            outcome("questionmark.circle.fill", Wander.caution,
+                    L("cellular.setup.verdict.notfound",
+                      fallback: "Shortcuts has nothing called “\(ShortcutRunner.cellularModeName)”. Go back to step 3 and add it — and if the import was refused, turn on Private Sharing in step 2 first."),
+                    dismissAfter: false)
+        case .unrecognised:
+            outcome("questionmark.circle.fill", Wander.caution,
+                    L("cellular.setup.verdict.unrecognised",
+                      fallback: "Something ran, but it didn't identify itself as Wander's shortcut. That usually means an older copy of it. Add it again from step 3 — the new one replaces the old — then check again."),
+                    dismissAfter: false)
+        }
+    }
+
+    @ViewBuilder
+    private func outcome(_ icon: String, _ tint: Color, _ text: String, dismissAfter: Bool) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(tint)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 4)
+        // Let the tick be READ before the card goes. Dismissing the instant the callback lands would
+        // make a successful check indistinguishable from the sheet closing on its own.
+        .task(id: dismissAfter) {
+            guard dismissAfter else { return }
+            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            guard !Task.isCancelled else { return }
+            dismiss()
         }
     }
 
     // MARK: - Pieces
-
-    @ViewBuilder
-    private func actionToAdd(_ name: String, _ detail: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "plus.circle.fill")
-                .font(.caption)
-                .foregroundStyle(Wander.brand)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(name).font(.caption.weight(.semibold))
-                Text(detail).font(.caption2).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.top, 2)
-    }
 
     @ViewBuilder
     private func step(_ n: Int, _ title: String, _ detail: String, button: (String, () -> Void)) -> some View {

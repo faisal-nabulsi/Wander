@@ -924,34 +924,34 @@ struct MainTabView: View {
             ShortcutRunner.ready = true
         // x-error: Shortcuts has nothing by the name we asked for. Before believing that, try the
         // FILENAME spelling once — these files were published kebab-cased for months and iOS names an
-        // import after the downloaded filename, so a library holding "wander-cellular-mode" instead of
-        // "Wander Cellular Mode" is the normal case, not an exotic one. The retry re-runs and returns here a
-        // second time if it also misses; that pass finds no pending fallback, clears the flag, and the
-        // setup card comes back. Nothing is ever cleared on a name we have not actually tried.
+        // import after the downloaded filename, so a library holding "wander-connect-vpn" instead of
+        // "Wander Connect VPN" is the normal case, not an exotic one. The retry re-runs and returns
+        // here a second time if it also misses; that pass finds no pending fallback, clears the flag,
+        // and the setup card comes back. Nothing is ever cleared on a name we have not actually tried.
         case "shortcut-missing":
             if !ShortcutRunner.retryUnderFilenameSpelling(errorHost: "shortcut-missing") {
                 ShortcutRunner.ready = false
             }
-        // Cellular Mode keeps its OWN installed-flag (see ShortcutRunner.cellularModeReady): the
-        // gs-loc/flush pack being installed says nothing about this shortcut existing, and sharing one
-        // flag would offer a one-tap button that lands on an x-error every time.
-        // Arrives TWICE on a healthy run and must stay idempotent: the shortcut's own last action
-        // opens it (so completion is recorded even if the x-callback is lost), and Shortcuts fires
-        // x-success at the same host a moment later. It says the run REACHED ITS LAST ACTION and
-        // nothing about the radio — those are two different events now, so this deliberately does not
-        // clear `airplaneModeLeftOn`. `noteRunFinished` answers the one question the user cannot:
-        // whether anything is actually simulating.
+        // ⚠️ THE COLLISION TRIPWIRE. NOTHING WANDER SHIPS OPENS THIS ANY MORE — do not repurpose it.
+        //
+        // `wander://cellular-done` was the last action of the OLD all-in-one Cellular Mode shortcut,
+        // the one where the Shortcut was the conductor and called into Wander through two hand-added
+        // App Intents. That file is retired, but the name it was published under is the name the
+        // current one-action file now uses, and Shortcuts is invoked BY NAME — so a library that still
+        // holds the old file can answer a Wander request with it.
+        //
+        // Receiving this host is therefore positive proof that the wrong file just ran: not an
+        // inference from the network, not a timeout, but the old file naming itself. The sequence
+        // treats it as such — it stops, gets the radio back, and puts up a card that says which
+        // shortcut to delete.
         case "cellular-done":
-            ShortcutRunner.cellularModeReady = true
-            CellularModeRun.shared.noteRunFinished()
-        // x-error: the shortcut is missing or renamed, so NOTHING ran and nothing touched the radio.
-        // There is no marker to retire — `airplaneModeLeftOn` is only ever set by the radio actually
-        // going off, so a run that never started never armed it. (It used to need retiring, back when
-        // the marker was armed optimistically at hand-off time and guessed at from the network path.)
-        case "cellular-missing":
-            if !ShortcutRunner.retryUnderFilenameSpelling(errorHost: "cellular-missing") {
-                ShortcutRunner.cellularModeReady = false
-            }
+            CellularModeSequence.shared.noteLegacyShortcutAnswered()
+        // The COUNTERPART, and the only thing that arms Cellular Mode: the shipped one-action file's
+        // own last action. It is fired from inside the file, which is what makes it identity and not
+        // merely completion — Shortcuts' x-success (`wander://open`, above) fires for whatever ran,
+        // including the old file, so proof routed through x-success would be forgeable.
+        case "airplane-ok":
+            CellularModeSequence.shared.noteAirplaneShortcutAnswered()
         // The Airplane leg's x-error. Handed to the sequence rather than retried blind: it is the only
         // thing that knows which leg is in flight, and it has an 8 s radio poll to abandon first (see
         // `retryLegUnderFilenameSpelling`). A second miss returns false and the sequence's ordinary

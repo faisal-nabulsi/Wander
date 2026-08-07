@@ -33,7 +33,7 @@
 //
 //  SO THE FIX IS TO STOP NEEDING THE IDENTITY IN THE FILE. Nothing ever forced the Shortcut to be the
 //  conductor — it only had to be, because it was the thing that could wait. Invert it: the shortcut
-//  becomes a dumb switch ("Wander Airplane", input "on"/"off", built-in actions only), and Wander
+//  becomes a dumb switch (one file, input "on"/"off", built-in actions only), and Wander
 //  does the waiting itself, in the FOREGROUND, where it has real timeouts, real errors and a real
 //  progress line instead of a Shortcut blocking on an intent with nothing on screen.
 //
@@ -60,6 +60,36 @@
 //  tunnel timeout against a radio that is still up. This is the check the delivery investigation
 //  asked for, and it is a precondition, not the stranding detector `CellularModeRun` deleted: it
 //  answers "may I start?", never "is the user stranded?".
+//
+//  THE SHORTCUT NOW SAYS WHICH FILE IT IS, AND NOTHING RUNS UNTIL IT HAS
+//  ────────────────────────────────────────────────────────────────────
+//  The one-action file is published as "Wander Cellular Mode" — the same name as the feature, and the
+//  same name the OLD all-in-one file was published under for a few hours on 2026-08-06. Shortcuts is
+//  invoked by name and does not let an app read a shortcut's contents, so if both files are in one
+//  library, Wander asking for that name may reach either.
+//
+//  A run against the old file would be genuinely dangerous. It ignores our input, runs its own
+//  sequence, and turns Airplane Mode on. Its restore step is real (unconditional, on every path — this
+//  was checked in the file, not assumed), but `StartTunnelIntent.openAppWhenRun` foregrounds Wander in
+//  the middle of it, and a Shortcuts run that iOS suspends before its last actions never reaches that
+//  restore. The radio stays off.
+//
+//  So the file identifies itself. Its last action opens `wander://airplane-ok`; the old file's last
+//  action opens `wander://cellular-done`. Disjoint, and both originate INSIDE the file, so neither can
+//  be forged by the x-success callback Shortcuts fires for whatever it happened to run.
+//
+//  Three things follow, and all three are load-bearing:
+//    1. `start()` refuses to run at all until `ShortcutRunner.cellularModeVerified` is true, and only
+//       an `airplane-ok` from a run Wander itself invoked by name sets that. A user who did not delete
+//       the old file therefore cannot arm the feature — it fails CLOSED, by construction.
+//    2. The radio check is no longer sufficient on its own. The old file also turns the radio off, so
+//       "both transports went away" cannot tell the two apart; the leg must ALSO have said
+//       `airplane-ok` before we build a tunnel on top of it.
+//    3. When the wrong file answers, Wander does not merely explain. It runs the name again with
+//       "off", which restores the radio under EITHER file: ours takes its Otherwise branch, and the
+//       old one cannot re-enter its Airplane-Mode-on branch because that branch is gated on reading a
+//       cellular carrier name, and there is no carrier to read while the radio is off. The card that
+//       spells out the Control Center gesture stays up underneath as the guarantee.
 //
 //  NOTHING HERE TOGGLES ANYTHING BY ITSELF. Every path begins with a tap in Wander.
 //
@@ -100,6 +130,10 @@ final class CellularModeSequence: ObservableObject {
 
     enum Phase: Equatable {
         case idle
+        /// Handed off to Shortcuts with "off" purely to find out WHICH file answers to the name.
+        /// Deliberately the harmless input: on the shipped file this switches Airplane Mode off while
+        /// it is already off, i.e. nothing happens at all.
+        case verifying
         /// Handed off to Shortcuts for the "on" leg; waiting to be brought back.
         case switchingRadioOff
         /// Back in Wander, watching the network path until the radio has actually gone quiet.
@@ -108,6 +142,24 @@ final class CellularModeSequence: ObservableObject {
         case connecting
         /// Handed off to Shortcuts for the "off" leg; waiting to be brought back.
         case restoringRadio
+        /// Something turned the radio off that we did not authorise (the wrong file answered to the
+        /// name). Handed off with "off" to get the signal back; the recovery card is already up.
+        case recoveringRadio
+    }
+
+    /// What a verification run concluded, for the setup card to show in place of its old optimistic
+    /// "I've added it" tick.
+    enum VerificationResult: Equatable {
+        /// `wander://airplane-ok` came back: the name resolves to the shipped one-action file.
+        case verified
+        /// `wander://cellular-done`, or the radio went off when we asked for it to go off — either way
+        /// the name resolved to the OLD all-in-one file and it must be deleted.
+        case legacyShortcut
+        /// Shortcuts has nothing by that name, under either spelling.
+        case notFound
+        /// It ran, but never identified itself. Almost always an older copy of our own file, from
+        /// before it learned to say `airplane-ok` — re-adding it fixes that.
+        case unrecognised
     }
 
     /// What went wrong, in a form a view can put in front of the user. `offerSetup` is the difference
@@ -125,6 +177,8 @@ final class CellularModeSequence: ObservableObject {
     @Published private(set) var statusText: String?
     /// Set on any failure. A view binds an alert to this and clears it on dismiss.
     @Published var failure: Failure?
+    /// The verdict of the last `verify()`. The setup card reads it; nothing else does.
+    @Published var verificationResult: VerificationResult?
 
     var isRunning: Bool { phase != .idle }
 
@@ -143,6 +197,16 @@ final class CellularModeSequence: ObservableObject {
     /// single extra Shortcuts flash: if the filename spelling misses too, the shortcut really is not
     /// there under either name and the run should fail onto the setup card rather than keep bouncing.
     private var hasRetriedUnderFilenameSpelling = false
+    /// `wander://airplane-ok` arrived for the leg currently in flight — the shipped one-action file
+    /// saying, from inside itself, that it is the thing that just ran. Cleared at every hand-off, so
+    /// it can never be carried over from an earlier leg.
+    private var sawAirplaneOk = false
+    /// `wander://cellular-done` arrived: the OLD all-in-one file answered to the name we asked for.
+    /// Positive proof of the collision, not an inference.
+    private var sawLegacyShortcut = false
+    /// One recovery hand-off per run. Without this a recovery that itself reaches the wrong file could
+    /// bounce between Wander and Shortcuts indefinitely, which is a worse experience than the card.
+    private var hasAttemptedRecovery = false
     private var watchdog: Task<Void, Never>?
     /// Bumped by every `start` and every `reset`, and re-checked after each `await`.
     ///
@@ -181,8 +245,7 @@ final class CellularModeSequence: ObservableObject {
         radioIsOff = false
         pendingOutcome = nil
         failure = nil
-        // So the recovery card's "Try again" has a destination, exactly as the old hand-off did.
-        CellularModeRun.shared.noteLaunchedFromApp(latitude: latitude, longitude: longitude)
+        hasAttemptedRecovery = false
 
         // ON WI-FI THERE IS NOTHING TO FIX. lockdownd only refuses the tunnel on cellular-with-no-
         // Wi-Fi, so an airplane cycle here would drop somebody's connection to buy nothing. The old
@@ -201,10 +264,24 @@ final class CellularModeSequence: ObservableObject {
                  offerSetup: false)
             return
         }
-        guard ShortcutRunner.airplaneReady else {
-            fail(title: L("cellular.fail.notsetup.title", fallback: "Cellular Mode isn't set up yet"),
-                 message: L("cellular.fail.notsetup.body",
-                            fallback: "Wander needs its one-action “\(ShortcutRunner.airplaneName)” shortcut installed before it can flip Airplane Mode for you."),
+
+        // THE GATE, AND IT FAILS CLOSED ON PURPOSE.
+        //
+        // The previous version of this comment argued the opposite — try it and let the evidence
+        // arrive — and that was right while the only risk of guessing wrong was a wasted Shortcuts
+        // flash. It is not right any more. "Wander Cellular Mode" is a name the OLD all-in-one file
+        // also answers to, and a run that reaches that file turns the radio off and may never turn it
+        // back on. Guessing now costs somebody their signal, so we do not guess: we require the file
+        // to have identified itself, from inside itself, on a run Wander invoked by name.
+        //
+        // The flag cannot be set by a button, cannot be inherited from the pre-rename install, and is
+        // cleared by anything that contradicts it — so its false value routes to the setup card, where
+        // one tap runs the harmless "off" handshake that either arms the feature or names the problem.
+        guard ShortcutRunner.cellularModeVerified,
+              !CellularModeRun.shared.legacyShortcutDetected else {
+            fail(title: L("cellular.fail.unverified.title", fallback: "Check the shortcut first"),
+                 message: L("cellular.fail.unverified.body",
+                            fallback: "Wander runs shortcuts by name and can't see inside one, and an older Wander shortcut answers to this same name — running it by accident would turn Airplane Mode on and might not turn it back off. Open setup and tap Check the shortcut: it takes a second and nothing is switched."),
                  offerSetup: true)
             return
         }
@@ -213,6 +290,44 @@ final class CellularModeSequence: ObservableObject {
                 phase: .switchingRadioOff,
                 status: L("cellular.status.radiooff",
                           fallback: "Switching Airplane Mode on…"))
+    }
+
+    // MARK: - Verification
+    //
+    // WHY THE HANDSHAKE ASKS FOR "off", AND WHY THAT IS THE SAFE INPUT. On the shipped one-action file
+    // "off" takes the Otherwise branch and sets Airplane Mode off while it is already off — a no-op, on
+    // a phone whose radio is up. Nothing happens and Wander gets its proof.
+    //
+    // BE HONEST ABOUT THE OTHER FILE. The old all-in-one ignores its input entirely, so if IT answers
+    // this handshake on mobile data it will turn the radio off regardless of what we asked for. That is
+    // not free, and it is not hidden: it happens at a moment the user chose, on a screen that is about
+    // this exact problem, with the phone in their hand — and it happens at most ONCE, because the same
+    // run that costs them six seconds of signal is the run that identifies the file, latches
+    // `legacyShortcutDetected`, and refuses the name from then on. Wander also immediately runs the
+    // name again with "off" to bring the radio back, and puts the Control Center gesture on screen.
+    //
+    // The alternative — verify silently on the first real teleport instead — pays the same cost at a
+    // moment the user did not choose, with no explanation attached, and pays it again on every run.
+
+    /// Find out which file answers to the name, without doing anything else.
+    func verify() {
+        guard phase == .idle else { return }
+        generation &+= 1
+        failure = nil
+        verificationResult = nil
+        target = nil
+        radioIsOff = false
+        hasAttemptedRecovery = false
+        hasRetriedUnderFilenameSpelling = false
+
+        guard ShortcutRunner.shortcutsAppInstalled else {
+            verificationResult = .notFound
+            return
+        }
+        handOff(to: false,
+                phase: .verifying,
+                status: L("cellular.status.verifying",
+                          fallback: "Checking which shortcut answers…"))
     }
 
     /// Give up on a run in flight and put the user back in charge. Safe at any point: it never
@@ -226,9 +341,13 @@ final class CellularModeSequence: ObservableObject {
 
     // MARK: - Hand-off
 
-    /// Shortcuts reported x-error: nothing in this library is called "Wander Airplane". Re-run the
-    /// SAME leg under the filename spelling ("wander-airplane") before we believe it is missing, so a
-    /// library that still holds the file under its old published name keeps working untouched.
+    /// Shortcuts reported x-error: nothing in this library is called "Wander Cellular Mode". Re-run
+    /// the SAME leg under the filename spelling ("wander-cellular-mode") before we believe it is
+    /// missing, so a library that holds the file under its kebab-cased filename keeps working.
+    ///
+    /// ⚠️ THAT SECOND SPELLING IS ALSO THE OLD ALL-IN-ONE FILE'S PUBLISHED FILENAME, so this retry can
+    /// reach it. Safe only because a retry proves nothing on its own: whatever answers still has to
+    /// send `wander://airplane-ok` before anything is armed or any tunnel is built.
     ///
     /// Driven by the real callback, never by a timer — `MainTabView` calls this from
     /// `wander://airplane-missing`. It lives here rather than in `ShortcutRunner` because a blind
@@ -244,32 +363,54 @@ final class CellularModeSequence: ObservableObject {
     @discardableResult
     func retryLegUnderFilenameSpelling() -> Bool {
         let on: Bool
+        let retryPhase: Phase
+        let status: String
         switch phase {
-        case .switchingRadioOff, .confirmingRadioOff: on = true
-        case .restoringRadio: on = false
-        case .idle, .connecting: return false
+        case .switchingRadioOff, .confirmingRadioOff:
+            on = true
+            retryPhase = .switchingRadioOff
+            status = L("cellular.status.radiooff", fallback: "Switching Airplane Mode on…")
+        case .restoringRadio:
+            on = false
+            retryPhase = .restoringRadio
+            status = L("cellular.status.radioback", fallback: "Switching Airplane Mode back off…")
+        case .verifying:
+            on = false
+            retryPhase = .verifying
+            status = L("cellular.status.verifying", fallback: "Checking which shortcut answers…")
+        case .recoveringRadio:
+            on = false
+            retryPhase = .recoveringRadio
+            status = L("cellular.status.recovering", fallback: "Getting your signal back…")
+        case .idle, .connecting:
+            return false
         }
-        guard !hasRetriedUnderFilenameSpelling else { return false }
+        guard !hasRetriedUnderFilenameSpelling else {
+            // Nothing left to try. A verification that gets here has its answer: no shortcut of either
+            // spelling exists, which is a legitimate verdict and must not be left hanging on the 10 s
+            // timeout below.
+            if retryPhase == .verifying { concludeVerification(.notFound) }
+            return false
+        }
         hasRetriedUnderFilenameSpelling = true
 
-        let alternate = ShortcutRunner.filenameSpelling(of: ShortcutRunner.airplaneName)
+        let alternate = ShortcutRunner.filenameSpelling(of: ShortcutRunner.cellularModeName)
         LogManager.shared.addInfoLog(
-            "Cellular Mode: “\(ShortcutRunner.airplaneName)” not found — retrying as “\(alternate)”")
+            "Cellular Mode: “\(ShortcutRunner.cellularModeName)” not found — retrying as “\(alternate)”")
         generation &+= 1
-        handOff(to: on,
-                phase: on ? .switchingRadioOff : .restoringRadio,
-                status: on
-                    ? L("cellular.status.radiooff", fallback: "Switching Airplane Mode on…")
-                    : L("cellular.status.radioback", fallback: "Switching Airplane Mode back off…"),
-                name: alternate)
+        handOff(to: on, phase: retryPhase, status: status, name: alternate)
         return true
     }
 
     private func handOff(to on: Bool, phase newPhase: Phase, status: String,
-                         name: String = ShortcutRunner.airplaneName) {
+                         name: String = ShortcutRunner.cellularModeName) {
         phase = newPhase
         statusText = status
         hasLeftForShortcuts = false
+        // Per LEG, never per run: the proof has to be re-earned by whatever is about to run, or a
+        // healthy first leg would vouch for a second leg that reached a different file.
+        sawAirplaneOk = false
+        sawLegacyShortcut = false
         startWatchdog()
         ShortcutRunner.runAirplane(on: on, name: name) { [weak self] in
             // iOS refused to open Shortcuts at all. WHICH LEG THIS WAS CHANGES THE ADVICE ENTIRELY:
@@ -287,11 +428,51 @@ final class CellularModeSequence: ObservableObject {
         }
     }
 
+    // MARK: - Which file just ran
+    //
+    // Both of these arrive from `MainTabView.handleURL`, fired by the shortcut's own last action rather
+    // than by the x-callback Shortcuts attaches. That distinction is the entire security of this
+    // scheme: x-success reports "something finished", the URL inside the file reports "I am the file
+    // that finished".
+
+    /// `wander://airplane-ok` — the shipped one-action file. Only a run WE invoked by name can turn
+    /// this into `cellularModeVerified`: a hand-run out of the Shortcuts app proves the file exists but
+    /// says nothing about what it is CALLED, and the name is the only thing in question.
+    func noteAirplaneShortcutAnswered() {
+        switch phase {
+        case .verifying, .switchingRadioOff, .confirmingRadioOff, .restoringRadio:
+            sawAirplaneOk = true
+            ShortcutRunner.cellularModeVerified = true
+        case .idle, .connecting, .recoveringRadio:
+            // NOT during a recovery. We only ever recover because something we did not authorise took
+            // the radio off, and the right file answering the recovery hand-off does not retract that
+            // — the collision is between TWO files and iOS may pick either one next time. The sticky
+            // `legacyShortcutDetected` is cleared by a clean verification and by nothing else.
+            break
+        }
+    }
+
+    /// `wander://cellular-done` — the OLD all-in-one file. Nothing Wander ships opens this any more, so
+    /// receiving it is positive proof that the name resolved to the wrong file.
+    ///
+    /// Handled even when idle, because a user can reach the old file by hand and the card explaining
+    /// what to delete is worth showing either way.
+    func noteLegacyShortcutAnswered() {
+        LogManager.shared.addInfoLog("Cellular Mode: the OLD all-in-one shortcut answered — name collision")
+        sawLegacyShortcut = true
+        ShortcutRunner.cellularModeVerified = false
+        CellularModeRun.shared.noteLegacyShortcutDetected()
+    }
+
     // MARK: - Lifecycle
 
     @objc private func appWillResignActive() {
-        guard phase == .switchingRadioOff || phase == .restoringRadio else { return }
-        hasLeftForShortcuts = true
+        switch phase {
+        case .verifying, .switchingRadioOff, .restoringRadio, .recoveringRadio:
+            hasLeftForShortcuts = true
+        case .idle, .confirmingRadioOff, .connecting:
+            break
+        }
     }
 
     @objc private func appDidBecomeActive() {
@@ -302,10 +483,14 @@ final class CellularModeSequence: ObservableObject {
         hasLeftForShortcuts = false
         watchdog?.cancel()
         switch phase {
+        case .verifying:
+            Task { await finishVerification() }
         case .switchingRadioOff:
             Task { await confirmRadioOffThenWork() }
         case .restoringRadio:
             Task { await finishAfterRestore() }
+        case .recoveringRadio:
+            Task { await finishRecovery() }
         default:
             break
         }
@@ -320,13 +505,136 @@ final class CellularModeSequence: ObservableObject {
             try? await Task.sleep(nanoseconds: 120_000_000_000)
             guard !Task.isCancelled, let self else { return }
             await MainActor.run {
-                guard self.phase == .switchingRadioOff || self.phase == .restoringRadio else { return }
-                self.fail(title: L("cellular.fail.stalled.title", fallback: "Cellular Mode stalled"),
-                          message: L("cellular.fail.stalled.body",
-                                     fallback: "The Shortcuts hand-off never came back. Check Airplane Mode yourself — if it's on, switch it off — and try again."),
-                          offerSetup: false)
+                switch self.phase {
+                case .verifying:
+                    self.concludeVerification(.unrecognised)
+                case .switchingRadioOff, .restoringRadio, .recoveringRadio:
+                    self.fail(title: L("cellular.fail.stalled.title", fallback: "Cellular Mode stalled"),
+                              message: L("cellular.fail.stalled.body",
+                                         fallback: "The Shortcuts hand-off never came back. Check Airplane Mode yourself — swipe down from the top-right corner and tap the airplane if it's on — and try again."),
+                              offerSetup: false)
+                case .idle, .confirmingRadioOff, .connecting:
+                    break
+                }
             }
         }
+    }
+
+    // MARK: - Step 0: which file answers to the name?
+
+    private func finishVerification() async {
+        let gen = generation
+        statusText = L("cellular.status.verifying", fallback: "Checking which shortcut answers…")
+
+        // 10 s, polled: the file's own `Open URL` and Shortcuts' x-success land within a second or two
+        // of the app coming forward, but the ORDER of a URL delivery against `didBecomeActive` is not
+        // guaranteed, so deciding on the first run loop would false-negative a perfectly good file.
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            guard gen == generation else { return }
+            // Checked BEFORE the good news: if both signals somehow arrive, the one that means "the
+            // radio may be off" has to win.
+            if sawLegacyShortcut { await handleWrongFileAnsweredDuringVerification(); return }
+            let r = NetworkReachability.shared
+            if !r.isOnCellular && !r.hasWiFi {
+                // We asked for Airplane Mode OFF and both transports vanished. Our file cannot do that
+                // on any input, so something else ran — and whatever it was, the user's signal is gone
+                // and getting it back is now the only thing that matters.
+                LogManager.shared.addInfoLog("Cellular Mode: the radio went OFF during a check that asked for OFF")
+                noteLegacyShortcutAnswered()
+                await handleWrongFileAnsweredDuringVerification()
+                return
+            }
+            if sawAirplaneOk { break }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+        }
+        guard gen == generation else { return }
+        concludeVerification(sawAirplaneOk ? .verified : .unrecognised)
+    }
+
+    /// The wrong file answered a verification. The radio is off (or on its way off) and the user did
+    /// not ask for that, so: say so permanently, arm the card that carries the manual gesture, and try
+    /// the one recovery that is safe under BOTH files.
+    private func handleWrongFileAnsweredDuringVerification() async {
+        // TRUE BY OBSERVATION where we saw the transports go; asserted-then-retired where we only saw
+        // the callback. Arming it in both cases is the conservative direction: a card that says
+        // "Airplane Mode is on" on a phone that has signal is dismissed in one tap, and the reverse
+        // mistake leaves somebody offline with nothing on screen.
+        CellularModeRun.shared.noteAirplaneModeTurnedOn()
+        verificationResult = .legacyShortcut
+        beginRecovery()
+    }
+
+    private func concludeVerification(_ result: VerificationResult) {
+        reset()
+        verificationResult = result
+        switch result {
+        case .verified:
+            LogManager.shared.addInfoLog("Cellular Mode: shortcut verified — the name resolves to the one-action file")
+            // The one thing that retires a collision: we asked for the name, and the right file
+            // answered. Anything short of that leaves the warning standing.
+            CellularModeRun.shared.clearLegacyShortcutNotice()
+        case .legacyShortcut, .notFound, .unrecognised:
+            ShortcutRunner.cellularModeVerified = false
+        }
+    }
+
+    // MARK: - Getting the radio back after the wrong file answered
+
+    /// Run the name again with "off". SAFE UNDER EITHER FILE while the radio is down, and this is the
+    /// reason a recovery exists at all rather than only a card:
+    ///   • the shipped file takes its Otherwise branch on any input that is not "on", and switches
+    ///     Airplane Mode off;
+    ///   • the old all-in-one gates its Airplane-Mode-ON branch on reading a cellular carrier name, and
+    ///     in Airplane Mode there is no carrier to read — so it falls to its unconditional tail, which
+    ///     is `Set Airplane Mode → Off`.
+    /// Neither file can turn the radio ON from here. Verified by reading both files' actions, not
+    /// assumed; if either is ever edited, re-check this claim before trusting this path again.
+    private func beginRecovery() {
+        guard !hasAttemptedRecovery else {
+            // One recovery per run is the bound, but "we already tried" must never leave the user
+            // staring at a spinner with no signal. Say the thing that always works instead.
+            LogManager.shared.addInfoLog("Cellular Mode: recovery already spent — falling back to the manual card")
+            reset()
+            failure = Failure(
+                title: L("cellular.fail.collision.stuck.title", fallback: "Turn Airplane Mode off yourself"),
+                message: L("cellular.fail.collision.stuck.body",
+                           fallback: "The older shortcut of the same name switched Airplane Mode on and Wander can't see your signal come back. Swipe down from the top-right corner of the screen and tap the airplane icon to turn it off. Then open Shortcuts and delete the OLD “\(ShortcutRunner.cellularModeName)” — the long one with Wander actions inside it."),
+                offerSetup: false)
+            return
+        }
+        hasAttemptedRecovery = true
+        generation &+= 1
+        hasRetriedUnderFilenameSpelling = false
+        handOff(to: false,
+                phase: .recoveringRadio,
+                status: L("cellular.status.recovering", fallback: "Getting your signal back…"))
+    }
+
+    private func finishRecovery() async {
+        let gen = generation
+        statusText = L("cellular.status.waitingsignal", fallback: "Waiting for your signal…")
+        let back = await waitForNetwork(gone: false, timeout: 25)
+        guard gen == generation else { return }
+        if back {
+            CellularModeRun.shared.dismissAirplaneNotice()
+            LogManager.shared.addInfoLog("Cellular Mode: signal confirmed back after the collision recovery")
+        } else {
+            LogManager.shared.addInfoLog("Cellular Mode: signal did NOT come back after the collision recovery")
+        }
+        reset()
+        // Reported either way, because the collision itself has to be named — the user has two
+        // shortcuts sharing one name and nothing works properly until the old one is gone.
+        failure = Failure(
+            title: back
+                ? L("cellular.fail.collision.title", fallback: "That was the old shortcut")
+                : L("cellular.fail.collision.stuck.title", fallback: "Turn Airplane Mode off yourself"),
+            message: back
+                ? L("cellular.fail.collision.body",
+                    fallback: "Two shortcuts on this phone are called “\(ShortcutRunner.cellularModeName)”, and iOS handed Wander the older one, which switched Airplane Mode on by itself. Your signal is back. Open Shortcuts, delete the OLD one — it is the long one with Wander actions inside it — then check again here.")
+                : L("cellular.fail.collision.stuck.body",
+                    fallback: "The older shortcut of the same name switched Airplane Mode on and Wander can't see your signal come back. Swipe down from the top-right corner of the screen and tap the airplane icon to turn it off. Then open Shortcuts and delete the OLD “\(ShortcutRunner.cellularModeName)” — the long one with Wander actions inside it."),
+            offerSetup: back)
     }
 
     // MARK: - Step 1 → 2: did the radio actually go off?
@@ -346,6 +654,33 @@ final class CellularModeSequence: ObservableObject {
             // transports then went away. Persisted immediately, because the case this exists for is a
             // run that dies here and an app that gets force-quit.
             CellularModeRun.shared.noteAirplaneModeTurnedOn()
+
+            // THE RADIO CHECK IS NO LONGER SUFFICIENT ON ITS OWN. It used to be the whole test, back
+            // when only one file could have run. The old all-in-one turns the radio off too, so a
+            // quiet interface says "some Airplane Mode shortcut ran", not "OUR shortcut ran". Before
+            // building a tunnel on top of it, wait for the file to say which one it is.
+            //
+            // A few extra seconds, not a fresh budget: the callback normally beats the 8 s poll above
+            // and this loop exits immediately.
+            let idDeadline = Date().addingTimeInterval(4)
+            while !sawAirplaneOk && !sawLegacyShortcut && Date() < idDeadline {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                guard gen == generation else { return }
+            }
+            guard gen == generation else { return }
+            if sawLegacyShortcut || !sawAirplaneOk {
+                if !sawLegacyShortcut {
+                    LogManager.shared.addInfoLog(
+                        "Cellular Mode: the radio went off but nothing said airplane-ok — refusing to build on an unidentified shortcut")
+                    ShortcutRunner.cellularModeVerified = false
+                }
+                // The radio is already off, so the only useful thing left is to put it back and say
+                // what happened. Deliberately BEFORE the tunnel: half a minute of connecting is half a
+                // minute of no signal bought for a run we already know we cannot trust.
+                beginRecovery()
+                return
+            }
+
             LogManager.shared.addInfoLog("Cellular Mode: radio confirmed off, bringing the tunnel up")
             await performWork()
             return
@@ -356,12 +691,14 @@ final class CellularModeSequence: ObservableObject {
         // there is nothing to turn back on: stop, say so, and do NOT arm the airplane card for a
         // switch that never moved.
         LogManager.shared.addInfoLog("Cellular Mode: Airplane Mode never took effect — aborting before the tunnel")
-        // Self-heal the installed flag the same way the rest of the pack does, so the setup card
-        // comes back instead of a button that fails the same way forever.
-        ShortcutRunner.airplaneReady = false
+        // Self-heal, so the setup card comes back instead of a button that fails the same way forever.
+        // There is no longer a second shortcut to fall back to — the old all-in-one has been retired,
+        // and routing to it is precisely what the identity check above exists to prevent.
+        ShortcutRunner.cellularModeVerified = false
+
         fail(title: L("cellular.fail.radio.title", fallback: "Airplane Mode didn't switch on"),
              message: L("cellular.fail.radio.body",
-                        fallback: "Your signal is still up, so Wander stopped rather than start a tunnel that iOS would refuse. Usually the “\(ShortcutRunner.airplaneName)” shortcut is missing, renamed, or was cancelled. Set it up again — or turn Airplane Mode on yourself, teleport, then turn it back off."),
+                        fallback: "Your signal is still up, so Wander stopped rather than start a tunnel that iOS would refuse. Usually the “\(ShortcutRunner.cellularModeName)” shortcut is missing, renamed, or was cancelled. Set it up again — or turn Airplane Mode on yourself, teleport, then turn it back off."),
              offerSetup: true)
     }
 
@@ -418,9 +755,18 @@ final class CellularModeSequence: ObservableObject {
             CellularModeRun.shared.dismissAirplaneNotice()
             LogManager.shared.addInfoLog("Cellular Mode: signal confirmed back")
         } else {
-            // Leave the card up. It is the honest outcome: we asked for the radio back and cannot
-            // see it, so the user is the one who has to check.
+            // SAY IT, don't just leave a card. This is the one outcome where the user is sitting with
+            // no signal and no idea why, and a banner they have to notice is not enough — the whole
+            // point of the alert is that it is in front of them with the gesture spelled out. The
+            // teleport's own verdict waits; a phone with no calls beats a pin that didn't take.
             LogManager.shared.addInfoLog("Cellular Mode: signal did NOT come back — leaving the Airplane Mode card up")
+            reset()
+            failure = Failure(
+                title: L("cellular.fail.nosignal.title", fallback: "Turn Airplane Mode off yourself"),
+                message: L("cellular.fail.nosignal.body",
+                           fallback: "Wander asked for Airplane Mode to go back off and can't see your signal return. Swipe down from the top-right corner of the screen and tap the airplane icon. Your location stays where you set it."),
+                offerSetup: false)
+            return
         }
         finish()
     }
@@ -478,6 +824,9 @@ final class CellularModeSequence: ObservableObject {
         statusText = nil
         hasLeftForShortcuts = false
         hasRetriedUnderFilenameSpelling = false
+        sawAirplaneOk = false
+        sawLegacyShortcut = false
+        hasAttemptedRecovery = false
         target = nil
         radioIsOff = false
         pendingOutcome = nil

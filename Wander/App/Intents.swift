@@ -413,11 +413,11 @@ struct TeleportIntent: AppIntent {
         guard let coord = await WanderLocationIntent.resolveCoordinate(from: place) else {
             return .result(value: "Couldn't find “\(place)”. Try a full address or \"lat, lng\".")
         }
-        // If a Cellular Mode run is outstanding, this is the pin it was asked for — file it against
-        // the marker so the recovery banner's "Try again" retries the right place for a run that
-        // started outside the app (where nothing else knows the destination). A no-op when no marker
-        // is live, so an everyday Shortcut teleport on Wi-Fi neither arms nor touches anything.
-        await MainActor.run { CellularModeRun.shared.noteRequestedCoordinate(coord) }
+        // NOTHING TO FILE AGAINST A CELLULAR MODE RUN ANY MORE. This used to record the pin so a
+        // "that didn't take, try again" card could retry the right place for a run conducted by the
+        // old all-in-one shortcut, where the App Intent's own reply was never surfaced. Wander
+        // conducts Cellular Mode itself now and reports the teleport's real outcome as it happens, so
+        // that card is gone and this was writing to a field nobody read.
         switch await WanderLocationIntent.teleport(to: coord,
                                                   name: WanderLocationIntent.recentsName(for: place)) {
         case .ok:
@@ -471,10 +471,9 @@ struct StartTunnelIntent: AppIntent {
     /// It used to exist so a run started outside the app could tell Wander "the radio is off right
     /// now", arming a stranding detector. It was a switch the user had to remember to flip, on an
     /// action that is also perfectly ordinary on Wi-Fi, feeding an inference iOS cannot support (see
-    /// `CellularModeBanner`). The shortcut now reports the one fact that matters — "I have just
-    /// turned Airplane Mode on" — from a BAKED `wander://cellular-airplane-on` action sitting inside
-    /// the branch that flips the switch. Nothing for the user to configure, nothing for this action
-    /// to guess, and correct on the Wi-Fi path for free, because that path never reaches it.
+    /// `CellularModeBanner`). Nothing has to report anything now: Wander asks for Airplane Mode
+    /// itself and then watches both transports go away, so the fact is observed by the app that
+    /// issued the command, on the one path that could ever need it.
     ///
     /// This action is therefore back to doing exactly one thing, on every path: bring the tunnel up.
 

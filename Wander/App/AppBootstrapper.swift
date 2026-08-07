@@ -10,6 +10,12 @@ import UIKit
 enum AppBootstrapper {
     static func configure() {
         registerDefaultSettings()
+        // Drops the pre-rename Cellular Mode flags. Deliberately a REMOVAL and not a migration: the
+        // old flags recorded that a user had tapped "I've added it", which is an intention rather than
+        // evidence, and everyone holding one is holding the previous shortcut file — the one that
+        // cannot identify itself. Carrying them forward would arm a feature whose whole new safety
+        // property is that it only arms on proof. See ShortcutRunner.
+        ShortcutRunner.migrateCellularModeFlags()
         startConfiguredKeepAliveServices()
         applyDocumentPickerCopyWorkaround()
     }

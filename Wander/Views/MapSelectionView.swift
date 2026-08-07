@@ -889,15 +889,16 @@ struct LocationSimulationView: View {
     @State private var realLocationSnapshot: CLLocationCoordinate2D?
     @StateObject private var locationInfo = LocationInfoService()
     @ObservedObject private var reachability = NetworkReachability.shared
-    /// Cellular Mode's own "the shortcut is installed" flag, read through the SAME defaults key
-    /// `ShortcutRunner.cellularModeReady` writes — as an `@AppStorage` so the button re-labels itself
-    /// the instant the setup sheet (or an x-error callback) flips it. Same pattern, same reason, as
-    /// `SetupChecklistView`'s read of `shortcutsReady`.
-    @AppStorage("cellularModeShortcutReady") private var legacyCellularModeReady = false
-    /// The one-action `Wander Airplane` shortcut. Read alongside the legacy flag rather than replacing
-    /// it, so somebody who did the old Shortcuts-editor work is not told to set up again.
-    @AppStorage("wanderAirplaneShortcutReady") private var airplaneShortcutReady = false
-    private var cellularModeReady: Bool { airplaneShortcutReady || legacyCellularModeReady }
+    /// "A run PROVED the name reaches the right shortcut" — read through the SAME defaults key
+    /// `ShortcutRunner.cellularModeVerified` writes, as an `@AppStorage` so the button re-labels itself
+    /// the instant the setup sheet's check (or a run that contradicts it) flips it. Same pattern, same
+    /// reason, as `SetupChecklistView`'s read of `shortcutsReady`.
+    @AppStorage("cellularModeShortcutVerified") private var cellularModeShortcutVerified = false
+    /// The old all-in-one shortcut answered to that same name on this phone. It is not an ordinary
+    /// "not set up yet" — it means running the name may take the user's signal away — so it sends the
+    /// button back to setup even when the verified flag survived from an earlier check.
+    @AppStorage(CellularModeRun.legacyDetectedDefaultsKey) private var legacyShortcutDetected = false
+    private var cellularModeReady: Bool { cellularModeShortcutVerified && !legacyShortcutDetected }
     @State private var showCellularSetup = false
     /// Drives the in-place progress line and the failure alert for a Cellular Mode run. Wander is the
     /// conductor now, so unlike the old Shortcut-driven flow there is something to report.
@@ -2205,10 +2206,10 @@ struct LocationSimulationView: View {
                         showPaywall = true
                         return
                     }
-                    // Routes to whichever shortcut this user has: the one-action `Wander Airplane`
-                    // file with `CellularModeSequence` conducting, or the legacy all-in-one shortcut.
-                    // Both record the pin for the recovery card's "Try again".
-                    ShortcutRunner.runCellularMode(latitude: coord.latitude, longitude: coord.longitude)
+                    // ONE PATH NOW. There is no second shortcut to route to: `CellularModeSequence`
+                    // conducts every run, and it refuses to start unless a check has proved the name
+                    // reaches the one-action file (see its `start`).
+                    CellularModeSequence.shared.start(latitude: coord.latitude, longitude: coord.longitude)
                 } else {
                     showCellularSetup = true
                 }

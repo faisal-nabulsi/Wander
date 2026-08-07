@@ -1078,6 +1078,35 @@ private enum LocationSimulationState {
 
 }
 
+/// A READ-ONLY window onto the live DVT session, for diagnostics that live outside this file.
+///
+/// WHY IT EXISTS. The one question that could not be answered from source — "when the transport
+/// changed under an established session, was the session still held?" — had no way to be written
+/// down. Everything else in the app INFERS session liveness from write history
+/// (`LocationSessionActivity.mayHoldOpenSession`, a causal test over inject/clear ordering); nothing
+/// reported the fact itself. Two shipped regressions in this area (build 84, build 124) were both
+/// diagnosed from symptoms because this fact was never in the log.
+///
+/// Backed by `liveTarget`, which is lock-protected and set/cleared with the session — assigned at the
+/// one successful rebuild, nil'd by `cleanup()` — so it is safe to read from any thread and it is the
+/// same fact the write funnel acts on.
+///
+/// ⚠️ OBSERVATION ONLY. Nothing may branch spoofing behaviour on this. A probe that ACTS is precisely
+/// the shape of the build-84 and build-124 bugs; this exists so the next such question can be read
+/// out of a log instead of guessed at.
+enum LocationSessionProbeState {
+    /// True while an FFI location-simulation session handle is open in this process.
+    static var isSessionHeld: Bool { LocationSimulationState.liveTarget != nil }
+
+    /// Which address family is carrying the live session ("IPv4"/"IPv6"), or nil when none is held.
+    static var liveFamilyLabel: String? { LocationSimulationState.liveTarget?.familyLabel }
+
+    /// True while a bounded write is still out on the detached FFI thread. A stall here is NOT a dead
+    /// session — see `_simulate_location` — but knowing a write was mid-flight across a transport
+    /// change is half of reading what happened.
+    static var isWriteInFlight: Bool { LocationSimulationState.writeInFlight }
+}
+
 /// Arbitrates the race between a bounded write's caller giving up and the detached FFI thread finishing,
 /// so the session is freed exactly once, by whichever side is last — never twice (crash) and never zero
 /// times (the leak that broke airplane-off recovery).

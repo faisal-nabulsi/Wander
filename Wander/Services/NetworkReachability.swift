@@ -9,6 +9,11 @@
 //  It NEVER gates or blocks anything — teleport, joystick, and routes stay fully usable offline.
 //  Nothing in the app should branch behaviour on this; it only drives an optional indicator.
 //
+//  It also carries ONE diagnostic that is not an indicator: `traceTransportChange` writes a single
+//  Console line each time the transport actually changes while a spoof session is held, recording
+//  whether the DVT handle survived the change. Read-only, no side effects — see its doc comment for
+//  why that boundary is load-bearing.
+//
 
 import Foundation
 import Network
@@ -84,6 +89,52 @@ final class NetworkReachability: ObservableObject {
     /// by `recheckInternetSoon`, which must not restart a probe that is already running.
     private var probeInFlight = false
 
+    // MARK: - Transport-change trace (diagnostics only)
+
+    /// The last transport signature we logged, so the trace fires on an actual CHANGE. iOS delivers
+    /// several path callbacks per transition and would otherwise write the same line three times.
+    private static let lastTransportLock = OSAllocatedUnfairLock<String?>(initialState: nil)
+
+    /// Record, in the in-app Console, what the LIVE spoof session was doing at the instant the
+    /// transport changed.
+    ///
+    /// WHY THIS EXISTS. "Does the spoof survive Wi-Fi dropping?" could not be settled from source.
+    /// Nothing in Wander frees a session on a network event — the write funnel in `IdeviceFFIBridge`
+    /// keeps the session on a STALLED write and frees only on a real FFI error — so it should hold.
+    /// But "should" is what the two shipped regressions in this area were also built on, and the one
+    /// fact that decides it (was the handle still held across the transition, and was a write
+    /// mid-flight?) was never written down anywhere. Now it is, so the question is answered by
+    /// reading a log instead of by another round of inference.
+    ///
+    /// ⚠️ STRICTLY OBSERVATIONAL, and this file's header promise depends on it staying that way: it
+    /// reads three already-published facts and logs them. It starts nothing, cancels nothing, frees
+    /// nothing, and must never be given a side effect. A network-triggered ACTION here is exactly the
+    /// shape of build 84 (probe-triggered cleanup) and build 127 (a reconnect fired into a
+    /// mid-transition network, which wedged the un-timeout-able RSD handshake and was reverted).
+    ///
+    /// `mayHoldOpenSession` is documented as a read for the location queue; off-queue it can be one
+    /// inject stale. That is fine for a GATE on whether a line is worth writing — the line's actual
+    /// content comes from `LocationSessionProbeState`, which reads the lock-protected live handle.
+    nonisolated private static func traceTransportChange(online: Bool, wifi: Bool, cellular: Bool) {
+        let signature = "\(online ? "path up" : "path down")"
+            + "/\(wifi ? "wifi" : "no-wifi")"
+            + "/\(cellular ? "cell" : "no-cell")"
+        let changed = lastTransportLock.withLock { previous -> Bool in
+            guard previous != signature else { return false }
+            previous = signature
+            return true
+        }
+        guard changed else { return }
+        let held = LocationSessionProbeState.isSessionHeld
+        // Nothing to survive: no handle open and no inject outstanding since the last clear.
+        guard held || LocationSessionActivity.mayHoldOpenSession else { return }
+        LogManager.shared.addInfoLog(
+            "[spoof] transport changed -> \(signature) | DVT session held: \(held ? "YES" : "NO")"
+            + " (\(LocationSessionProbeState.liveFamilyLabel ?? "no live target"))"
+            + " | write in flight: \(LocationSessionProbeState.isWriteInFlight ? "yes" : "no")"
+        )
+    }
+
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
             let online = path.status == .satisfied
@@ -99,6 +150,10 @@ final class NetworkReachability: ObservableObject {
                 // No path at all → definitely no internet; reflect it immediately (no probe needed).
                 if !online { $0.hasInternet = false }
             }
+            // Purely a log line — see `traceTransportChange`. Runs here, on the monitor's own queue,
+            // because this is the earliest moment the transport is known to have changed and the
+            // whole point is to record the session's state AT that moment rather than after a hop.
+            NetworkReachability.traceTransportChange(online: online, wifi: hasWiFi, cellular: onCellular)
             Task { @MainActor in
                 guard let self else { return }
                 if self.isOnline != online { self.isOnline = online }
