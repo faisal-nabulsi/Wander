@@ -55,6 +55,18 @@ struct TunnelLabView: View {
                     return lines.joined(separator: "\n")
                 }
 
+                // The one measurement that closes (or breaks) the SO_RESTRICT_DENY_CELLULAR chain.
+                // No sockets are opened to anything: one unbound UDP fd is used purely as a handle
+                // for ioctl(SIOCGIFFUNCTIONALTYPE), which is a getter.
+                probeRow(id: "functionaltype",
+                         title: L("tunnellab.functional_type.title",
+                                  fallback: "Interface functional type (is the utun cellular?)"),
+                         detail: L("tunnellab.functional_type.detail",
+                                   fallback: "Asks the kernel what KIND of interface each one is. lo0 and pdp_ip0 are built-in controls; if they come back wrong the answer is thrown out. Says in plain words whether Wander's own tunnel counts as cellular. Run it on cellular with Wi-Fi off."),
+                         icon: "antenna.radiowaves.left.and.right") {
+                    InterfaceFunctionalType.runAndSummarize(reason: "tunnel lab")
+                }
+
                 probeRow(id: "routepolicy",
                          title: "Explain the configured route",
                          detail: "No sockets. Prints the route CIDR the provider will install, whether it covers the address Wander dials, and which non-utun interface it collides with. Read this before spending a probe.",
@@ -67,7 +79,7 @@ struct TunnelLabView: View {
             } header: {
                 Text("Look before you probe")
             } footer: {
-                Text("These two touch no sockets and change nothing. Everything below opens bounded TCP connects.")
+                Text("These three connect to nothing and change nothing — they read the kernel's own interface tables. (The functional-type row opens one unbound UDP socket purely as a handle for a read-only ioctl; it dials no daemon.) Everything below opens bounded TCP connects.")
             }
 
             Section {
