@@ -922,8 +922,16 @@ struct MainTabView: View {
         // shortcut ran + keep the "installed" flag honest; the OS action already happened in the shortcut.
         case "ping-ok", "flushed", "warmstarted", "primed", "verified", "swapped", "vpnconnected":
             ShortcutRunner.ready = true
+        // x-error: Shortcuts has nothing by the name we asked for. Before believing that, try the
+        // FILENAME spelling once — these files were published kebab-cased for months and iOS names an
+        // import after the downloaded filename, so a library holding "wander-cellular-mode" instead of
+        // "Wander Cellular Mode" is the normal case, not an exotic one. The retry re-runs and returns here a
+        // second time if it also misses; that pass finds no pending fallback, clears the flag, and the
+        // setup card comes back. Nothing is ever cleared on a name we have not actually tried.
         case "shortcut-missing":
-            ShortcutRunner.ready = false
+            if !ShortcutRunner.retryUnderFilenameSpelling(errorHost: "shortcut-missing") {
+                ShortcutRunner.ready = false
+            }
         // Cellular Mode keeps its OWN installed-flag (see ShortcutRunner.cellularModeReady): the
         // gs-loc/flush pack being installed says nothing about this shortcut existing, and sharing one
         // flag would offer a one-tap button that lands on an x-error every time.
@@ -941,7 +949,15 @@ struct MainTabView: View {
         // going off, so a run that never started never armed it. (It used to need retiring, back when
         // the marker was armed optimistically at hand-off time and guessed at from the network path.)
         case "cellular-missing":
-            ShortcutRunner.cellularModeReady = false
+            if !ShortcutRunner.retryUnderFilenameSpelling(errorHost: "cellular-missing") {
+                ShortcutRunner.cellularModeReady = false
+            }
+        // The Airplane leg's x-error. Handed to the sequence rather than retried blind: it is the only
+        // thing that knows which leg is in flight, and it has an 8 s radio poll to abandon first (see
+        // `retryLegUnderFilenameSpelling`). A second miss returns false and the sequence's ordinary
+        // radio check fails with the setup card attached, so this is never a silent dead end.
+        case "airplane-missing":
+            CellularModeSequence.shared.retryLegUnderFilenameSpelling()
         case "cancel", "error":
             break
         // A shared spot/route. UNLIKE teleport/reset above this is NOT run directly: those come from

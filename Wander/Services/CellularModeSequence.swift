@@ -139,6 +139,10 @@ final class CellularModeSequence: ObservableObject {
     /// Set when we hand off to Shortcuts; the didBecomeActive handler ignores anything that arrives
     /// before we have actually left, so a same-runloop activation can't advance the sequence.
     private var hasLeftForShortcuts = false
+    /// One name-fallback retry per RUN, not per leg. Bounds `retryLegUnderFilenameSpelling` to a
+    /// single extra Shortcuts flash: if the filename spelling misses too, the shortcut really is not
+    /// there under either name and the run should fail onto the setup card rather than keep bouncing.
+    private var hasRetriedUnderFilenameSpelling = false
     private var watchdog: Task<Void, Never>?
     /// Bumped by every `start` and every `reset`, and re-checked after each `await`.
     ///
@@ -222,12 +226,52 @@ final class CellularModeSequence: ObservableObject {
 
     // MARK: - Hand-off
 
-    private func handOff(to on: Bool, phase newPhase: Phase, status: String) {
+    /// Shortcuts reported x-error: nothing in this library is called "Wander Airplane". Re-run the
+    /// SAME leg under the filename spelling ("wander-airplane") before we believe it is missing, so a
+    /// library that still holds the file under its old published name keeps working untouched.
+    ///
+    /// Driven by the real callback, never by a timer — `MainTabView` calls this from
+    /// `wander://airplane-missing`. It lives here rather than in `ShortcutRunner` because a blind
+    /// re-fire would race this sequence's own lifecycle: the x-error URL brings Wander to the front,
+    /// and `appDidBecomeActive` may already have moved us into `.confirmingRadioOff`, where an 8 s
+    /// poll is counting down against a radio that was never touched. Bumping `generation` abandons
+    /// that poll, and `handOff` clears `hasLeftForShortcuts`, so the return from the FAILED hand-off
+    /// cannot advance anything either. Both orderings of the two callbacks end in the same state.
+    ///
+    /// Returns false when there is no leg to retry or the retry has already been spent — the second
+    /// miss then falls through to the ordinary radio check, which fails with `offerSetup: true` and
+    /// puts the setup card in front of the user rather than failing silently.
+    @discardableResult
+    func retryLegUnderFilenameSpelling() -> Bool {
+        let on: Bool
+        switch phase {
+        case .switchingRadioOff, .confirmingRadioOff: on = true
+        case .restoringRadio: on = false
+        case .idle, .connecting: return false
+        }
+        guard !hasRetriedUnderFilenameSpelling else { return false }
+        hasRetriedUnderFilenameSpelling = true
+
+        let alternate = ShortcutRunner.filenameSpelling(of: ShortcutRunner.airplaneName)
+        LogManager.shared.addInfoLog(
+            "Cellular Mode: “\(ShortcutRunner.airplaneName)” not found — retrying as “\(alternate)”")
+        generation &+= 1
+        handOff(to: on,
+                phase: on ? .switchingRadioOff : .restoringRadio,
+                status: on
+                    ? L("cellular.status.radiooff", fallback: "Switching Airplane Mode on…")
+                    : L("cellular.status.radioback", fallback: "Switching Airplane Mode back off…"),
+                name: alternate)
+        return true
+    }
+
+    private func handOff(to on: Bool, phase newPhase: Phase, status: String,
+                         name: String = ShortcutRunner.airplaneName) {
         phase = newPhase
         statusText = status
         hasLeftForShortcuts = false
         startWatchdog()
-        ShortcutRunner.runAirplane(on: on) { [weak self] in
+        ShortcutRunner.runAirplane(on: on, name: name) { [weak self] in
             // iOS refused to open Shortcuts at all. WHICH LEG THIS WAS CHANGES THE ADVICE ENTIRELY:
             // on the way out nothing has happened yet and the user's signal is untouched; on the way
             // back the radio is already off and the only thing that matters is telling them so.
@@ -433,6 +477,7 @@ final class CellularModeSequence: ObservableObject {
         phase = .idle
         statusText = nil
         hasLeftForShortcuts = false
+        hasRetriedUnderFilenameSpelling = false
         target = nil
         radioIsOff = false
         pendingOutcome = nil

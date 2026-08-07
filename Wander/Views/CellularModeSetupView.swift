@@ -30,7 +30,9 @@
 //  thing an app is not allowed to do — flip the switch. That file is built entirely from Shortcuts'
 //  own actions, so it carries no identity, imports ready to run, and has nothing left to edit.
 //
-//  Setup is now: open Shortcuts once, allow untrusted shortcuts, add the file. Nothing in an editor.
+//  Setup is now: open Shortcuts once, turn on Private Sharing, add the file. Nothing in an editor,
+//  and nothing to rename — the file is published under its display name, so it imports already called
+//  "Wander Airplane".
 //
 //  THE FALLBACK IS STILL HERE ON PURPOSE. A .shortcut file has to be SIGNED to import (iOS 15+), and
 //  if a published copy is ever unsigned, stale or unreachable the import simply refuses. So the old
@@ -93,22 +95,35 @@ struct CellularModeSetupView: View {
 
                 step(1,
                      L("cellular.setup.step1.title", fallback: "Open Shortcuts once"),
-                     L("cellular.setup.step1.detail",
-                       fallback: "iOS greys out the next toggle until you've run any shortcut at least once — so just open the app."),
+                     L("cellular.setup.step1.hidden.detail",
+                       fallback: "iOS hides the next setting completely until you've run any shortcut at least once — so just open the app. (It doesn't grey it out; it isn't there at all.)"),
                      button: (L("cellular.setup.step1.button", fallback: "Open Shortcuts"),
                               { ShortcutRunner.openShortcutsApp() }))
 
+                // APPLE RENAMED THIS SETTING. It is "Private Sharing" now, and on iOS 18+ apps live
+                // under Settings → Apps, so the path moved twice. Older iOS still says "Allow
+                // Untrusted Shortcuts" under Advanced, which is why both names are here — someone
+                // reading this on an older phone should still find the switch.
+                //
+                // The last line is the one that actually unblocks people: iOS hides the row entirely
+                // until Shortcuts has run at least one shortcut, so a user who skipped step 1 goes
+                // looking for a setting that is not on screen and concludes our instructions are
+                // wrong. Apple does not document that behaviour anywhere; it is ours to say.
                 step(2,
-                     L("cellular.setup.step2.title", fallback: "Allow Untrusted Shortcuts"),
-                     L("cellular.setup.step2.detail",
-                       fallback: "Settings → Apps → Shortcuts → Advanced → Allow Untrusted Shortcuts (needs your passcode). This lets you add a shortcut that isn't from Apple's gallery."),
+                     L("cellular.setup.step2.privatesharing.title", fallback: "Turn on Private Sharing"),
+                     L("cellular.setup.step2.privatesharing.detail",
+                       fallback: "Settings → Apps → Shortcuts → Private Sharing (needs your passcode). This lets you add a shortcut that didn't come from Apple's gallery. On older iOS the same switch is called Allow Untrusted Shortcuts, under Advanced. Can't see the row at all? Run any shortcut once, then come back — iOS hides it until you have."),
                      button: (L("cellular.setup.step2.button", fallback: "Open Settings"),
                               { openSettingsShortcuts() }))
 
+                // NO RENAME STEP. The file is published as "Wander Airplane.shortcut", and iOS names
+                // an import after the downloaded filename, so it arrives already called the one thing
+                // Wander looks for. Asking the user to check the name was never their job — it was us
+                // publishing a kebab-cased filename and making them fix it by hand.
                 step(3,
-                     L("cellular.setup.step3.title", fallback: "Add the shortcut, name it exactly"),
-                     L("cellular.setup.step3.detail",
-                       fallback: "Tap below, then tap Add Shortcut. Make sure it is named EXACTLY “\(ShortcutRunner.airplaneName)” — Wander finds it by name. That's the whole thing; there is nothing inside it to fill in."),
+                     L("cellular.setup.step3.noname.title", fallback: "Add the shortcut"),
+                     L("cellular.setup.step3.noname.detail",
+                       fallback: "Tap below, then tap Add Shortcut. It arrives already named “\(ShortcutRunner.airplaneName)” — the name Wander looks for — so there is nothing to rename and nothing inside it to fill in."),
                      button: (L("cellular.setup.step3.button", fallback: "Add “\(ShortcutRunner.airplaneName)”"),
                               { openURLString(ShortcutRunner.airplaneInstallURL) }))
 
@@ -223,10 +238,19 @@ struct CellularModeSetupView: View {
     }
 
     private func openSettingsShortcuts() {
-        // Best-effort deep link to the Shortcuts settings pane; fall back to the system Settings root.
-        if let u = URL(string: "App-Prefs:root=SHORTCUTS"), UIApplication.shared.canOpenURL(u) {
-            UIApplication.shared.open(u)
-        } else if let u = URL(string: UIApplication.openSettingsURLString) {
+        // BEST-EFFORT BY DESIGN, AND THE WRITTEN PATH IS THE REAL INSTRUCTION. iOS has no public way
+        // to deep-link another app's Settings pane, and on iOS 18+ apps moved under Settings → Apps,
+        // so the historical `App-Prefs:root=SHORTCUTS` may now land on the Settings root instead of
+        // the Shortcuts pane. Both spellings are tried, then the public call — which opens WANDER's
+        // own pane, not Shortcuts'. That is why step 2's text spells the full path out: wherever this
+        // button drops the user, the words on the card still get them there.
+        for candidate in ["App-Prefs:root=SHORTCUTS", "prefs:root=SHORTCUTS"] {
+            if let u = URL(string: candidate), UIApplication.shared.canOpenURL(u) {
+                UIApplication.shared.open(u)
+                return
+            }
+        }
+        if let u = URL(string: UIApplication.openSettingsURLString) {
             UIApplication.shared.open(u)
         }
     }

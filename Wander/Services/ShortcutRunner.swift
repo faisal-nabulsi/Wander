@@ -19,7 +19,11 @@ import UIKit
 
 enum ShortcutRunner {
     /// Exact names the user's imported shortcuts must have (invocation is by name).
-    static let flushName = "Wander Flush"
+    ///
+    /// There is deliberately NO Wi-Fi flush here. A "cycle Wi-Fi off and on" shortcut shipped for
+    /// months as the gs-loc snap fix; it is not one. The fix for a snapped fix is the Location
+    /// Services toggle, which no shortcut can perform — iOS 26.5 ships eighteen `*.set` toggle
+    /// actions and Location Services is not among them, so the pane can only be opened, not flipped.
     static let warmStartName = "Wander Warm Start"
     /// "Set VPN → LocalDevVPN → Connect → Open App Wander" — connects the DEFAULT tunnel (used for
     /// everything except games, and to install updates) from an in-app tap, then auto-returns.
@@ -78,13 +82,70 @@ enum ShortcutRunner {
     /// installs get the one-tap file; people who already did the editor work keep working.
     static var cellularModeUsable: Bool { airplaneReady || cellularModeReady }
 
+    // MARK: - Install URLs
+    //
+    // PUBLISHED UNDER THE DISPLAY NAME, AND THE SPACES ARE LOAD-BEARING. A `.shortcut` file carries no
+    // name of its own: its authenticated header holds only a certificate chain, and the payload's
+    // single entry is always called `Shortcut.wflow`. So iOS has exactly one thing to name an import
+    // after — the downloaded file's name, minus the extension. Every one of these used to be published
+    // kebab-cased, so every user who followed our own instructions got a shortcut called
+    // "wander-airplane", which is NOT a name any of the calls below ask for, and was then quietly
+    // required to rename it by hand before anything worked.
+    //
+    // The filename is not part of the signed bytes, so publishing under the display name needs no
+    // re-signing. GitHub Pages serves this tree raw (`.nojekyll`) and sends no `Content-Disposition`,
+    // so Safari names the download from the last path component, percent-decoded — `Wander%20Airplane`
+    // lands in Files as "Wander Airplane.shortcut" and imports as "Wander Airplane".
+    //
+    // WRITE THEM PRE-ENCODED. These strings are handed to `URL(string:)`, which returns nil on a raw
+    // space — the button would silently do nothing. The kebab paths stay live as copies (not
+    // redirects) so already-shipped builds and pasted links keep resolving.
+
     /// Where the one-action Airplane shortcut is published, for the one-tap install in the setup card.
     static let airplaneInstallURL =
-        "https://wanderspoofer.com/downloads/shortcuts/wander-airplane.shortcut"
+        "https://wanderspoofer.com/downloads/shortcuts/Wander%20Airplane.shortcut"
 
     /// Where the LEGACY all-in-one shortcut is published, kept for the fallback path.
     static let cellularModeInstallURL =
-        "https://wanderspoofer.com/downloads/shortcuts/wander-cellular-mode.shortcut"
+        "https://wanderspoofer.com/downloads/shortcuts/Wander%20Cellular%20Mode.shortcut"
+
+    // MARK: - Name fallback
+    //
+    // Publishing under the display name fixes everyone who imports from now on. It does nothing for a
+    // shortcut already sitting in somebody's library under the old kebab name — including the owner's,
+    // and including anyone who renamed it to something else and gave up. Those users are fixed here
+    // instead: when Shortcuts reports x-error ("nothing in this library is called that"), try the
+    // filename spelling once before believing the shortcut is missing.
+
+    /// The filename spelling of a display name: "Wander Airplane" → "wander-airplane".
+    ///
+    /// Shortcuts matches names EXACTLY — it normalises neither case nor punctuation — so a fallback
+    /// has to try a second literal string rather than ask for a looser comparison.
+    static func filenameSpelling(of name: String) -> String {
+        name.lowercased().replacingOccurrences(of: " ", with: "-")
+    }
+
+    /// The one run that is currently eligible for a name-fallback retry.
+    ///
+    /// A single slot rather than a table, because iOS foregrounds Shortcuts to run ONE shortcut at a
+    /// time — there is never a second run in flight — and a fresh `run()` overwrites it. It is
+    /// consumed on read, so the retry can fire at most once per run: a second x-error finds the slot
+    /// empty, falls through to the caller's not-installed handling, and the setup card comes back.
+    private static var pendingFallback: (errorHost: String, alternate: String, successHost: String,
+                                         input: String?, onOpenFailure: (() -> Void)?)?
+
+    /// Re-run the last shortcut under its filename spelling, after Shortcuts reported x-error.
+    ///
+    /// Returns false when there is nothing to retry — no pending run, a different error host, or the
+    /// retry already happened — which is the caller's signal to clear its installed flag for real.
+    @discardableResult
+    static func retryUnderFilenameSpelling(errorHost: String) -> Bool {
+        guard let p = pendingFallback, p.errorHost == errorHost else { return false }
+        pendingFallback = nil
+        run(name: p.alternate, successHost: p.successHost, input: p.input,
+            errorHost: p.errorHost, onOpenFailure: p.onOpenFailure, allowNameFallback: false)
+        return true
+    }
 
     /// Is the Shortcuts app even present? Needs `shortcuts` in LSApplicationQueriesSchemes to answer true.
     static var shortcutsAppInstalled: Bool {
@@ -101,9 +162,18 @@ enum ShortcutRunner {
     /// `onOpenFailure` covers the same need for the "iOS couldn't open Shortcuts at all" path: the old
     /// code cleared `ready` unconditionally there, which would have been the WRONG flag for a Cellular
     /// Mode run. Nil keeps the original behaviour exactly.
+    ///
+    /// `allowNameFallback` arms the one-shot kebab retry described above. It is false for a run that
+    /// IS the retry (so a miss can't loop), and false for `runAirplane`, whose retry has to be
+    /// sequenced by `CellularModeSequence` rather than fired blind — see there.
     static func run(name: String, successHost: String, input: String? = nil,
                     errorHost: String = "shortcut-missing",
-                    onOpenFailure: (() -> Void)? = nil) {
+                    onOpenFailure: (() -> Void)? = nil,
+                    allowNameFallback: Bool = true) {
+        let alternate = filenameSpelling(of: name)
+        pendingFallback = (allowNameFallback && alternate != name)
+            ? (errorHost, alternate, successHost, input, onOpenFailure)
+            : nil
         var c = URLComponents()
         c.scheme = "shortcuts"
         c.host = "x-callback-url"
@@ -142,15 +212,22 @@ enum ShortcutRunner {
     /// checks the actual network path, so a leg that silently did nothing is caught by looking at the
     /// radio rather than by trusting a callback.
     ///
-    /// The error callback goes to a host nothing handles for the same reason: an x-error still brings
-    /// Wander forward, and `CellularModeSequence` will find the radio unchanged and say so with a
-    /// sentence about the actual problem. There is nothing useful for a URL case to add.
-    static func runAirplane(on: Bool, onOpenFailure: @escaping () -> Void) {
-        run(name: airplaneName,
+    /// The error callback lands on `wander://airplane-missing`, which `MainTabView` hands to
+    /// `CellularModeSequence.retryLegUnderFilenameSpelling()`. It deliberately does NOT go through the
+    /// generic `pendingFallback` path: a blind re-fire would race the sequence's own lifecycle, which
+    /// starts an 8-second radio poll the moment Wander comes back on screen. The sequence knows which
+    /// leg is in flight and has to abandon that poll before handing off again.
+    ///
+    /// If the retry also misses, the sequence finds the radio unchanged and says so — with the setup
+    /// card attached, so a second failure is never silent.
+    static func runAirplane(on: Bool, name: String = airplaneName,
+                            onOpenFailure: @escaping () -> Void) {
+        run(name: name,
             successHost: "open",
             input: on ? "on" : "off",
             errorHost: "airplane-missing",
-            onOpenFailure: onOpenFailure)
+            onOpenFailure: onOpenFailure,
+            allowNameFallback: false)
     }
 
     /// One-tap Cellular Mode.
@@ -181,7 +258,9 @@ enum ShortcutRunner {
             onOpenFailure: { cellularModeReady = false })
     }
 
-    /// Open the Shortcuts app (onboarding step: running any shortcut once un-grays the untrusted toggle).
+    /// Open the Shortcuts app. Onboarding step 1, and it is load-bearing: iOS HIDES the Private Sharing
+    /// row (older iOS: Allow Untrusted Shortcuts) until Shortcuts has run at least one shortcut, so a
+    /// user who skips this goes looking for a setting that is not on screen.
     static func openShortcutsApp() {
         if let u = URL(string: "shortcuts://") { UIApplication.shared.open(u) }
     }

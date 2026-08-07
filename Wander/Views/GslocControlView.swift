@@ -129,7 +129,6 @@ struct AutomationsView: View {
     private let shortcuts: [Shortcut] = [
         .init(name: "Teleport", file: "wander-reteleport.shortcut", blurb: "Type a lat/lng, teleport there."),
         .init(name: "Teleport to preset", file: "wander-teleport-presets.shortcut", blurb: "Pick a saved spot from a menu."),
-        .init(name: "Wi-Fi cycle", file: "wander-flush.shortcut", blurb: "Cycles Wi-Fi. Note: a fresh teleport needs the LS toggle, not this."),
         .init(name: "Reset to real", file: "wander-reset.shortcut", blurb: "Stop spoofing."),
         .init(name: "Open Location Services", file: "wander-open-location-services.shortcut", blurb: "Jump to the LS toggle pane."),
         .init(name: "Connect proxy", file: "wander-connect.shortcut", blurb: "Connect Shadowrocket + routing."),
@@ -139,7 +138,8 @@ struct AutomationsView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("Import these into Apple's Shortcuts app to run the gs-loc steps from your widget, Back Tap, or an NFC tag. First turn on Settings › Shortcuts › Allow Untrusted Shortcuts (it appears after you've run any one shortcut once).")
+                    Text(localized: "shortcuts.import.intro",
+                         fallback: "Import these into Apple's Shortcuts app to run the gs-loc steps from your widget, Back Tap, or an NFC tag. First turn on Settings › Apps › Shortcuts › Private Sharing (older iOS calls it Allow Untrusted Shortcuts, under Advanced). If that row isn't there, run any shortcut once and go back — iOS hides it until you have.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Get the shortcuts") {
@@ -224,71 +224,5 @@ struct AutomationsView: View {
             }
         }
         .padding(.vertical, 2)
-    }
-}
-
-/// One-time setup so the in-app "Flush snap" button (and future shortcut buttons) can invoke a Shortcut
-/// by name. iOS gates untrusted-shortcut import behind a toggle that itself is grayed until the user has
-/// run any shortcut once — so the order below is fixed.
-struct ShortcutsOnboardingView: View {
-    @Environment(\.dismiss) private var dismiss
-    @AppStorage("shortcutsReady") private var shortcutsReady = false
-    private let flushURL = "https://wanderspoofer.com/downloads/shortcuts/wander-flush.shortcut"
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Text("This lets a Wander button do something iOS won't let the app do directly — cycle Wi-Fi to flush a stuck fix. Tapping the button briefly opens Shortcuts, runs it, and returns here. Set it up once.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-                step(1, "Open Shortcuts once",
-                     "iOS grays out the next toggle until you've run any shortcut at least once — so just open the app.",
-                     button: ("Open Shortcuts", { ShortcutRunner.openShortcutsApp() }))
-                step(2, "Allow Untrusted Shortcuts",
-                     "Settings → Apps → Shortcuts → Advanced → Allow Untrusted Shortcuts (needs your passcode). This lets you add a shortcut that isn't from Apple's own gallery.",
-                     button: ("Open Settings", { openSettingsShortcuts() }))
-                step(3, "Add the shortcut, name it exactly",
-                     "Import it, then rename it EXACTLY “\(ShortcutRunner.flushName)” — the button finds it by name, so the name must match.",
-                     button: ("Add “\(ShortcutRunner.flushName)”", { openURLString(flushURL) }))
-                Section {
-                    Button {
-                        shortcutsReady = true
-                        dismiss()
-                    } label: {
-                        Label("I've added it — enable one-tap", systemImage: "checkmark.circle.fill")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                } footer: {
-                    Text("If a one-tap button later says “set up” again, the shortcut was renamed or deleted — just re-add it. Want it SILENT? Bind this same shortcut to a Back Tap (Settings › Accessibility › Touch › Back Tap) — a gesture-run has no Shortcuts flash. See “⚡ Silent flush” in Shortcuts & automations.")
-                }
-            }
-            .navigationTitle("One-tap setup")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
-        }
-    }
-
-    private func openSettingsShortcuts() {
-        // Best-effort deep link to the Shortcuts settings pane; fall back to the system Settings root.
-        if let u = URL(string: "App-Prefs:root=SHORTCUTS"), UIApplication.shared.canOpenURL(u) {
-            UIApplication.shared.open(u)
-        } else if let u = URL(string: UIApplication.openSettingsURLString) {
-            UIApplication.shared.open(u)
-        }
-    }
-
-    @ViewBuilder
-    private func step(_ n: Int, _ title: String, _ detail: String, button: (String, () -> Void)) -> some View {
-        Section {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("\(n). \(title)").font(.subheadline.weight(.semibold))
-                Text(detail).font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button(button.0, action: button.1)
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.top, 2)
-            }
-        }
     }
 }
