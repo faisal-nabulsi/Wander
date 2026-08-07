@@ -136,6 +136,11 @@ enum PacketTraceReport {
         out.append("  src == deviceIp fired                 : \(snap.srcMatched)")
         out.append("  dst == fakeIp fired                   : \(snap.dstMatched)")
         out.append("  BOTH fired (a true swap)              : \(snap.bothMatched)")
+        if snap.v6Seen > 0 || snap.v6DstMatched > 0 || snap.v6SrcMatched > 0 {
+            out.append("  v6 src == device6 fired               : \(snap.v6SrcMatched)")
+            out.append("  v6 dst == fake6 fired                 : \(snap.v6DstMatched)")
+            out.append("  v6 BOTH fired (the v6 swap)           : \(snap.v6BothMatched)")
+        }
         out.append("  write batches (after writePackets)    : \(snap.writeBatches)")
         out.append("  packets written back                  : \(snap.writtenBack)")
         if snap.dropped > 0 { out.append("  older batches dropped by the ring     : \(snap.dropped)") }
@@ -166,13 +171,29 @@ enum PacketTraceReport {
             s += " → \(PacketTrace.dotted(e.dst))"
             if e.dstPort != 0 { s += ":\(e.dstPort)" }
             s += " \(PacketTrace.protocolName(e.ipProto)) len=\(e.firstLen)"
+            s += " src✓\(e.srcMatchCount) dst✓\(e.dstMatchCount)"
+            // ONE-SIDED means SEEN, NOT TOUCHED — since 2026-08-06 the provider rewrites only when
+            // BOTH ends match. The label is kept because which end matched is the diagnosis, but it
+            // no longer implies the packet was modified (it used to, and that was the FaceTime bug).
+            s += e.bothMatched ? " SWAPPED" : (e.srcMatched || e.dstMatched ? " ONE-SIDED(not touched)" : " NO-MATCH")
+        } else if e.hasV6 {
+            // The v6 arm: print the source the KERNEL selected against the destination the app dialled,
+            // so "src wrong" is legible at a glance rather than buried in the counters.
+            s += " \(PacketTrace.dotted6(e.v6Src))"
+            if e.v6SrcPort != 0 { s += ":\(e.v6SrcPort)" }
+            s += " → \(PacketTrace.dotted6(e.v6Dst))"
+            if e.v6DstPort != 0 { s += ":\(e.v6DstPort)" }
+            s += " \(PacketTrace.protocolName(e.v6NextHeader)) len=\(e.v6FirstLen)"
+            s += " src✓\(e.v6SrcMatchCount) dst✓\(e.v6DstMatchCount)"
+            s += e.v6BothMatched ? " V6-SWAPPED"
+                : (e.v6SrcMatched || e.v6DstMatched ? " V6-ONE-SIDED(not touched)" : " V6-NO-MATCH")
         } else {
             s += " (no IPv4 packet in this batch)"
+            s += " src✓\(e.srcMatchCount) dst✓\(e.dstMatchCount)"
+            s += e.bothMatched ? " SWAPPED" : (e.srcMatched || e.dstMatched ? " ONE-SIDED(not touched)" : " NO-MATCH")
         }
-        s += " src✓\(e.srcMatchCount) dst✓\(e.dstMatchCount)"
-        s += e.bothMatched ? " SWAPPED" : (e.srcMatched || e.dstMatched ? " ONE-SIDED" : " NO-MATCH")
         s += e.wroteBack ? " wrote=\(e.wroteCount)" : " NOT-WRITTEN"
-        if e.v6Count > 0 { s += " v6=\(e.v6Count)" }
+        if e.v6Count > 0 && e.proto == AF_INET { s += " v6=\(e.v6Count)" }
         if e.sawShort { s += " SHORT-PACKET" }
         return s
     }
@@ -213,14 +234,22 @@ enum PacketTraceReport {
         }
 
         if snap.v4Seen == 0 {
+            // THE IPv6 OPT-IN ARM. It dials an IPv6 peer FIRST, so on that path the packets that matter
+            // are IPv6 and the v6 counters answer the same three-way question the v4 ones do. Only take
+            // this branch when a v6 DIAL packet actually reached the loop (a match on either end, or a
+            // full swap); otherwise the v6 traffic is just the kernel's MLD/RS noise and it is routing.
+            if snap.v6Seen > 0 && (snap.v6DstMatched > 0 || snap.v6SrcMatched > 0 || snap.v6BothMatched > 0) {
+                return v6Verdict(snap)
+            }
             return Verdict(
                 headline: "(a) NO IPv4 PACKETS ARRIVE — this is a ROUTING problem.",
                 detail: [
-                    "\(snap.readBatches) batch(es) arrived but every packet was IPv6 (\(snap.v6Seen) of them) —",
-                    "that is the kernel's own MLD/router-solicitation noise on the utun, not our traffic.",
-                    "The IPv4 connect is not being routed into the tunnel at all. Same fix as (a): the included",
-                    "IPv4 route must cover the address the app dials, and its destination must be the network",
-                    "address rather than the interface's host address."
+                    "\(snap.readBatches) batch(es) arrived but every packet was IPv6 (\(snap.v6Seen) of them),",
+                    "and NONE of them matched the tunnel's v6 pair (device6/fake6) — so this is the kernel's own",
+                    "MLD/router-solicitation noise on the utun, not our dial. If the IPv6 experiment is ON and you",
+                    "expected a v6 connect here, the dial is not being routed into the tunnel at all: the included",
+                    "IPv6 route must COVER the peer the app dials. If the experiment is OFF, this is the IPv4 case —",
+                    "the included IPv4 route must cover the dialled address, with a network (not host) destination."
                 ])
         }
 
@@ -238,17 +267,29 @@ enum PacketTraceReport {
                 return Verdict(headline: "(b) PACKETS ARRIVE BUT THE SWAP NEVER FIRES — config / addresses.",
                                detail: detail)
             }
+            var detail = [
+                "src == deviceIp fired \(snap.srcMatched)×, dst == fakeIp fired \(snap.dstMatched)×, both together 0×.",
+                "NOTHING WAS REWRITTEN. The provider swaps only when BOTH ends match (a true swap is the only",
+                "rewrite that leaves the IPv4 and L4 checksums valid, since both are one's-complement sums over",
+                "a set containing src and dst), so these packets were written back byte-for-byte untouched.",
+                "ONE-SIDED in the rows above means SEEN, NOT TOUCHED. Before 2026-08-06 it did mean a mutation —",
+                "two independent `if`s — and that was corrupting live FaceTime traffic; that is fixed, so a",
+                "one-sided row is now a routing observation, not damage."
+            ]
+            if snap.srcMatched > 0 {
+                detail.append("src matched but dst did not → packets whose SOURCE is the tunnel address but which are not addressed to fakeIp.")
+                detail.append("Check the dst column above. A PUBLIC address means this is foreign traffic, not your dial: anything that")
+                detail.append("enumerates interfaces binds a socket per local address (FaceTime/WebRTC ICE candidate gathering does exactly")
+                detail.append("this), and a source-bound socket is scoped to that interface regardless of excludedRoutes. Ignore it.")
+                detail.append("A dst INSIDE the tunnel subnet instead means something is dialling the wrong host — reconcile it with fakeIp.")
+            }
+            if snap.dstMatched > 0 {
+                detail.append("dst matched but src did not → source-address selection is picking a non-tunnel interface (en0), so the")
+                detail.append("packet never carried deviceIp and the swap cannot fire. Bind the dial socket's source to deviceIp.")
+            }
             return Verdict(
-                headline: "(b) PACKETS ARRIVE AND ONLY ONE SIDE MATCHES — config / addresses, and the packet is being CORRUPTED.",
-                detail: [
-                    "src == deviceIp fired \(snap.srcMatched)×, dst == fakeIp fired \(snap.dstMatched)×, both together 0×.",
-                    "The provider uses two independent `if`s, so a one-sided hit is a MUTATION, not a swap: the",
-                    "IPv4 header checksum and the L4 checksum are both left stale and the kernel silently drops",
-                    "the packet. A true swap preserves both checksums; a one-sided rewrite cannot.",
-                    snap.srcMatched > 0
-                        ? "src matched but dst did not → the destination is not fakeIp. Something is dialling a different host inside the included subnet."
-                        : "dst matched but src did not → source-address selection is picking a non-tunnel interface (en0), so the packet never carried deviceIp."
-                ])
+                headline: "(b) PACKETS ARRIVE AND ONLY ONE SIDE MATCHES — config / addresses. Nothing was rewritten.",
+                detail: detail)
         }
 
         if snap.writeBatches == 0 || snap.writtenBack == 0 {
@@ -274,6 +315,86 @@ enum PacketTraceReport {
                 "the destination is an address the stack will accept on a utun at all (127.0.0.0/8 is discarded",
                 "outright on any interface that is not lo0, so a 127.x tunnel address can never work here).",
                 "If the write-backs are all SYNs with no reply, nothing is answering on that port at that address."
+            ])
+    }
+
+    // MARK: - The IPv6 verdict
+    //
+    // The exact twin of `verdict`, one family over, reached only when the run was v6-only AND a v6 dial
+    // packet actually matched an end. It exists because the v6 arm's failure is NOT a mirror of any v4
+    // failure the original three cover: the provider's v6 rewrite is gated on BOTH ends matching (an
+    // IPv6 header has no checksum, so a one-sided rewrite would silently break the L4 checksum), which
+    // means a source the kernel selected off a carrier /64 instead of device6 makes the swap a NO-OP and
+    // the packet is written back to the peer address with no listener → a 0 ms RST. That is invisible to
+    // the v4 verdict, which is why this is separate.
+    static func v6Verdict(_ snap: PacketTrace.Snapshot) -> Verdict {
+        let sample = snap.entries.last(where: { $0.hasV6 })
+        let kernelSrc = sample.map { PacketTrace.dotted6($0.v6Src) } ?? "?"
+        let dialedDst = sample.map { PacketTrace.dotted6($0.v6Dst) } ?? "?"
+        let expectedSrc = DeviceConnectionContext.activeTunnelInterfaceIPv6
+        let expectedDst = DeviceConnectionContext.activeTargetIPv6Address
+
+        if snap.v6BothMatched == 0 {
+            if snap.v6DstMatched > 0 && snap.v6SrcMatched == 0 {
+                // The headline finding this build exists to catch.
+                return Verdict(
+                    headline: "(b/v6) IPv6 PACKETS ARRIVE, DST MATCHES, SRC DOES NOT — the v6 swap is a NO-OP (source-address mismatch).",
+                    detail: [
+                        "dst == fake6 fired \(snap.v6DstMatched)×, but src == device6 fired 0× — so the provider's v6",
+                        "rewrite (which requires BOTH, to keep the L4 checksum valid) never ran, and the packet was",
+                        "written back UNCHANGED to \(dialedDst) — the point-to-point PEER, which has no listener — so the",
+                        "local stack RSTs at 0 ms. That is exactly the errno-61-at-0 ms signature.",
+                        "The kernel sourced the dial from \(kernelSrc), NOT device6 (\(expectedSrc)). device6 is carved",
+                        "into the carrier's own /64, so RFC 6724 source selection can pick pdp_ip0's carrier (or a",
+                        "temporary/privacy) address for a destination in that same /64. v4 never hit this because 10.7.x",
+                        "is RFC1918 and no cellular interface shares it.",
+                        "FIX (connect path, not this swap): bind the dial/probe socket's source to device6 before",
+                        "connect (EndpointProbe.connect and the idevice FFI dial currently leave it to the kernel), so",
+                        "src == device6 is forced and the existing both-ends swap fires. Do NOT rewrite dst to ::1 — the",
+                        "daemon binds in6addr_any (per the launchd plist), so the device6 delivery is correct once the",
+                        "source is right."
+                    ])
+            }
+            if snap.v6SrcMatched > 0 && snap.v6DstMatched == 0 {
+                return Verdict(
+                    headline: "(b/v6) IPv6 SRC MATCHES BUT DST DOES NOT — the app is dialling a different v6 peer.",
+                    detail: [
+                        "src == device6 fired \(snap.v6SrcMatched)×, dst == fake6 fired 0×. The dial went to \(dialedDst),",
+                        "not the configured fake peer \(expectedDst). The provider swaps only when BOTH match, so nothing",
+                        "was rewritten. Reconcile the address the client dials with the fake6 the provider is configured",
+                        "with (they are set from the same plan, so a mismatch means the tunnel was restarted with a",
+                        "different pair than the app now dials)."
+                    ])
+            }
+            // Reached only defensively — the caller already required at least one v6 match to get here.
+            return Verdict(
+                headline: "(a/v6) IPv6 ARRIVED BUT NEITHER END MATCHED — routing / not our dial.",
+                detail: [
+                    "\(snap.v6Seen) IPv6 packet(s) reached the loop and neither src == device6 nor dst == fake6 fired.",
+                    "That is MLD/RS noise, not the dial — the v6 connect is not entering the tunnel. Check the included",
+                    "IPv6 route covers the peer the app dials (\(expectedDst))."
+                ])
+        }
+
+        if snap.writeBatches == 0 || snap.writtenBack == 0 {
+            return Verdict(
+                headline: "(c/v6) THE v6 SWAP FIRES BUT NOTHING IS WRITTEN BACK — reinjection.",
+                detail: [
+                    "\(snap.v6BothMatched) v6 packet(s) were swapped, yet writePackets was recorded \(snap.writeBatches)×",
+                    "for \(snap.writtenBack) packet(s). Either the write line is not reached, or its trace call is missing.",
+                    "Confirm packetFlow.writePackets runs after the v6 swap."
+                ])
+        }
+
+        return Verdict(
+            headline: "(c/v6) THE v6 SWAP FIRES AND PACKETS ARE WRITTEN BACK — reinjection / the daemon isn't answering on device6.",
+            detail: [
+                "\(snap.v6Seen) IPv6 packet(s) arrived, \(snap.v6BothMatched) were fully swapped (src↔dst), and",
+                "\(snap.writtenBack) were written back. So the v6 loopback is delivering to device6 (\(expectedSrc)) —",
+                "the swap is NOT the problem. A 0 ms RST now means the daemon is not answering on device6:port, or the",
+                "DDI is not mounted, or the ephemeral control-channel port moved (remotepairingd's port is kernel-",
+                "assigned, not a hardcoded 49152, and a daemon restart can move it). Re-check the dial port against the",
+                "daemon's 'Resolved listening port…' log, and confirm the DDI mounted before the dial."
             ])
     }
 

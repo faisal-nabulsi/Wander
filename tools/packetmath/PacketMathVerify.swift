@@ -8,13 +8,17 @@
 //      swiftc -O /Users/faisalnabulsi/Developer/wander-ios/tools/packetmath/PacketMathVerify.swift \
 //             -o /tmp/packetmath && /tmp/packetmath
 //
-//  WHY THE LOGIC IS COPIED, NOT IMPORTED: the rewrite lives inside
-//  TunnelProv/PacketTunnelProvider.swift, in a class that subclasses NEPacketTunnelProvider and
-//  reads its input from `packetFlow`. NetworkExtension has no macOS-host build we can link here,
-//  and the provider cannot be instantiated off-device. So the two functions under test —
-//  `ipToUInt32` and the AF_INET arm of `setPackets` — are TRANSCRIBED BYTE-FOR-BYTE below into
-//  `refIpToUInt32` / `refRewriteIPv4`. If the original changes, this file goes stale; the verbatim
-//  source is quoted in comments directly above each copy so a diff is a two-second eyeball.
+//  WHY THE LOGIC IS COPIED HERE: this file is deliberately a single self-contained .swift with no
+//  dependencies, so it can be run against ANY revision of the provider (including a reverted one)
+//  to answer arithmetic questions. `ipToUInt32` and the AF_INET arm of `setPackets` are TRANSCRIBED
+//  below into `refIpToUInt32` / `refRewriteIPv4`, with the verbatim source quoted directly above
+//  each copy so a diff is a two-second eyeball.
+//
+//  ⚠️ THE TRANSCRIPTION CAN GO STALE, so it is no longer the only check: tools/packettrace/run.sh
+//  now COMPILES TunnelProv/PacketTunnelProvider.swift itself and drives the real
+//  `PacketTunnelProvider.rewriteIPv4` (NetworkExtension does have a macOS-host build; the provider
+//  is never instantiated, and the rewrite is a static function). An earlier version of this comment
+//  claimed that was impossible. If the two files ever disagree, packettrace is the authority.
 //
 //  WHAT IT PROVES: whether a packet that enters the provider comes out the other side with the
 //  right addresses and intact checksums. It says NOTHING about whether packets ever reach the
@@ -44,22 +48,42 @@ func refIpToUInt32(_ ipString: String) -> UInt32 {
     return (b1 << 24) | (b2 << 16) | (b3 << 8) | b4
 }
 
-// VERBATIM from PacketTunnelProvider.swift:179-188 (the AF_INET arm of setPackets), lifted out of
-// the readPackets closure. `packets`/`protocols` are the closure's arguments; `deviceip`/`fakeip`
-// are the locals it binds from self at the top of the closure.
+// VERBATIM from PacketTunnelProvider.swift `rewriteIPv4` (the AF_INET arm of setPackets, factored
+// out of the readPackets closure on 2026-08-06 so the packettrace harness can drive it directly).
 //
-//     var modified = packets
-//     for i in modified.indices where protocols[i].int32Value == AF_INET && modified[i].count >= 20 {
-//         modified[i].withUnsafeMutableBytes { bytes in
+//     for i in packets.indices where protocols[i].int32Value == AF_INET && packets[i].count >= 20 {
+//         packets[i].withUnsafeMutableBytes { bytes in
 //             guard let ptr = bytes.baseAddress?.assumingMemoryBound(to: UInt32.self) else { return }
 //             let src = UInt32(bigEndian: ptr[3])
 //             let dst = UInt32(bigEndian: ptr[4])
-//             if src == deviceip { ptr[3] = fakeip.bigEndian }
-//             if dst == fakeip   { ptr[4] = deviceip.bigEndian }
+//             guard src == deviceIp, dst == fakeIp else { return }
+//             ptr[3] = fakeIp.bigEndian
+//             ptr[4] = deviceIp.bigEndian
 //         }
 //     }
 func refRewriteIPv4(_ packets: [Data], _ protocols: [NSNumber],
                     deviceip: UInt32, fakeip: UInt32) -> [Data] {
+    var modified = packets
+    for i in modified.indices where protocols[i].int32Value == AF_INET && modified[i].count >= 20 {
+        modified[i].withUnsafeMutableBytes { bytes in
+            guard let ptr = bytes.baseAddress?.assumingMemoryBound(to: UInt32.self) else { return }
+            let src = UInt32(bigEndian: ptr[3])
+            let dst = UInt32(bigEndian: ptr[4])
+            guard src == deviceip, dst == fakeip else { return }
+            ptr[3] = fakeip.bigEndian
+            ptr[4] = deviceip.bigEndian
+        }
+    }
+    return modified
+}
+
+/// THE PRE-2026-08-06 VERSION. Kept ONLY as a counterexample, so section 4 can measure the damage
+/// the strict guard prevents rather than asserting it in prose. This is NOT what ships. The two
+/// independent `if`s let the first fire alone on any packet whose source merely happened to equal
+/// the tunnel's interface address — which on the shipping 10.7.0.0 default caught live FaceTime
+/// media (1029 packets in one device session) and mangled its source.
+func legacyRewriteIPv4_BUGGY(_ packets: [Data], _ protocols: [NSNumber],
+                             deviceip: UInt32, fakeip: UInt32) -> [Data] {
     var modified = packets
     for i in modified.indices where protocols[i].int32Value == AF_INET && modified[i].count >= 20 {
         modified[i].withUnsafeMutableBytes { bytes in
@@ -368,51 +392,68 @@ _ = run("", packet: makePacket(src: "0.0.7.10", dst: "1.0.7.10", srcPort: 1, dst
         expectSrc: "0.0.7.10", expectDst: "1.0.7.10")
 
 // ============================================================================
-section("4. THE TWO INDEPENDENT `if`s — one-sided rewrites break both checksums")
+section("4. ONE-ENDED MATCHES — why the rewrite requires BOTH ends (fixed 2026-08-06)")
 // ============================================================================
 print("""
   A TRUE swap (src<->dst) leaves both the IPv4 header checksum and the TCP checksum unchanged,
   because both are one's-complement sums over a set that CONTAINS src and dst, and addition is
-  commutative. But the provider uses two independent `if`s. When only one fires the packet is
-  not swapped, it is MUTATED — and both checksums go stale with no recomputation anywhere.
+  commutative. Change only ONE side and that argument collapses: nothing here recomputes a
+  checksum, so both go stale and the receiver discards the packet as damaged.
+  The provider USED TO use two independent `if`s, so a one-ended match was a MUTATION rather than
+  a swap. It now requires both ends and writes a one-ended packet back untouched. Both behaviours
+  are on hand below — `refRewriteIPv4` (shipping) and `legacyRewriteIPv4_BUGGY` (the old one) —
+  so the difference is measured, not asserted.
 """)
-print("\n  4a. Only the SRC condition fires (dst is some other host inside the included subnet):")
-_ = run("", packet: makePacket(src: DEV, dst: "10.7.0.9", srcPort: 51000, dstPort: 49152),
-        device: DEV, fake: FAKE, expectSrc: FAKE, expectDst: "10.7.0.9",
-        expectIpOK: false, expectTcpOK: false)
+print("\n  4a. Only the SRC condition fires. THE FIELD CASE: on 2026-08-06 a device trace caught 1029")
+print("      packets of live FaceTime media doing this — 10.7.0.0:16394 -> 98.51.183.236:16393 UDP.")
+print("      FaceTime binds an ICE candidate socket to EVERY local address, the utun's included.")
+_ = run("", packet: makePacket(src: DEV, dst: "98.51.183.236", srcPort: 16394, dstPort: 16393),
+        device: DEV, fake: FAKE, expectSrc: DEV, expectDst: "98.51.183.236")
 
 print("\n  4b. Only the DST condition fires (source-address selection picked en0, not the utun):")
 _ = run("", packet: makePacket(src: "192.168.4.241", dst: FAKE, srcPort: 51000, dstPort: 49152),
-        device: DEV, fake: FAKE, expectSrc: "192.168.4.241", expectDst: DEV,
-        expectIpOK: false, expectTcpOK: false)
+        device: DEV, fake: FAKE, expectSrc: "192.168.4.241", expectDst: FAKE)
 
-print("\n  4c. Quantify it: checksum delta for the full swap vs each one-sided rewrite.")
+print("\n  4c. Quantify it: the full swap, the shipping no-op, and what the OLD code did instead.")
 do {
     let good = makePacket(src: DEV, dst: FAKE, srcPort: 51000, dstPort: 49152).bytes
     let bothOut = refRewriteIPv4([Data(good)], [NSNumber(value: AF_INET)],
                                  deviceip: refIpToUInt32(DEV), fakeip: refIpToUInt32(FAKE))
     let b = [UInt8](bothOut[0])
-    print("    full swap      : ip residual=0x\(String(format: "%04x", onesComplement(Array(b[0..<20])))) (0 = valid), tcp valid=\(tcpChecksumValid(b))")
-    let oneSided = makePacket(src: DEV, dst: "10.7.0.9", srcPort: 51000, dstPort: 49152).bytes
-    let oOut = refRewriteIPv4([Data(oneSided)], [NSNumber(value: AF_INET)],
-                              deviceip: refIpToUInt32(DEV), fakeip: refIpToUInt32(FAKE))
-    let o = [UInt8](oOut[0])
-    print("    src-only rewrite: ip residual=0x\(String(format: "%04x", onesComplement(Array(o[0..<20])))) (non-zero = kernel drops it silently), tcp valid=\(tcpChecksumValid(o))")
+    print("    full swap        : ip residual=0x\(String(format: "%04x", onesComplement(Array(b[0..<20])))) (0 = valid), tcp valid=\(tcpChecksumValid(b))")
+
+    let oneSided = makePacket(src: DEV, dst: "98.51.183.236", srcPort: 16394, dstPort: 16393).bytes
+    let nowOut = refRewriteIPv4([Data(oneSided)], [NSNumber(value: AF_INET)],
+                                deviceip: refIpToUInt32(DEV), fakeip: refIpToUInt32(FAKE))
+    let n = [UInt8](nowOut[0])
+    print("    src-only, SHIPPING: ip residual=0x\(String(format: "%04x", onesComplement(Array(n[0..<20])))) (0 = valid), tcp valid=\(tcpChecksumValid(n))")
+
+    let legacyOut = legacyRewriteIPv4_BUGGY([Data(oneSided)], [NSNumber(value: AF_INET)],
+                                            deviceip: refIpToUInt32(DEV), fakeip: refIpToUInt32(FAKE))
+    let o = [UInt8](legacyOut[0])
+    print("    src-only, OLD CODE: ip residual=0x\(String(format: "%04x", onesComplement(Array(o[0..<20])))) (non-zero = kernel drops it silently), tcp valid=\(tcpChecksumValid(o))")
+
     check("full swap preserves BOTH checksums", ipChecksumValid(b) && tcpChecksumValid(b))
-    check("one-sided rewrite CORRUPTS both checksums", !ipChecksumValid(o) && !tcpChecksumValid(o))
+    check("SHIPPING: a src-only match is written back byte-identical", n == oneSided)
+    check("SHIPPING: both checksums therefore stay valid", ipChecksumValid(n) && tcpChecksumValid(n))
+    check("REGRESSION GUARD: the old two-`if` code corrupted both checksums here",
+          !ipChecksumValid(o) && !tcpChecksumValid(o))
+    check("REGRESSION GUARD: and the shipping code differs from it on exactly this packet", n != o)
 }
 
 print("""
 
-  CAN THE INTENDED FLOW HIT THE ONE-SIDED CASE? Walk the loopback:
-    outbound  app -> daemon : src=deviceIp, dst=fakeIp   -> BOTH fire  -> true swap
-    inbound   daemon -> app : src=deviceIp, dst=fakeIp   -> BOTH fire  -> true swap
+  WHICH PACKETS HIT THE ONE-ENDED CASE? Walk the loopback first:
+    outbound  app -> daemon : src=deviceIp, dst=fakeIp   -> BOTH match -> true swap
+    inbound   daemon -> app : src=deviceIp, dst=fakeIp   -> BOTH match -> true swap
   Both directions are device->fake, because after the outbound swap the daemon's accepted socket
-  is (local deviceIp:49152, remote fakeIp:ephem), so its reply leaves as deviceIp -> fakeIp.
-  So in the DESIGNED path both `if`s always fire together and the checksums survive. The
-  one-sided case is reachable only if the kernel picks a source address that is not the utun's
-  (4b) or something dials a different host inside the included subnet (4a) — real risks, but not
-  the steady-state pattern. => the two-`if` structure is FRAGILE, not the cause of a total blackhole.
+  is (local deviceIp:49152, remote fakeIp:ephem), so its reply leaves as deviceIp -> fakeIp. The
+  designed path always matches both ends, so requiring both costs it nothing.
+  The one-ended cases are NOT rare, which is why this matters: 4a is any process that binds a
+  socket to the utun's address (source-bound sockets are scoped to their interface, so they enter
+  the tunnel whatever excludedRoutes says — FaceTime/WebRTC ICE gathering does this per candidate),
+  and 4b is the kernel sourcing the dial from en0. Under the old code both corrupted the packet;
+  under the strict guard both are inert.
 """)
 
 // ============================================================================
@@ -456,8 +497,10 @@ do {
         let ptr = base.assumingMemoryBound(to: UInt32.self)
         let dev = refIpToUInt32(DEV), fk = refIpToUInt32(FAKE)
         let src = UInt32(bigEndian: ptr[3]), dst = UInt32(bigEndian: ptr[4])
-        if src == dev { ptr[3] = fk.bigEndian }
-        if dst == fk { ptr[4] = dev.bigEndian }
+        if src == dev && dst == fk {          // same both-ends guard the provider uses
+            ptr[3] = fk.bigEndian
+            ptr[4] = dev.bigEndian
+        }
         var out = [UInt8](repeating: 0, count: pkt.count)
         out.withUnsafeMutableBytes { $0.baseAddress!.copyMemory(from: base, byteCount: pkt.count) }
         check("raw pointer misaligned by \(off): unaligned load/store still correct on arm64",
@@ -511,13 +554,20 @@ do {
         is worth ruling out on device — but section 0 shows every address actually in use parses
         fine, so ipToUInt32 is not producing it here.
     """)
-    // And the pathological half: device parses, fake does not.
+    // And the pathological half: device parses, fake does not. Under the OLD two-`if` code this was
+    // destructive — the src `if` fired alone and stamped 0.0.0.0 onto every outbound packet. The
+    // both-ends guard makes a half-parsed config inert instead, which is the same property that
+    // fixed the FaceTime corruption; worth pinning down so it cannot regress.
     let out2 = refRewriteIPv4([Data(p.bytes)], [NSNumber(value: AF_INET)],
                               deviceip: refIpToUInt32(DEV), fakeip: 0)
     let o2 = [UInt8](out2[0])
-    check("device valid, fake=0: src rewritten to 0.0.0.0, dst left — packet destroyed",
-          readSrc(o2) == "0.0.0.0" && readDst(o2) == FAKE,
-          detail: "src=\(readSrc(o2)) dst=\(readDst(o2))")
+    check("device valid, fake=0: nothing matches both ends, packet passes through verbatim",
+          o2 == p.bytes, detail: "src=\(readSrc(o2)) dst=\(readDst(o2))")
+    let legacy2 = [UInt8](legacyRewriteIPv4_BUGGY([Data(p.bytes)], [NSNumber(value: AF_INET)],
+                                                  deviceip: refIpToUInt32(DEV), fakeip: 0)[0])
+    check("REGRESSION GUARD: the old code destroyed it (src → 0.0.0.0)",
+          readSrc(legacy2) == "0.0.0.0" && readDst(legacy2) == FAKE,
+          detail: "src=\(readSrc(legacy2)) dst=\(readDst(legacy2))")
 }
 
 // ============================================================================
@@ -550,16 +600,17 @@ section("10. ROUTE MATH for the exact configs that blackholed (offline, computed
 // ============================================================================
 print("""
   The swap is clean, so the packets must be dying before or after it. One thing IS computable
-  offline: whether each tested config produces a well-formed included route. The provider does
+  offline: whether each tested config produces a well-formed included route. This section was
+  written when the provider passed the HOST address straight through as the route destination:
 
       ipv4.includedRoutes = [NEIPv4Route(destinationAddress: tunnelDeviceIp,
-                                         subnetMask: tunnelSubnetMask)]      // line 75
+                                         subnetMask: tunnelSubnetMask)]
 
-  passing the HOST address as the route destination. The IPv6 branch 40 lines below deliberately
-  does NOT do that — it masks the host bits off first (ipv6NetworkAddress, line 112) with the
-  comment "The route's destination must be the NETWORK address, not the peer's host address …
-  rather than trusting iOS to normalise it". The IPv4 line does exactly what that comment warns
-  against. Here is what each tested config actually yields:
+  THAT HAS SINCE BEEN FIXED — `startTunnel` now masks the host bits off first, via the static
+  `PacketTunnelProvider.networkAddress(_:mask:)`, matching what the IPv6 branch always did. The
+  table below is kept because it is still the clearest statement of WHICH configs were broken and
+  why, and because two of them (the /30 dial coverage, and 127/8) fail for reasons masking does
+  not fix. "HOST BITS SET" now describes the raw config, not what the provider installs:
 """)
 struct Cfg { let name: String; let dev: String; let mask: String; let dialed: String }
 let configs = [
@@ -592,10 +643,10 @@ for c in configs {
 print("""
   READ THE COLUMN: the ONE config with no host bits set in the route destination (10.7.0.0/24,
   where the interface address IS the network address) is the one that is known to work under
-  LocalDevVPN. All three configs reported as blackholing have host bits set. That is a
-  correlation, not a proof — but it is cheap to falsify: mask the destination before building
-  the route and retest. A one-line fix, and the file already contains the masking helper's IPv4
-  equivalent by inspection.
+  LocalDevVPN. All three configs reported as blackholing have host bits set. That was a
+  correlation, not a proof — and it has since been acted on: the provider masks the destination
+  before building the route. The remaining rows below (dial not covered, dial == network or
+  broadcast, 127/8) are independent failures that masking does NOT fix.
 
   Separately, 127.0.0.5 has a second, independent reason to fail regardless of routes: XNU's
   input path treats 127.0.0.0/8 as loopback-only and discards such packets when they arrive on
@@ -619,19 +670,18 @@ if failures.isEmpty {
  Ranked by what this exercise exposed, the things to instrument next:
    1. Whether readPackets fires AT ALL. A counter in setPackets separates (a) from (b)/(c)
       in one run. If it never fires, the included route never captured the dial.
-   2. IPv4 includedRoutes uses the HOST address as the route destination:
-        NEIPv4Route(destinationAddress: tunnelDeviceIp, subnetMask: tunnelSubnetMask)
-      With 10.7.0.0/255.255.255.0 that happens to already BE the network address, which is why
-      the default config is the one that works. With 192.168.4.241/255.255.252.0 or
-      172.20.10.5/255.255.255.252 it is NOT — the destination has host bits set. The IPv6 branch
-      in the same file masks host bits off deliberately (ipv6NetworkAddress) with a comment saying
-      not to trust iOS to normalise it; the IPv4 line does exactly what that comment warns against.
-      Every failing config in the report is a host-bits-set config.
+      DONE — TunnelProv/PacketTrace.swift is that counter, and the app can dump it.
+   2. IPv4 includedRoutes used to pass the HOST address as the route destination, so any config
+      whose interface address is not already the network address installed a malformed route.
+      FIXED — startTunnel masks it (PacketTunnelProvider.networkAddress). Section 10 has the
+      per-config table, including the failures masking does not fix.
    3. Whether the app's fake IP is inside the included route at all (e.g. a /30 at 172.20.10.4
       covers only .5 and .6; a fake of 172.20.10.1 would never enter the tunnel).
    4. Source-address selection: if the kernel sources from en0 instead of the utun, only the dst
-      `if` fires, both checksums go stale, and the packet is dropped by the receiver — a silent
-      blackhole that looks identical to a routing failure. Section 4b is that case in bytes.
+      end matches. That USED TO corrupt the packet (two independent `if`s); since 2026-08-06 the
+      rewrite requires both ends, so such a packet is written back untouched and the failure is a
+      clean "no swap" rather than silent damage. Section 4b is that case in bytes, and section 4c
+      measures the old behaviour beside the new one so it cannot come back unnoticed.
 """)
     exit(0)
 } else {

@@ -98,6 +98,34 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         ipv4.excludedRoutes = [.default()]
         settings.ipv4Settings = ipv4
 
+        // ROUTING NOTE, 2026-08-06 — WHY REAL INTERNET TRAFFIC STILL SHOWS UP IN THE READ LOOP, AND
+        // WHY THAT IS NOT A BUG IN THE TWO LINES ABOVE. DO NOT "FIX" THE ROUTES BECAUSE OF IT.
+        //
+        // A device trace caught 1029 packets of live FaceTime media in one session, sourced from the
+        // tunnel's own address and addressed to a public host (10.7.0.0:16394 → 98.51.183.236:16393
+        // UDP; 16384-16403 is FaceTime's RTP range). That looks impossible next to `excludedRoutes =
+        // [.default()]`, and it isn't:
+        //
+        //   • includedRoutes/excludedRoutes are DESTINATION-based. They decide which destination
+        //     prefixes the system routes into this utun. They say nothing about a socket that has
+        //     already bound its SOURCE to the tunnel's address.
+        //   • iOS/macOS route per-interface (scoped routing). A socket bound to an interface's
+        //     address is scoped to that interface, and its output goes out through that interface
+        //     whatever the destination-based table says. So a bound socket bypasses the exclusion.
+        //   • The tunnel's address is an ordinary local address and appears in getifaddrs. Anything
+        //     that enumerates interfaces and binds one socket per address will therefore send from
+        //     it. ICE candidate gathering (FaceTime, WebRTC) does exactly that, per candidate — which
+        //     is precisely the traffic observed.
+        //
+        // There is no NEPacketTunnelNetworkSettings knob that hides the utun address from interface
+        // enumeration, so this is inherent to running a tunnel, not a misconfiguration here. The
+        // correct defence is the one now in `rewriteIPv4`: anything that is not our loopback pair is
+        // written back COMPLETELY UNTOUCHED. Such a packet is then injected into the local stack with
+        // a non-local destination and dropped there (iOS does not forward), so that one ICE candidate
+        // fails — the same outcome any VPN produces, and the same outcome the old code produced, minus
+        // the corruption. Changing these routes would risk the ONE path confirmed working on device
+        // (Cellular Mode: airplane-on → connect → teleport) to fix something that is already handled.
+
         // IPv6 is declared ONLY for the opt-in experiment. WHY NOT OTHERWISE:
         //
         // This provider used to declare an inert IPv6 config (a ULA plus a /128 route to the tunnel's
@@ -189,53 +217,96 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             let fakeip = self.fakeIpValue
             let deviceip = self.deviceIpValue
             var modified = packets
-            PacketTrace.record(packets: packets, protocols: protocols, deviceIp: deviceip, fakeIp: fakeip)
-            for i in modified.indices where protocols[i].int32Value == AF_INET && modified[i].count >= 20 {
-                modified[i].withUnsafeMutableBytes { bytes in
-                    guard let ptr = bytes.baseAddress?.assumingMemoryBound(to: UInt32.self) else { return }
-                    let src = UInt32(bigEndian: ptr[3])
-                    let dst = UInt32(bigEndian: ptr[4])
-                    if src == deviceip { ptr[3] = fakeip.bigEndian }
-                    if dst == fakeip { ptr[4] = deviceip.bigEndian }
-                }
-            }
+            // Hand the parsed v6 pair in too, so the trace can evaluate the SAME both-ends condition
+            // the v6 arm below applies (src == device6 && dst == fake6) and record which side missed.
+            // When the experiment is off these are the zeroed default and the v6 match is skipped.
+            PacketTrace.record(packets: packets, protocols: protocols, deviceIp: deviceip, fakeIp: fakeip,
+                               deviceIp6: self.deviceIp6, fakeIp6: self.fakeIp6)
 
-            // IPv6 arm of the same loopback. Separate loop on purpose: the v4 path above stays
-            // byte-identical, and this whole block is skipped entirely when the experiment is off.
-            //
-            // The IPv6 header is FIXED at 40 bytes — version/traffic-class/flow-label (0..3), payload
-            // length (4..5), next header (6), hop limit (7), SOURCE at 8..<24, DESTINATION at 24..<40.
-            //
-            // NOTHING TO RECOMPUTE, and this looks like a bug until you see why it isn't. IPv6 deleted
-            // the header checksum outright, so there is none. The TCP/UDP checksum survives untouched
-            // because it is a one's-complement sum over a pseudo-header containing source + destination,
-            // and addition is commutative — SWAPPING the two leaves the sum identical. (Same reason the
-            // v4 loop above gets away with recomputing neither.)
-            //
-            // That argument holds only for a true swap, which is why this rewrites only when BOTH ends
-            // match, rather than as two independent conditionals like the v4 path. Rewriting one side
-            // alone would silently break the L4 checksum. Both directions of the intended loopback flow
-            // are device→fake, so both conditions always fire together anyway; requiring both makes the
-            // checksum guarantee structural instead of incidental.
+            Self.rewriteIPv4(&modified, protocols: protocols, deviceIp: deviceip, fakeIp: fakeip)
             if self.ipv6LoopbackEnabled {
-                var device6 = self.deviceIp6
-                var fake6 = self.fakeIp6
-                for i in modified.indices where protocols[i].int32Value == AF_INET6 && modified[i].count >= 40 {
-                    modified[i].withUnsafeMutableBytes { bytes in
-                        guard let base = bytes.baseAddress else { return }
-                        let sourceField = base.advanced(by: 8)
-                        let destinationField = base.advanced(by: 24)
-                        guard memcmp(sourceField, &device6, 16) == 0,
-                              memcmp(destinationField, &fake6, 16) == 0 else { return }
-                        memcpy(sourceField, &fake6, 16)
-                        memcpy(destinationField, &device6, 16)
-                    }
-                }
+                Self.rewriteIPv6(&modified, protocols: protocols,
+                                 deviceIp6: self.deviceIp6, fakeIp6: self.fakeIp6)
             }
 
             self.packetFlow.writePackets(modified, withProtocols: protocols)
             PacketTrace.recordWriteBack(count: modified.count)
             setPackets()
+        }
+    }
+
+    // MARK: - The rewrite
+    //
+    // Lifted out of the `readPackets` closure ONLY so it can be driven directly by the host harness
+    // (tools/packettrace compiles THIS FILE — see run.sh — so the scenarios exercise the shipping
+    // code, not a transcription of it that can go stale). Behaviour is otherwise unchanged: same
+    // loop, same guards, same offsets. `static` because neither arm reads any provider state.
+
+    /// IPv4 arm of the loopback. Rewrites ONLY when BOTH ends match, and only ever as a true swap.
+    ///
+    /// ⚠️ DO NOT "SIMPLIFY" THIS BACK INTO TWO INDEPENDENT `if`s. Until 2026-08-06 it was:
+    ///
+    ///     if src == deviceip { ptr[3] = fakeip.bigEndian }
+    ///     if dst == fakeip   { ptr[4] = deviceip.bigEndian }
+    ///
+    /// and the first line fired ALONE on any packet whose source merely happened to equal the
+    /// tunnel's own interface address. That is not hypothetical: on the shipping default
+    /// (deviceIp 10.7.0.0) a device trace on 2026-08-06 caught 1029 packets of LIVE FaceTime
+    /// traffic in one session doing exactly that — e.g. `10.7.0.0:16394 -> 98.51.183.236:16393 UDP
+    /// len=124 … ONE-SIDED` — because FaceTime's ICE candidate gathering binds a socket to EVERY
+    /// local address, the utun's included. Source-bound sockets are scoped to their interface, so
+    /// those packets enter this loop no matter what `excludedRoutes` says (see the routing note on
+    /// `startTunnel`). Their source was being mangled to 10.7.0.1 — real user traffic, corrupted.
+    ///
+    /// WHY BOTH ENDS IS A CORRECTNESS REQUIREMENT, not tidiness. Nothing here recomputes a
+    /// checksum, and nothing needs to *as long as the rewrite is a permutation*. The IPv4 header
+    /// checksum and the TCP/UDP checksum are both one's-complement sums over a set that CONTAINS
+    /// the source and the destination (for L4, via the pseudo-header), and addition is commutative
+    /// — so exchanging the two leaves both sums bit-for-bit identical. Changing ONE side does not:
+    /// both checksums go stale, and the packet is discarded as damaged. Requiring both ends makes
+    /// that guarantee structural rather than incidental, exactly as the v6 arm below already did.
+    ///
+    /// Both directions of the intended loopback are device→fake (the daemon's reply leaves as
+    /// deviceIp:port → fakeIp:ephemeral), so the designed flow always matches both ends and is
+    /// unaffected. A packet that matches only one end is written back COMPLETELY UNTOUCHED.
+    static func rewriteIPv4(_ packets: inout [Data], protocols: [NSNumber],
+                            deviceIp: UInt32, fakeIp: UInt32) {
+        for i in packets.indices where protocols[i].int32Value == AF_INET && packets[i].count >= 20 {
+            packets[i].withUnsafeMutableBytes { bytes in
+                guard let ptr = bytes.baseAddress?.assumingMemoryBound(to: UInt32.self) else { return }
+                let src = UInt32(bigEndian: ptr[3])
+                let dst = UInt32(bigEndian: ptr[4])
+                guard src == deviceIp, dst == fakeIp else { return }
+                ptr[3] = fakeIp.bigEndian
+                ptr[4] = deviceIp.bigEndian
+            }
+        }
+    }
+
+    /// IPv6 arm of the same loopback. Separate loop on purpose: the v4 path above stays
+    /// byte-identical, and this is called only when the experiment is on.
+    ///
+    /// The IPv6 header is FIXED at 40 bytes — version/traffic-class/flow-label (0..3), payload
+    /// length (4..5), next header (6), hop limit (7), SOURCE at 8..<24, DESTINATION at 24..<40.
+    ///
+    /// NOTHING TO RECOMPUTE, and this looks like a bug until you see why it isn't. IPv6 deleted the
+    /// header checksum outright, so there is none. The TCP/UDP checksum survives untouched for the
+    /// commutativity reason spelled out above — and, for the same reason, only for a TRUE SWAP.
+    /// This arm has required both ends since it was written; the v4 arm now matches it.
+    static func rewriteIPv6(_ packets: inout [Data], protocols: [NSNumber],
+                            deviceIp6: in6_addr, fakeIp6: in6_addr) {
+        var device6 = deviceIp6
+        var fake6 = fakeIp6
+        for i in packets.indices where protocols[i].int32Value == AF_INET6 && packets[i].count >= 40 {
+            packets[i].withUnsafeMutableBytes { bytes in
+                guard let base = bytes.baseAddress else { return }
+                let sourceField = base.advanced(by: 8)
+                let destinationField = base.advanced(by: 24)
+                guard memcmp(sourceField, &device6, 16) == 0,
+                      memcmp(destinationField, &fake6, 16) == 0 else { return }
+                memcpy(sourceField, &fake6, 16)
+                memcpy(destinationField, &device6, 16)
+            }
         }
     }
 

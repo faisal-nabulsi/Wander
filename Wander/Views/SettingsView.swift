@@ -666,6 +666,18 @@ struct SettingsView: View {
                         // Turning it on: tell the proxy to pass the real location through, so you start
                         // at your true spot instead of the module's default (Apple Park) until you teleport.
                         if newValue {
+                            // STAND EVERY MOVEMENT MODE DOWN FIRST. The Joystick/Route/Play-Route controls
+                            // are disabled while gs-loc is on, but nothing stopped a run that was ALREADY
+                            // going when the toggle flipped: `simulate_location` re-routes to the proxy
+                            // unconditionally, so a live walk kept ticking at 1 Hz, pushing a coordinate
+                            // the phone never adopts (gs-loc needs a manual Location Services flush per
+                            // spot) — an animated walk over a frozen device location, i.e. exactly the
+                            // silent failure those disabled controls exist to prevent. It also put a
+                            // second writer on the control channel next to the keep-alive, which is the
+                            // OTA-92 Error-12 shape. `stopAll` is documented as harmless when nothing is
+                            // running, and it is the ONE signal every movement view already honours, so
+                            // this covers walk, route, itinerary and route playback in a single line.
+                            SimulationSession.shared.stopAll(source: .user)
                             GslocMode.reset()
                         } else if updater.status.localizedCaseInsensitiveContains("PoGo")
                                     || updater.status.localizedCaseInsensitiveContains("Shadowrocket") {
@@ -674,6 +686,15 @@ struct SettingsView: View {
                             updater.status = ""
                         }
                     }
+
+                    // WHAT THIS MODE CAN AND CANNOT DO, next to the switch that turns it on. It cannot
+                    // live in `settings.experimental.footer`: that key IS translated, so the shipped
+                    // .strings value (one sentence about beta features) wins over any fallback written
+                    // here and the gs-loc paragraph never renders. Its own key, so it actually shows.
+                    Text(localized: "settings.experimental.gsloc.truth",
+                         fallback: "What it does: routes teleports through a Wi-Fi-location proxy instead of the dev tunnel, so Pokémon GO sees a fix iOS never marked as simulated.\n\nWhat it can't do: hold more than ONE spot at a time. Each new spot only reaches your phone after you toggle Location Services off a full ~10 seconds and back on — no app or Shortcut is allowed to flip that switch — so joystick, routes and auto-walk are disabled in this mode. It also only holds indoors or on weak GPS; a strong real GPS fix overrides it.\n\nNeeds the proxy app plus a trusted MITM certificate, and it takes iOS's single VPN slot, so LocalDevVPN goes off and Shadowrocket on. Turn this off to go back to normal spoofing, which is what everything except anti-cheat games should use.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     navRow(L("settings.experimental.gsloc.setup", fallback: "Set up gs-loc mode (proxy app)"),
                            icon: Wander.Icon.wand) { showGslocSetup = true }

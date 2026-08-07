@@ -18,8 +18,9 @@
 //
 //  1. WHAT REMOTEPAIRINGD SEES AS THE SOURCE IS THE *PEER* ADDRESS. Derived from the shipped rewrite:
 //     the app dials P, the kernel sources from the utun's own address D, and the provider does
-//         if src == D { src = P };  if dst == P { dst = D }
-//     so the packet re-injected into the utun is src=P dst=D. D is a local address, so it is
+//         if src == D && dst == P { src = P; dst = D }      // both ends, or nothing (2026-08-06)
+//     so the packet re-injected into the utun is src=P dst=D. This dial matches both ends, so the
+//     fact is unchanged by that guard. D is a local address, so it is
 //     delivered locally and the daemon's accept() reports the peer as P. The address the lockdownd
 //     source-check judges is therefore the FAKE/PEER IP, not the interface IP.
 //

@@ -1285,8 +1285,11 @@ struct RouteModeView: View {
     private var gslocTeleportOnlyNote: some View {
         WanderPanelNote(
             status: .caution,
+            // Same wording as the Joystick tab's note, and for the same reason: "teleport-only" implied
+            // free teleporting. Each new spot needs the manual Location Services flush, which is what
+            // makes route playback impossible here rather than just choppy. See WalkModeView.
             text: L("route.gsloc_teleport_only",
-                    fallback: "PoGo mode is teleport-only. Joystick, routes & auto-walk work in every other app and mode."),
+                    fallback: "PoGo mode: one spot at a time. A new spot only lands after you flush Location Services, so live movement can't work here. Joystick, routes & auto-walk work in every other app and mode."),
             icon: "hand.raised.fill"
         )
     }

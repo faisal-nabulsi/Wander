@@ -115,9 +115,15 @@ struct GslocVerifyCard: View {
     // Set by the "Warm start" button before it opens Shadowrocket; when we return to the foreground we
     // auto-run the spoof check once, so warm start is genuinely one tap ("connect → back → verified").
     @AppStorage("gslocAutoVerify") private var autoVerifyArmed = false
+    /// Mirrors `GslocMode.lastPushOutcome`, refreshed from its change notification. Wander gets no
+    /// delivery receipt from iOS, but it DOES know whether its own coordinate reached the proxy — and
+    /// until now it threw that away and reported success either way. This is the row that says otherwise.
+    @State private var pushOutcome: GslocMode.PushOutcome = .unknown
 
     var body: some View {
         Section {
+            pushOutcomeRow
+
             statusRow
 
             Button {
@@ -139,10 +145,35 @@ struct GslocVerifyCard: View {
             Text("Spoof check")
         }
         .onChange(of: scenePhase) { _, phase in
+            pushOutcome = GslocMode.lastPushOutcome
             if phase == .active && autoVerifyArmed {
                 autoVerifyArmed = false
                 verifier.check()
             }
+        }
+        .onAppear { pushOutcome = GslocMode.lastPushOutcome }
+        .onReceive(NotificationCenter.default.publisher(for: .gslocPushOutcomeDidChange)) { _ in
+            pushOutcome = GslocMode.lastPushOutcome
+        }
+    }
+
+    /// Shown ONLY when Wander's own control push failed — the half of the picture the spoof check below
+    /// can't see. "Check my spoof" asks iOS where it thinks the phone is; this says whether the
+    /// coordinate ever reached the proxy in the first place. They fail for different reasons and need
+    /// different fixes, so a green spoof check on top of a dead push would be the worst of both.
+    @ViewBuilder
+    private var pushOutcomeRow: some View {
+        switch pushOutcome {
+        case .unknown, .landed:
+            EmptyView()
+        case .noProxy:
+            content(icon: "antenna.radiowaves.left.and.right.slash", tint: .orange,
+                    title: "Wander couldn't reach the proxy",
+                    message: "Your last teleport never left the app, so your spot didn't change. Connect Shadowrocket, and check Global Routing is set to Config (a Shadowrocket update resets it to Direct).")
+        case .notStored:
+            content(icon: "arrow.triangle.2.circlepath.circle.fill", tint: .orange,
+                    title: "Your gs-loc config is out of date",
+                    message: "The proxy answered but didn't store your spot — the sign of an old cached Wander script. Re-import the Wander config in Shadowrocket, then teleport again.")
         }
     }
 
@@ -159,7 +190,7 @@ struct GslocVerifyCard: View {
         case .idle:
             content(icon: "checkmark.shield", tint: .secondary,
                     title: "Verify your spoof",
-                    message: "After you teleport and toggle Location Services, tap below to confirm iOS is actually reporting your spoofed spot — the same fix Pokémon GO reads.")
+                    message: "Teleport, then toggle Location Services off ~10s and back on — every new spot needs that flush — then tap below to confirm iOS is actually reporting your spoofed spot, the same fix Pokémon GO reads.")
         case .checking:
             HStack(spacing: 10) {
                 ProgressView()

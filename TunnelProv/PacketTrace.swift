@@ -20,7 +20,7 @@
 //    • Armed: one clock read, one compare against the header, a bounded scan of the batch that
 //      allocates nothing (`Data.withUnsafeBytes` on a non-escaping closure), and a handful of
 //      fixed-offset stores into mapped memory. No syscalls, no locks, no allocation per packet.
-//    • The ring is CAPPED at `capacity` records and the file is a fixed 41 KB. It cannot grow.
+//    • The ring is CAPPED at `capacity` records and the file is a fixed 64 KB. It cannot grow.
 //
 //  SAFETY GATE (see also `arm(forMinutes:)`): tracing is OFF unless the trace file exists AND its
 //  header's `armedUntil` is in the future. Only the Console's "Dump tunnel packet trace" row arms
@@ -126,11 +126,15 @@ enum PacketTrace {
     // and stores are aligned even though `loadUnaligned` is used for belt-and-braces.
 
     static let magic: UInt32 = 0x57545231          // "WTR1"
-    static let formatVersion: UInt32 = 1
-    static let headerSize = 128
-    static let recordSize = 80
+    /// v2 (2026-08-06): the record and header grew to carry the IPv6 arm's own src/dst and match
+    /// counters — the v1 layout counted v6 packets but never inspected them, so a v6-only failing run
+    /// could not be told apart from routing noise. Bumping this makes a device that still holds a v1
+    /// file (wrong size / version) re-arm cleanly rather than misread it.
+    static let formatVersion: UInt32 = 2
+    static let headerSize = 192
+    static let recordSize = 128
     /// Hard cap on entries. 512 batches is far more than any diagnosis session produces — a TCP
-    /// connect attempt is a handful of packets — and keeps the whole file at 41 KB.
+    /// connect attempt is a handful of packets — and keeps the whole file at 64 KB.
     static let capacity = 512
     static var fileSize: Int { headerSize + recordSize * capacity }
 
@@ -147,14 +151,20 @@ enum PacketTrace {
         static let packetsSeen    = 48   // UInt64
         static let v4Seen         = 56   // UInt64
         static let v6Seen         = 64   // UInt64
-        static let srcMatched     = 72   // UInt64  packets where src == deviceIp
-        static let dstMatched     = 80   // UInt64  packets where dst == fakeIp
-        static let bothMatched    = 88   // UInt64  packets where BOTH fired (a true swap)
+        static let srcMatched     = 72   // UInt64  packets where src == deviceIp (seen, not rewritten)
+        static let dstMatched     = 80   // UInt64  packets where dst == fakeIp   (seen, not rewritten)
+        static let bothMatched    = 88   // UInt64  packets where BOTH fired — the only ones rewritten
         static let writtenBack    = 96   // UInt64  packets handed to writePackets
         static let readBatches    = 104  // UInt64
         static let writeBatches   = 112  // UInt64
         static let flags          = 120  // UInt32
         static let providerStarts = 124  // UInt32
+        // v2 — the IPv6 arm's aggregate counters, the exact twins of srcMatched/dstMatched/bothMatched
+        // above. Kept at the header level (not only per-record) so a diagnosis survives a ring wrap.
+        static let v6SrcMatched   = 128  // UInt64  v6 packets where src == device6
+        static let v6DstMatched   = 136  // UInt64  v6 packets where dst == fake6
+        static let v6BothMatched  = 144  // UInt64  v6 packets where BOTH fired (the v6 swap)
+        // 152..191 reserved
     }
 
     private enum R {
@@ -162,24 +172,43 @@ enum PacketTrace {
         static let time          = 8    // Double
         static let batchCount    = 16   // UInt32
         static let proto         = 20   // Int32   AF_INET / AF_INET6 of the reported packet
-        static let firstSrc      = 24   // UInt32  host order
+        static let firstSrc      = 24   // UInt32  host order (the first IPv4 packet)
         static let firstDst      = 28   // UInt32  host order
         static let flags         = 32   // UInt32
-        static let srcMatchCount = 36   // UInt32
-        static let dstMatchCount = 40   // UInt32
+        static let srcMatchCount = 36   // UInt32  v4: src == deviceIp
+        static let dstMatchCount = 40   // UInt32  v4: dst == fakeIp
         static let v4Count       = 44   // UInt32
         static let v6Count       = 48   // UInt32
         static let wroteCount    = 52   // UInt32
-        static let srcPort       = 56   // UInt16
-        static let dstPort       = 58   // UInt16
-        static let ipProto       = 60   // UInt8
+        static let srcPort       = 56   // UInt16  v4
+        static let dstPort       = 58   // UInt16  v4
+        static let ipProto       = 60   // UInt8   v4
         static let reserved      = 61   // UInt8
-        static let firstLen      = 62   // UInt16
-        static let seqEnd        = 64   // UInt64  must equal `seq` for the record to be readable
-        // 72..79 reserved
+        static let firstLen      = 62   // UInt16  v4
+        // v2 — the IPv6 arm, recorded independently of the v4 fields above so a MIXED batch keeps both
+        // stories. `v6FirstSrc` is the pre-swap source the KERNEL selected; comparing it against the
+        // configured device6 is the whole point — a v6 dial that lands on a carrier /64 address instead
+        // of device6 fails the provider's both-ends swap guard and is written back unchanged.
+        static let v6FirstSrc    = 64   // 16 bytes, network order (the first IPv6 packet's source)
+        static let v6FirstDst    = 80   // 16 bytes, network order
+        static let v6SrcMatchCount = 96  // UInt32  v6: src == device6
+        static let v6DstMatchCount = 100 // UInt32  v6: dst == fake6
+        static let v6BothCount     = 104 // UInt32  v6: BOTH (the swap would fire)
+        static let v6SrcPort     = 108  // UInt16
+        static let v6DstPort     = 110  // UInt16
+        static let v6NextHeader  = 112  // UInt8   IPv6 next-header (6 TCP / 17 UDP / 58 ICMPv6)
+        static let v6Reserved    = 113  // UInt8
+        static let v6FirstLen    = 114  // UInt16
+        // 116..119 pad
+        static let seqEnd        = 120  // UInt64  must equal `seq` for the record to be readable.
+        // LAST field on purpose: the invalidate/revalidate window it defines now covers every v6 field
+        // above, so a reader can never see a torn v6 address.
     }
 
     /// Per-record flags.
+    ///
+    /// `srcMatched`/`dstMatched` mean SEEN, NOT TOUCHED: the provider rewrites only when both ends
+    /// match, so only `bothMatched` implies a packet was actually modified.
     enum RFlag {
         static let srcMatched: UInt32 = 1 << 0   // at least one packet had src == deviceIp
         static let dstMatched: UInt32 = 1 << 1   // at least one packet had dst == fakeIp
@@ -187,6 +216,11 @@ enum PacketTrace {
         static let sawIPv6: UInt32 = 1 << 3
         static let sawShort: UInt32 = 1 << 4     // an AF_INET packet under 20 bytes (provider skips it)
         static let wroteBack: UInt32 = 1 << 5    // writePackets was reached for this batch
+        // v2 — the IPv6 twins of the first three. The provider's v6 arm rewrites only when BOTH match,
+        // so `v6BothMatched` is the flag that says the v6 swap actually fired.
+        static let v6SrcMatched: UInt32 = 1 << 6  // at least one v6 packet had src == device6
+        static let v6DstMatched: UInt32 = 1 << 7  // at least one v6 packet had dst == fake6
+        static let v6BothMatched: UInt32 = 1 << 8 // at least one v6 packet had BOTH (the swap fires)
     }
 
     /// Header flags.
@@ -213,6 +247,10 @@ enum PacketTrace {
     }
     @inline(__always) private static func ld8(_ p: UnsafeRawPointer, _ o: Int) -> UInt8 {
         p.loadUnaligned(fromByteOffset: o, as: UInt8.self)
+    }
+    /// Copy 16 bytes (an IPv6 address) out of the mapping. Reader side only, so the allocation is fine.
+    @inline(__always) private static func bytes16(_ p: UnsafeRawPointer, _ o: Int) -> [UInt8] {
+        [UInt8](UnsafeRawBufferPointer(start: p.advanced(by: o), count: 16))
     }
 
     @inline(__always) private static func st32(_ p: UnsafeMutableRawPointer, _ o: Int, _ v: UInt32) {
@@ -300,17 +338,30 @@ enum PacketTrace {
 
     /// ONE LINE IN THE READ LOOP, immediately after `var modified = packets`.
     ///
-    /// Takes the batch BEFORE the swap and evaluates exactly the same two conditions the provider
-    /// evaluates (`src == deviceIp`, `dst == fakeIp`) without mutating anything, so the trace says
-    /// whether the swap fired rather than assuming it did. `packets` is untouched by the provider's
-    /// loop (it mutates the `modified` copy), so this may sit before or after that loop.
-    static func record(packets: [Data], protocols: [NSNumber], deviceIp: UInt32, fakeIp: UInt32) {
+    /// Takes the batch BEFORE the swap and evaluates exactly the conditions the provider evaluates
+    /// (v4: `src == deviceIp`, `dst == fakeIp`; v6: `src == device6`, `dst == fake6`) without mutating
+    /// anything, so the trace says whether the swap fired rather than assuming it did. `packets` is
+    /// untouched by the provider's loop (it mutates the `modified` copy), so this may sit before it.
+    ///
+    /// The two ends are counted SEPARATELY even though BOTH arms now rewrite only when both match
+    /// (v4 since 2026-08-06, v6 from the start). A one-ended hit no longer means a rewrite happened —
+    /// it means a packet that is not ours entered the tunnel and was written back untouched — but
+    /// which end matched is still the whole diagnosis: src-only says something bound a socket to the
+    /// tunnel address, dst-only says source-address selection did not pick it.
+    ///
+    /// `deviceIp6`/`fakeIp6` default to the all-zero address so every existing v4-only call site (and
+    /// the host harness) compiles unchanged; the provider passes the real carved pair. The v6 match is
+    /// SKIPPED entirely when both are zero, so a build with the v6 experiment off never reports a
+    /// spurious "swap fired" against zeroed noise.
+    static func record(packets: [Data], protocols: [NSNumber], deviceIp: UInt32, fakeIp: UInt32,
+                       deviceIp6: in6_addr = in6_addr(), fakeIp6: in6_addr = in6_addr()) {
         let now = Date().timeIntervalSince1970
         guard let m = armedMap(now: now) else { return }
 
         let count = min(packets.count, protocols.count)
         var v4 = 0, v6 = 0
         var srcHits = 0, dstHits = 0, bothHits = 0
+        var v6SrcHits = 0, v6DstHits = 0, v6BothHits = 0
         var flags: UInt32 = 0
 
         var haveFirst = false
@@ -319,6 +370,15 @@ enum PacketTrace {
         var firstSrcPort: UInt16 = 0, firstDstPort: UInt16 = 0
         var firstIpProto: UInt8 = 0, firstLen: UInt16 = 0
 
+        // The v6 arm's first packet, captured on the stack (in6_addr is a fixed 16 bytes — no heap).
+        var device6 = deviceIp6
+        var fake6 = fakeIp6
+        let v6Active = isNonZero(&device6) || isNonZero(&fake6)
+        var haveFirstV6 = false
+        var firstV6Src = in6_addr(), firstV6Dst = in6_addr()
+        var firstV6SrcPort: UInt16 = 0, firstV6DstPort: UInt16 = 0
+        var firstV6Next: UInt8 = 0, firstV6Len: UInt16 = 0
+
         for i in 0..<count {
             let family = protocols[i].int32Value
             let packet = packets[i]
@@ -326,10 +386,42 @@ enum PacketTrace {
             if family == AF_INET6 {
                 v6 += 1
                 flags |= RFlag.sawIPv6
+                // A v6 packet claims the "reported" (v4-shaped) slot only when no v4 packet has, so a
+                // mixed batch still reports the v4 packet there. The v6 fields below are independent.
                 if !haveFirst && reportedProto == 0 {
                     reportedProto = family
                     firstLen = UInt16(clamping: packet.count)
                 }
+                guard packet.count >= 40 else { continue }
+                var srcFires = false, dstFires = false
+                packet.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
+                    guard let b = buf.baseAddress, buf.count >= 40 else { return }
+                    // IPv6: source at 8..<24, destination at 24..<40, next-header at 6.
+                    if v6Active {
+                        srcFires = withUnsafeBytes(of: &device6) {
+                            memcmp(b.advanced(by: 8), $0.baseAddress!, 16) == 0
+                        }
+                        dstFires = withUnsafeBytes(of: &fake6) {
+                            memcmp(b.advanced(by: 24), $0.baseAddress!, 16) == 0
+                        }
+                    }
+                    if !haveFirstV6 {
+                        haveFirstV6 = true
+                        withUnsafeMutableBytes(of: &firstV6Src) { _ = memcpy($0.baseAddress!, b.advanced(by: 8), 16) }
+                        withUnsafeMutableBytes(of: &firstV6Dst) { _ = memcpy($0.baseAddress!, b.advanced(by: 24), 16) }
+                        firstV6Next = b.loadUnaligned(fromByteOffset: 6, as: UInt8.self)
+                        firstV6Len = UInt16(clamping: packet.count)
+                        // No IPv6 extension headers are assumed (a TCP SYN to remotepairingd has none),
+                        // so the L4 header — and its ports — sit at the fixed offset 40.
+                        if (firstV6Next == 6 || firstV6Next == 17), buf.count >= 44 {
+                            firstV6SrcPort = UInt16(bigEndian: b.loadUnaligned(fromByteOffset: 40, as: UInt16.self))
+                            firstV6DstPort = UInt16(bigEndian: b.loadUnaligned(fromByteOffset: 42, as: UInt16.self))
+                        }
+                    }
+                }
+                if srcFires { v6SrcHits += 1; flags |= RFlag.v6SrcMatched }
+                if dstFires { v6DstHits += 1; flags |= RFlag.v6DstMatched }
+                if srcFires && dstFires { v6BothHits += 1; flags |= RFlag.v6BothMatched }
                 continue
             }
             guard family == AF_INET else { continue }
@@ -382,7 +474,8 @@ enum PacketTrace {
         let off = headerSize + slot * recordSize
 
         // Invalidate, fill, revalidate. A concurrent reader sees seq != seqEnd for the duration and
-        // skips the record rather than reporting a half-written one.
+        // skips the record rather than reporting a half-written one. Every v6 field is written here
+        // too (zeros when the batch had no v6 packet) so a reused ring slot never leaks a stale address.
         st64(m, off + R.seqEnd, 0)
         st64(m, off + R.seq, seq)
         stDouble(m, off + R.time, now)
@@ -401,6 +494,16 @@ enum PacketTrace {
         st8(m, off + R.ipProto, firstIpProto)
         st8(m, off + R.reserved, 0)
         st16(m, off + R.firstLen, firstLen)
+        withUnsafeBytes(of: &firstV6Src) { _ = memcpy(m.advanced(by: off + R.v6FirstSrc), $0.baseAddress!, 16) }
+        withUnsafeBytes(of: &firstV6Dst) { _ = memcpy(m.advanced(by: off + R.v6FirstDst), $0.baseAddress!, 16) }
+        st32(m, off + R.v6SrcMatchCount, UInt32(clamping: v6SrcHits))
+        st32(m, off + R.v6DstMatchCount, UInt32(clamping: v6DstHits))
+        st32(m, off + R.v6BothCount, UInt32(clamping: v6BothHits))
+        st16(m, off + R.v6SrcPort, firstV6SrcPort)
+        st16(m, off + R.v6DstPort, firstV6DstPort)
+        st8(m, off + R.v6NextHeader, firstV6Next)
+        st8(m, off + R.v6Reserved, 0)
+        st16(m, off + R.v6FirstLen, firstV6Len)
         st64(m, off + R.seqEnd, seq)
 
         st64(m, H.writeSeq, seq)
@@ -411,9 +514,18 @@ enum PacketTrace {
         add64(m, H.srcMatched, UInt64(srcHits))
         add64(m, H.dstMatched, UInt64(dstHits))
         add64(m, H.bothMatched, UInt64(bothHits))
+        add64(m, H.v6SrcMatched, UInt64(v6SrcHits))
+        add64(m, H.v6DstMatched, UInt64(v6DstHits))
+        add64(m, H.v6BothMatched, UInt64(v6BothHits))
 
         lastSlotOffset = off
         lastSeq = seq
+    }
+
+    /// True when any of the 16 address bytes is non-zero. Used to decide whether the v6 experiment is
+    /// configured at all, so a zeroed default pair never produces spurious matches against zeroed noise.
+    @inline(__always) private static func isNonZero(_ addr: inout in6_addr) -> Bool {
+        withUnsafeBytes(of: &addr) { raw in raw.contains { $0 != 0 } }
     }
 
     /// ONE LINE AFTER `writePackets`. Back-patches the batch this call belongs to rather than
@@ -524,6 +636,16 @@ enum PacketTrace {
         var v4Count: UInt32
         var v6Count: UInt32
         var wroteCount: UInt32
+        // v2 — the IPv6 arm.
+        var v6Src: [UInt8]           // 16 bytes, the first v6 packet's pre-swap source
+        var v6Dst: [UInt8]           // 16 bytes
+        var v6SrcPort: UInt16
+        var v6DstPort: UInt16
+        var v6NextHeader: UInt8
+        var v6FirstLen: UInt16
+        var v6SrcMatchCount: UInt32
+        var v6DstMatchCount: UInt32
+        var v6BothCount: UInt32
 
         var srcMatched: Bool  { flags & RFlag.srcMatched  != 0 }
         var dstMatched: Bool  { flags & RFlag.dstMatched  != 0 }
@@ -531,6 +653,11 @@ enum PacketTrace {
         var sawIPv6: Bool     { flags & RFlag.sawIPv6     != 0 }
         var sawShort: Bool    { flags & RFlag.sawShort    != 0 }
         var wroteBack: Bool   { flags & RFlag.wroteBack   != 0 }
+        var v6SrcMatched: Bool  { flags & RFlag.v6SrcMatched  != 0 }
+        var v6DstMatched: Bool  { flags & RFlag.v6DstMatched  != 0 }
+        var v6BothMatched: Bool { flags & RFlag.v6BothMatched != 0 }
+        /// True when this record actually carried a v6 packet worth printing (not a stale zeroed slot).
+        var hasV6: Bool { v6Count > 0 }
     }
 
     struct Snapshot {
@@ -553,6 +680,10 @@ enum PacketTrace {
         var writtenBack: UInt64
         var readBatches: UInt64
         var writeBatches: UInt64
+        // v2 — the IPv6 arm's aggregate match totals.
+        var v6SrcMatched: UInt64
+        var v6DstMatched: UInt64
+        var v6BothMatched: UInt64
         /// Oldest first.
         var entries: [Entry]
         /// Records overwritten because the ring wrapped.
@@ -628,7 +759,16 @@ enum PacketTrace {
                     dstMatchCount: ld32(p, off + R.dstMatchCount),
                     v4Count: ld32(p, off + R.v4Count),
                     v6Count: ld32(p, off + R.v6Count),
-                    wroteCount: ld32(p, off + R.wroteCount))
+                    wroteCount: ld32(p, off + R.wroteCount),
+                    v6Src: bytes16(p, off + R.v6FirstSrc),
+                    v6Dst: bytes16(p, off + R.v6FirstDst),
+                    v6SrcPort: ld16(p, off + R.v6SrcPort),
+                    v6DstPort: ld16(p, off + R.v6DstPort),
+                    v6NextHeader: ld8(p, off + R.v6NextHeader),
+                    v6FirstLen: ld16(p, off + R.v6FirstLen),
+                    v6SrcMatchCount: ld32(p, off + R.v6SrcMatchCount),
+                    v6DstMatchCount: ld32(p, off + R.v6DstMatchCount),
+                    v6BothCount: ld32(p, off + R.v6BothCount))
                 let s1 = ld64(p, off + R.seqEnd)
                 if s0 != s1 || s0 == 0 { torn += 1; continue }
                 entries.append(entry)
@@ -655,6 +795,9 @@ enum PacketTrace {
             writtenBack: ld64(p, H.writtenBack),
             readBatches: ld64(p, H.readBatches),
             writeBatches: ld64(p, H.writeBatches),
+            v6SrcMatched: ld64(p, H.v6SrcMatched),
+            v6DstMatched: ld64(p, H.v6DstMatched),
+            v6BothMatched: ld64(p, H.v6BothMatched),
             entries: entries,
             dropped: writeSeq > UInt64(capacity) ? writeSeq - UInt64(capacity) : 0,
             torn: torn)
@@ -666,6 +809,19 @@ enum PacketTrace {
     /// Host-order UInt32 back to a dotted quad.
     static func dotted(_ value: UInt32) -> String {
         "\((value >> 24) & 0xFF).\((value >> 16) & 0xFF).\((value >> 8) & 0xFF).\(value & 0xFF)"
+    }
+
+    /// 16 raw network-order bytes back to an IPv6 presentation string (e.g. `2600:382:…:2d10`).
+    /// Returns a raw-hex fallback rather than failing, so a diagnostic line is never blank.
+    static func dotted6(_ bytes: [UInt8]) -> String {
+        guard bytes.count == 16 else { return "?" }
+        var addr = in6_addr()
+        withUnsafeMutableBytes(of: &addr) { raw in for i in 0..<16 { raw[i] = bytes[i] } }
+        var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        guard inet_ntop(AF_INET6, &addr, &buffer, socklen_t(INET6_ADDRSTRLEN)) != nil else {
+            return bytes.map { String(format: "%02x", $0) }.joined()
+        }
+        return String(cString: buffer)
     }
 
     /// Same parse the provider uses, so the addresses stamped into the header are the same numbers

@@ -1248,7 +1248,13 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
     // them all. See GslocMode. (Off by default; only useful with the proxy + module set up.)
     if GslocMode.enabled {
         GslocMode.push(latitude: latitude, longitude: longitude)
-        TunnelInjectStatus.record(success: true)
+        // HONEST, NOT OPTIMISTIC. `push` is asynchronous and returns Void, so this call site cannot know
+        // whether THIS write reached the proxy — and it must not wait, because it runs on the serial
+        // location command queue where a block would wedge Stop and Panic. So we record the LAST KNOWN
+        // outcome: it lags by one write, which is exactly the property that makes it free. This line used
+        // to hardcode `success: true`, which meant a teleport that never left the device was recorded
+        // identically to one that landed.
+        TunnelInjectStatus.record(success: GslocMode.lastPushOutcome.looksAccepted)
         return LocationSimulationStatus.ok
     }
     let code = _simulate_location(deviceIP, latitude, longitude, pairingFile)
@@ -1303,10 +1309,18 @@ func simulate_location_logged(_ deviceIP: String,
                               _ pairingFile: String,
                               source: SpoofFixSource = .other) -> Int32 {
     let code = simulate_location(deviceIP, latitude, longitude, pairingFile)
+    // On the gs-loc path the return code says nothing: that branch always reports `.ok` because the push
+    // is asynchronous and the caller must not block on it. Reading `code` alone therefore made EVERY
+    // gs-loc row `accepted: true` by construction — the one thing this ledger exists to disprove. Use the
+    // last known push outcome there instead (it lags by one write, and `.unknown` counts as accepted so a
+    // fresh session isn't painted amber).
+    let accepted = GslocMode.enabled
+        ? GslocMode.lastPushOutcome.looksAccepted
+        : code == LocationSimulationStatus.ok
     SpoofTimelineRecorder.record(latitude: latitude,
                                  longitude: longitude,
                                  source: source,
-                                 accepted: code == LocationSimulationStatus.ok)
+                                 accepted: accepted)
     return code
 }
 

@@ -40,7 +40,7 @@ struct GslocQuickControlsCard: View {
                        title: "Re-teleport to last spot",
                        subtitle: GslocMode.currentTargetSnapshot == nil
                             ? "Teleport once first, then re-assert it here."
-                            : "Re-push your current spot — then flush with Location Services.") {
+                            : "Re-push your current spot — then flush with Location Services (every new spot needs it).") {
                 if let t = GslocMode.currentTargetSnapshot {
                     GslocMode.push(latitude: t.lat, longitude: t.lng)
                     // Logged HERE rather than by `simulate_location_logged`, because this is the one
@@ -48,8 +48,13 @@ struct GslocQuickControlsCard: View {
                     // coordinate straight to the gs-loc rewriter. Without this line a PoGo session
                     // driven from these controls would leave no trace in the spoof timeline.
                     // Fire-and-forget, like every other call into the recorder.
+                    //
+                    // `accepted` reads the LAST KNOWN push outcome rather than the `true` this used to
+                    // hardcode: the push above is asynchronous, so its own result isn't known yet, but a
+                    // proxy that was unreachable a moment ago is the honest thing to record.
                     SpoofTimelineRecorder.record(latitude: t.lat, longitude: t.lng,
-                                                 source: .gsloc, accepted: true)
+                                                 source: .gsloc,
+                                                 accepted: GslocMode.lastPushOutcome.looksAccepted)
                 }
             }
             // GENERIC on purpose: this is the system-wide Location Services switch, not any one
@@ -93,7 +98,7 @@ struct GslocQuickControlsCard: View {
         } header: {
             Text("Quick controls")
         } footer: {
-            Text("All one tap. The Location Services flip is the only manual step — iOS reserves that switch — so “Flush” jumps you straight to it. For a hands-free teleport, bind the Teleport shortcut to Back Tap (see Shortcuts & automations).")
+            Text("All one tap. The Location Services flip is the only manual step — iOS reserves that switch — so “Flush” jumps you straight to it. You need it after EVERY new spot, not just the first: gs-loc changes the answer to a location query iOS makes on its own schedule, and the flush is what makes it ask again. For a hands-free push, bind the Teleport shortcut to Back Tap (see Shortcuts & automations); the flush still has to be you.")
         }
         .sheet(isPresented: $showAutomations) { AutomationsView() }
     }

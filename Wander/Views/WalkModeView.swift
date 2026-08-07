@@ -410,16 +410,26 @@ struct WalkModeView: View {
                             }
                         }
                     }
-                    WanderPrimaryButton(title: "Stop", icon: Wander.Icon.stop, role: .destructive) {
-                        stop()
-                    }
                 }
                 }
-                // Teleport-only in gs-loc mode: dim and disable every live-movement control so a
+                // One spot at a time in gs-loc mode: dim and disable every live-movement control so a
                 // silent "spawns at home" failure can't happen. Teleport itself lives on the Location
                 // tab and stays fully usable.
                 .disabled(gslocMode)
                 .opacity(gslocMode ? 0.5 : 1)
+
+                // STOP LIVES OUTSIDE THE DISABLE. It used to sit inside the group above, so flipping
+                // PoGo mode on while a walk was running left the user looking at a dimmed, unresponsive
+                // Stop with only the (user-disableable) panic button as an escape. RouteModeView already
+                // scopes its disable to keep an in-progress drive's Stop alive; this matches it. Turning
+                // the mode on now also stands movement down centrally (SettingsView), so this is the
+                // second line of defence rather than the first — a control that ends something must
+                // never be the thing that stops working.
+                if coordinate != nil {
+                    WanderPrimaryButton(title: "Stop", icon: Wander.Icon.stop, role: .destructive) {
+                        stop()
+                    }
+                }
             }
             // THE canonical panel height, shared with Teleport and Route (see MapModeChrome), and
             // the SAME height whether the hands-free section is open or shut: it overflows the
@@ -525,14 +535,19 @@ struct WalkModeView: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    /// Shown at the top of the Joystick controls while PoGo (gs-loc) mode is on: live movement doesn't
-    /// work through the gs-loc network path, so the controls below are disabled and the user is pointed
-    /// back to teleport (which is all gs-loc supports).
+    /// Shown at the top of the Joystick controls while PoGo (gs-loc) mode is on.
+    ///
+    /// WHY THE WORDING CHANGED. This used to say "PoGo mode is teleport-only", which is true but implies
+    /// you can teleport freely. You cannot: gs-loc rewrites the ANSWER to a Wi-Fi-location query that iOS
+    /// issues on its own schedule, so a new coordinate does not reach the phone until Location Services is
+    /// power-cycled — a step no app or Shortcut is allowed to perform. That is per SPOT, not per session,
+    /// and it is the whole reason live movement is structurally impossible here rather than merely
+    /// unreliable. Saying so is the honest version, and it stops "why is my joystick greyed out?".
     private var gslocTeleportOnlyNote: some View {
         WanderPanelNote(
             status: .caution,
             text: L("joystick.gsloc_teleport_only",
-                    fallback: "PoGo mode is teleport-only. Joystick, routes & auto-walk work in every other app and mode."),
+                    fallback: "PoGo mode: one spot at a time. A new spot only lands after you flush Location Services, so live movement can't work here. Joystick, routes & auto-walk work in every other app and mode."),
             icon: "hand.raised.fill"
         )
     }

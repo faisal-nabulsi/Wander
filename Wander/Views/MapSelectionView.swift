@@ -2106,6 +2106,8 @@ struct LocationSimulationView: View {
             .tint(Wander.brand)
             .controlSize(.large)
 
+            gslocFlushHint
+
             gslocCooldownHint(for: coord)
 
             cellularModeControls(for: coord)
@@ -2151,6 +2153,23 @@ struct LocationSimulationView: View {
         // doesn't jump and reset the user's zoom the instant the pin lands.
         pinMovedFromMap = true
         applySelection(center)
+    }
+
+    /// THE ONE STEP THAT ACTUALLY MOVES THE PHONE, said at the point of use. In PoGo (gs-loc) mode
+    /// Simulate only writes the target into the proxy's store; iOS keeps reporting the previous fix until
+    /// it re-queries Apple's Wi-Fi positioning service, and the only reliable way to force that is a manual
+    /// Location Services power-cycle. The app cannot do it — no API, no Shortcut — so a user who taps
+    /// Simulate and watches nothing happen has been told nothing. Every teleport needs this, not just the
+    /// first, which is the part the rest of the UI used to leave out.
+    @ViewBuilder private var gslocFlushHint: some View {
+        if gslocMode {
+            WanderPanelNote(
+                status: .caution,
+                text: L("map.gsloc_flush_hint",
+                        fallback: "After Simulate: toggle Location Services off a full ~10s, then on — until you do, your phone keeps reporting the old spot. Every new spot needs it. Indoors / weak GPS only; a strong real GPS fix overrides this mode."),
+                icon: "location.fill.viewfinder"
+            )
+        }
     }
 
     /// Soft-ban cooldown a teleport to this pin would cost, shown only in PoGo (gs-loc) mode and only when
@@ -2300,9 +2319,13 @@ struct LocationSimulationView: View {
             routeAttributionLink
 
             if gslocMode {
+                // Wording matches the Joystick and Route tabs. "Teleport-only" was true but read as
+                // "teleport freely" — each new spot needs the manual Location Services flush, which is
+                // exactly why playback can't work here. See WalkModeView.gslocTeleportOnlyNote.
                 WanderPanelNote(
                     status: .caution,
-                    text: "PoGo mode is teleport-only — route playback works in every other app and mode.",
+                    text: L("map.gsloc_teleport_only",
+                            fallback: "PoGo mode: one spot at a time. A new spot only lands after you flush Location Services, so route playback can't work here — it works in every other app and mode."),
                     icon: "hand.raised.fill"
                 )
             }
