@@ -42,6 +42,16 @@ Teleport with a tap, roam with a live on-screen joystick, or drive a realistic m
 
 <img src="https://wanderspoofer.com/og-image.png" width="80%" alt="Wander — teleport, joystick, and route modes on iPhone"/>
 
+<br/><br/>
+
+<table>
+<tr>
+<td align="center"><img src="docs/screenshots/teleport.png" width="230" alt="One-tap teleport on iPhone"/><br/><b>📍 One-tap teleport</b></td>
+<td align="center"><img src="docs/screenshots/joystick.png" width="230" alt="Live joystick walking"/><br/><b>🕹️ Live joystick</b></td>
+<td align="center"><img src="docs/screenshots/route.png" width="230" alt="Multi-stop route with snap-to-roads"/><br/><b>🛣️ Multi-stop routes</b></td>
+</tr>
+</table>
+
 </div>
 
 ---
@@ -143,6 +153,39 @@ The site walks you through the whole thing with the free **Wander Installer** an
 ## 🤔 Why Wander?
 
 The other location spoofers work, but they lock movement modes behind a yearly subscription and give you a token trial. Wander gives you a **real free trial** and one honest **$80 lifetime** license that unlocks every platform — teleport, joystick, routes, PoGo Mode and more on iPhone, Android, Mac, and Windows, with no jailbreak and no monthly bill.
+
+---
+
+## ❓ FAQ
+
+**Is Wander free?**
+Yes — there's a real free trial (not a locked demo), and one-tap teleport is free. **Wander Pro** unlocks the movement modes (live joystick, multi-stop routes, and more) for a one-time **$80 lifetime** license that covers iPhone, Android, Mac and Windows — no subscription.
+
+**Does it need a jailbreak?**
+No. Wander runs on a **stock, up-to-date iPhone** with no jailbreak and no paid Apple developer account.
+
+**Which platforms does it support?**
+iPhone (iOS), Android, macOS and Windows — one project, four apps.
+
+**Is Wander a free alternative to iMyFone AnyTo, Tenorshare iAnyGo, or iToolab AnyGo?**
+Yes. It does the same core things — teleport, live joystick walking, and multi-stop routes with no jailbreak — with a real free trial and a one-time lifetime price instead of a yearly subscription. See the [comparison table](#️-wander-vs-the-paid-apps) above.
+
+**Will I get banned in Pokémon GO?**
+Wander does **not** modify the Pokémon GO client, so it passes the Play Integrity checks that get client-modding tools like PGSharp and iPogo banned, and it includes a cooldown timer to help you respect the game's soft-ban clock. That said, **spoofing any game still carries risk** — play responsibly and at your own discretion.
+
+**How do I install it without the App Store?**
+About 2 minutes, guided by the free **Wander Installer**. Start at **[wanderspoofer.com](https://wanderspoofer.com/#download)**.
+
+---
+
+## 📦 The Wander project
+
+Wander is cross-platform — one project, four open pieces:
+
+- **[Wander](https://github.com/faisal-nabulsi/Wander)** — the iPhone app (this repo).
+- **[wander-desktop](https://github.com/faisal-nabulsi/wander-desktop)** — the Mac & Windows app (spoof over USB).
+- **[wander-site](https://github.com/faisal-nabulsi/wander-site)** — the website & download guide.
+- **[Wander-Installer](https://github.com/faisal-nabulsi/Wander-Installer)** — the friendly one-tap sideloader.
 
 ---
 
