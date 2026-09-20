@@ -1,6 +1,6 @@
 {
-  "build": 153,
+  "build": 154,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Stop now works on mobile data. Your spoof survives much longer in the background — the keep-alive could switch itself off after you left and came back, and no longer does. Cellular Mode is available from the Route and Joystick tabs, not just Teleport. Connection errors now point at the real cause instead of sending you to Wi-Fi settings. Shared spots and routes now carry a description instead of a bare link."
+  "notes": "Fixes the most common setup failure: if LocalDevVPN's Tunnel IP is the same as your device's own address, Wander now tells you straight away instead of showing a connection-reset error. Connection errors now name both addresses (Device IP 10.7.0.0, Tunnel IP 10.7.0.1) and explain they must be different. Also fixes the Copy button in Tunnel Lab."
 }
