@@ -1,6 +1,6 @@
 {
-  "build": 130,
+  "build": 153,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Routes now look like a real maps app: each portion is coloured by how you travel it (walk, drive, cycle, transit), shows how long that portion takes, and the other routes are labelled with their time so you can tap one. Arrival time instead of just duration, and your device's current location now shows on the map. New Timeline records where you've been — see your day, and repeat it. Search now looks around your spoofed spot instead of where your phone really is, and you can tap any place Apple draws on the map to teleport there. Look Around street-level preview is now free. Plus: live hotspot list with freshness, cooldown journal and rulebook, per-account cooldowns, roam and orbit walking, optimise stop order, more Shortcuts actions, and a cleaner, easier-to-read app throughout."
+  "notes": "Stop now works on mobile data. Your spoof survives much longer in the background — the keep-alive could switch itself off after you left and came back, and no longer does. Cellular Mode is available from the Route and Joystick tabs, not just Teleport. Connection errors now point at the real cause instead of sending you to Wi-Fi settings. Shared spots and routes now carry a description instead of a bare link."
 }
