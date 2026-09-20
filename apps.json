@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "154",
+      "buildVersion": "155",
       "versionDate": "2026-09-20",
-      "versionDescription": "Fixes the most common setup failure: if LocalDevVPN's Tunnel IP is the same as your device's own address, Wander now tells you straight away instead of showing a connection-reset error. Connection errors now name both addresses (Device IP 10.7.0.0, Tunnel IP 10.7.0.1) and explain they must be different. Also fixes the Copy button in Tunnel Lab.",
+      "versionDescription": "Fixes Apple ID sign-in, which had been failing with a 503 error since around 10 September. Apple began turning away sign-in requests before it ever looked at your Apple ID, so nothing about your account or password was wrong. Wander now identifies itself to Apple the way Apple expects. Also stops the app printing your Apple ID to the device console when you sign in.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 22133730,
+      "size": 22136208,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "154",
+          "buildVersion": "155",
           "date": "2026-09-20",
-          "localizedDescription": "Fixes the most common setup failure: if LocalDevVPN's Tunnel IP is the same as your device's own address, Wander now tells you straight away instead of showing a connection-reset error. Connection errors now name both addresses (Device IP 10.7.0.0, Tunnel IP 10.7.0.1) and explain they must be different. Also fixes the Copy button in Tunnel Lab.",
+          "localizedDescription": "Fixes Apple ID sign-in, which had been failing with a 503 error since around 10 September. Apple began turning away sign-in requests before it ever looked at your Apple ID, so nothing about your account or password was wrong. Wander now identifies itself to Apple the way Apple expects. Also stops the app printing your Apple ID to the device console when you sign in.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 22133730,
+          "size": 22136208,
           "minOSVersion": "17.0"
         }
       ],

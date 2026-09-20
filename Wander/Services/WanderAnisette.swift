@@ -54,6 +54,33 @@ enum WanderAnisette {
         return list
     }
 
+    /// A client_info string Apple's GrandSlam edge accepts, used when a server gives us nothing
+    /// usable. Same value upstream (nab138/isideload, branch `apple-codesign-quick`) pins.
+    static let knownGoodClientInfo =
+        "<Mac15,7> <macOS;27.0;26A5378j> <com.apple.AuthKit/1 (com.apple.akd/1.0)>"
+
+    /// Around 2026-09-10 Apple's GrandSlam edge began answering POSTs to /grandslam/GsService2
+    /// with a 190-byte HTML 503 — BEFORE any credential check — whenever X-MMe-Client-Info names
+    /// `com.apple.dt.Xcode`. Every public anisette server still hands out that blocked string, so
+    /// failing over to another server does NOT help; we have to rewrite it ourselves.
+    ///
+    /// Verified by A/B against gsa.apple.com: the block keys on the app-identifier token alone.
+    ///   `<Mac15,7> ... (com.apple.dt.Xcode/3594.4.19)`  -> 503
+    ///   `<MacBookPro13,2> ... (com.apple.akd/1.0)`      -> 200
+    /// So swap ONLY that token and keep whatever device/OS the server declared, which stays
+    /// consistent with the machineID/OTP issued alongside it. A string that is already clean is
+    /// passed through untouched, so this keeps working if a server later serves a different
+    /// (non-blocked) description.
+    static func sanitizedClientInfo(_ raw: String?) -> String {
+        guard let raw, !raw.isEmpty else { return knownGoodClientInfo }
+        guard raw.contains("com.apple.dt.Xcode") else { return raw }
+        guard let open = raw.range(of: "(com.apple.dt.Xcode"),
+              let close = raw[open.upperBound...].firstIndex(of: ")") else {
+            return knownGoodClientInfo   // unrecognised shape -> known-good constant
+        }
+        return raw.replacingCharacters(in: open.lowerBound...close, with: "(com.apple.akd/1.0)")
+    }
+
     /// Fetch anisette, trying each candidate server until one succeeds. This is what makes sign-in
     /// resilient to any single server going down. Throws the LAST error if every server fails.
     static func fetch() async throws -> ALTAnisetteData {
@@ -85,7 +112,7 @@ enum WanderAnisette {
         f["machineID"] = json["X-Apple-I-MD-M"]
         f["oneTimePassword"] = json["X-Apple-I-MD"]
         f["routingInfo"] = json["X-Apple-I-MD-RINFO"] ?? "0"
-        f["deviceDescription"] = json["X-MMe-Client-Info"] ?? json["X-Mme-Client-Info"] ?? "<Wander>"
+        f["deviceDescription"] = sanitizedClientInfo(json["X-MMe-Client-Info"] ?? json["X-Mme-Client-Info"])
         f["localUserID"] = json["X-Apple-I-MD-LU"]
         f["deviceUniqueIdentifier"] = json["X-Mme-Device-Id"]
         f["date"] = json["X-Apple-I-Client-Time"] ?? ISO8601DateFormatter().string(from: Date())
