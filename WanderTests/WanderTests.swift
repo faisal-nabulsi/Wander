@@ -131,4 +131,80 @@ struct WanderTests {
         #expect(ProxyApp.loon.isRecommended == false)
     }
 
+    // MARK: - WlocRewriter (in-app gs-loc poisoner, module 1)
+
+    /// Build a protobuf key (fieldNumber<<3 | wireType).
+    private func pbKey(_ field: Int, _ wire: Int) -> Data {
+        WlocRewriter.encodeVarint((UInt64(field) << 3) | UInt64(wire))
+    }
+    /// A wire-0 field carrying a signed int64 (two's-complement on the wire, as Apple encodes coords).
+    private func pbVarint(_ field: Int, _ value: Int64) -> Data {
+        var d = pbKey(field, 0)
+        d.append(WlocRewriter.encodeVarint(UInt64(bitPattern: value)))
+        return d
+    }
+    /// A wire-2 length-delimited field wrapping `payload`.
+    private func pbLen(_ field: Int, _ payload: Data) -> Data {
+        var d = pbKey(field, 2)
+        d.append(WlocRewriter.encodeVarint(UInt64(payload.count)))
+        d.append(payload)
+        return d
+    }
+    private func readSigned(_ fields: [WlocRewriter.Field], _ field: Int) -> Int64? {
+        guard let f = fields.first(where: { $0.fieldNumber == field }), f.wireType == 0,
+              let (v, _) = WlocRewriter.decodeVarint(f.valueBytes, f.valueBytes.startIndex) else { return nil }
+        return Int64(bitPattern: v)
+    }
+
+    @Test func wlocPoisonMovesWifiCoordsAndKeepsApplesAccuracy() async throws {
+        // A Location submessage Apple would return for one AP: lat=1.0, lng=2.0, hAcc=57.
+        var loc = pbVarint(1, WlocRewriter.coordToInt(1.0))
+        loc.append(pbVarint(2, WlocRewriter.coordToInt(2.0)))
+        loc.append(pbVarint(3, 57))
+        let wifi = pbLen(2, loc)                 // Wi-Fi record: Location at field 2
+        var root = pbLen(2, wifi)                // root: Wi-Fi record at field 2
+        root.append(pbVarint(3, 999))            // a request-only root field that MUST be dropped
+
+        let out = WlocRewriter.poison(payload: root, latitude: 40.5, longitude: -74.25)
+        #expect(out.wifiCount == 1)
+        #expect(out.cellCount == 0)
+
+        let rootFields = WlocRewriter.parseFields(out.payload)
+        #expect(rootFields.contains { $0.fieldNumber == 3 } == false)   // dropped
+        let wifiField = try #require(rootFields.first { $0.fieldNumber == 2 })
+        let locField = try #require(WlocRewriter.parseFields(wifiField.valueBytes).first { $0.fieldNumber == 2 })
+        let locInner = WlocRewriter.parseFields(locField.valueBytes)
+        #expect(readSigned(locInner, 1) == WlocRewriter.coordToInt(40.5))
+        #expect(readSigned(locInner, 2) == WlocRewriter.coordToInt(-74.25))
+        #expect(readSigned(locInner, 3) == 57)   // Apple's real per-AP accuracy preserved, not clobbered
+    }
+
+    @Test func wlocPoisonMovesCellTowersAtRootFields22And24() async throws {
+        // Cell record nests its Location at field 5. Two towers, at root fields 22 and 24.
+        func cell() -> Data {
+            var loc = pbVarint(1, WlocRewriter.coordToInt(10.0))
+            loc.append(pbVarint(2, WlocRewriter.coordToInt(20.0)))
+            return pbLen(5, loc)
+        }
+        var root = pbLen(22, cell())
+        root.append(pbLen(24, cell()))
+
+        let out = WlocRewriter.poison(payload: root, latitude: -33.0, longitude: 151.0)
+        #expect(out.cellCount == 2)
+
+        for rootField in [22, 24] {
+            let f = try #require(WlocRewriter.parseFields(out.payload).first { $0.fieldNumber == rootField })
+            let loc = try #require(WlocRewriter.parseFields(f.valueBytes).first { $0.fieldNumber == 5 })
+            let inner = WlocRewriter.parseFields(loc.valueBytes)
+            #expect(readSigned(inner, 1) == WlocRewriter.coordToInt(-33.0))
+            #expect(readSigned(inner, 2) == WlocRewriter.coordToInt(151.0))
+        }
+    }
+
+    @Test func wlocCoordToIntMatchesAppleFixedPoint() async throws {
+        #expect(WlocRewriter.coordToInt(0.0) == 0)
+        #expect(WlocRewriter.coordToInt(1.0) == 100_000_000)
+        #expect(WlocRewriter.coordToInt(-122.00902) == -12_200_902_000)
+    }
+
 }

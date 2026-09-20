@@ -16,9 +16,12 @@
 //  buttons without touching a contested file. It is also a better home: these take seconds each and
 //  produce paragraphs of output, which a menu alert reads badly.
 //
-//  SAFETY. Every probe here is READ-ONLY: it opens bounded sockets and reads getifaddrs. Nothing on
-//  this screen writes a UserDefaults tunnel address, starts or stops a VPN, or touches
-//  LocationSimulationCommandQueue. The one screen that DOES mutate settings is TunnelMatrixView,
+//  SAFETY. Every probe here is READ-ONLY — with ONE named exception. The probes open bounded sockets
+//  and read getifaddrs; none of them writes a UserDefaults tunnel address or starts or stops a VPN.
+//  The exception is the "Location sink A/B" row, which INJECTS A LOCATION twice and clears it twice
+//  (see Wander/Device/LocationSinkAB.swift). It lives in its own section, under its own warning, and
+//  refuses to start while a simulation is active or while gs-loc mode is on — so it can never become
+//  a second writer. The one screen that DOES mutate settings is TunnelMatrixView,
 //  which is reached from Tools separately and does its own restore. Each run is a `Task.detached`
 //  rather than a `Task {}` so the blocking connects never land on the main thread — a plain `Task {}`
 //  inside a SwiftUI view inherits MainActor and would freeze the UI for the length of the sweep.
@@ -42,6 +45,11 @@ struct TunnelLabView: View {
     /// gives no app any way to read or write another app's NEVPNManager configuration.
     @AppStorage(TunnelRoutePolicy.enforceRoutesDefaultsKey) private var enforceRoutes = false
     @AppStorage(TunnelRoutePolicy.allowLocalNetworksDefaultsKey) private var allowLocalNetworks = false
+
+    /// The ONE row on this screen that writes a location. It has its own runner rather than going
+    /// through `probeRow` because it needs the main actor (it drives a CLLocationManager delegate
+    /// feed), it takes a minute or two, and it must be able to refuse to start.
+    @StateObject private var sinkAB = LocationSinkABRunner()
 
     var body: some View {
         List {
@@ -120,6 +128,56 @@ struct TunnelLabView: View {
                 Text("The two untested levers")
             } footer: {
                 Text("Run these ONE AT A TIME and never with enforceRoutes armed — Apple documents enforceRoutes as superseding \"scoping operations by apps\", so it would silently invalidate the binding result.")
+            }
+
+            // THE ONE ROW HERE THAT IS NOT READ-ONLY. It injects a location twice and clears twice,
+            // which is why it sits in its own section under its own warning rather than beside the
+            // socket probes above.
+            Section {
+                Button {
+                    Task { await sinkAB.run() }
+                } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L("tunnellab.sinkab.title",
+                                   fallback: "Location sink A/B (does the sink set isSimulatedBySoftware?)"))
+                            Text(L("tunnellab.sinkab.detail",
+                                   fallback: "Sends ONE coordinate twice — first through the DVT service Wander ships, then through the lockdown sibling com.apple.dt.simulatelocation — and reads the flags off the LIVE location feed each time. Takes 1–2 minutes. Stop any spoof first; gs-loc mode must be OFF."))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        if sinkAB.isRunning {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.left.arrow.right.circle")
+                        }
+                    }
+                }
+                .disabled(sinkAB.isRunning || running != nil)
+
+                if sinkAB.isRunning && !sinkAB.progress.isEmpty {
+                    Text(sinkAB.progress)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if !sinkAB.report.isEmpty {
+                    Text(sinkAB.report)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                    Button {
+                        UIPasteboard.general.string = sinkAB.report
+                    } label: {
+                        Label(L("tunnellab.sinkab.copy", fallback: "Copy the A/B report"),
+                              systemImage: "doc.on.doc")
+                    }
+                }
+            } header: {
+                Text(L("tunnellab.sinkab.header", fallback: "The last open door — this one WRITES"))
+            } footer: {
+                Text(L("tunnellab.sinkab.footer",
+                       fallback: "Keep Wander in the foreground for the whole run. It moves your device's reported location to a far-away landmark, reads what iOS hands apps, clears it, repeats through the other service, then clears again — it never leaves a spoof running. It refuses to start while a simulation is active or while gs-loc mode is on, because two writers to one location is a bug we already shipped once."))
             }
 
             Section {

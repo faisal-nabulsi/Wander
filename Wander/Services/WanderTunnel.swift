@@ -546,6 +546,14 @@ final class WanderTunnel: ObservableObject {
         // iOS runs ONE VPN at a time, and start() sets isEnabled + saves, which DISCONNECTS whatever is
         // currently connected. If LocalDevVPN is up and carrying the loopback, starting ours would tear
         // down a working tunnel and take the spoof with it — strictly worse than doing nothing.
+        //
+        // ⚠️ ASK THE CHEAP, CELLULAR-SAFE QUESTION FIRST. This function defined "usable" as "I can open
+        // a NEW connection to it", and on mobile data that can never be true even for a session that is
+        // carrying traffic right now (`SO_RESTRICT_DENY_CELLULAR` on the pairing listener — the wall is
+        // on connection BIRTH only). So every cellular caller burned the full 12 s timeout, logged an
+        // interface dump, and was told the tunnel was down while the spoof was live. A confirmed inject
+        // from the device is the better evidence, and it is the same test `TunnelHealthMonitor` uses.
+        if TunnelInjectStatus.hasRecentConfirmedSuccess() { return true }
         if isTunnelSimEndpointReachable() { return true }
 
         // Even when the endpoint isn't answering, another VPN may be mid-handshake or briefly stalled

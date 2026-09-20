@@ -105,12 +105,18 @@ struct WalkModeView: View {
         guard !keepAliveHeld else { return }
         keepAliveHeld = true
         BackgroundLocationManager.shared.requestStart()
+        // BOTH keep-alives, not just location. A walk keeps injecting straight through
+        // `SimulationSession.markStopped()` (the Map tab's Stop) — that is documented there — so the
+        // session's own audio lease can be released out from under a walk that is still running.
+        // Location survived that only because this latch existed for it; audio needs the same.
+        BackgroundAudioManager.shared.requestStart()
     }
 
     private func releaseKeepAlive() {
         guard keepAliveHeld else { return }
         keepAliveHeld = false
         BackgroundLocationManager.shared.requestStop()
+        BackgroundAudioManager.shared.requestStop()
     }
 
     @State private var moveTimer: Timer?
@@ -374,6 +380,36 @@ struct WalkModeView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     speedSlider
                 } else {
+                    // ── CELLULAR MODE, IN THE ONE WINDOW WHERE IT MAKES SENSE ────────────────────
+                    //
+                    // A start point exists and the stick has not been touched yet — which is exactly
+                    // when the session has to be born, because the airplane cycle takes ~30 s and
+                    // cannot happen mid-walk (the teleport inside it would be a second writer against
+                    // the moving one, the backward-jump that produces PoGo "Failed to detect location
+                    // (12)"). It disappears the moment the walk starts, which is correct.
+                    //
+                    // The handoff needs nothing special: `start()` writes through the cached handle
+                    // with no probe in the way, so the joystick simply works over the session the
+                    // sequence established.
+                    CellularModeStartButton(
+                        coordinate: coordinate,
+                        isOffered: !isWalking && !isStarting && !session.isActive
+                            && pairingFilePath() != nil,
+                        note: L("joystick.cellular.note",
+                                fallback: "Mobile data, no Wi-Fi — iOS won't let the tunnel connect. Cellular Mode turns Airplane Mode on just long enough to get it up, puts you at your start point, then turns it back off. You're offline for up to about half a minute."),
+                        readyLabel: L("joystick.cellular.run", fallback: "Start here — Cellular Mode"),
+                        isDisabled: isStarting,
+                        // The joystick's own allowance, asked BEFORE the radio goes off rather than
+                        // thirty seconds into a run. See the same note on the Route tab.
+                        extraAllowance: { License.shared.isLicensed || TrialManager.shared.canUse(.joystick) },
+                        onEstablished: {
+                            // The component already refused the hand-off for a Stop landing mid-run
+                            // and for another tab's engine taking the stream. This is the term only
+                            // this view can check: a walk begun from this tab while the radio was off.
+                            guard !isWalking, !isStarting else { return }
+                            start(cellularSessionEstablished: true)
+                        }
+                    )
                     HStack(alignment: .center, spacing: MapModeChrome.rowSpacing) {
                         joystick
                         VStack(spacing: MapModeChrome.groupSpacing) {
@@ -966,7 +1002,11 @@ struct WalkModeView: View {
 
     /// Begin a joystick run. `then` runs once the walk has ACTUALLY begun, and not at all on any of
     /// the bail-out paths — see `lockHeading`, which arms its lock from it.
-    private func start(then completion: (@MainActor () -> Void)? = nil) {
+    ///
+    /// `cellularSessionEstablished` is the Cellular Mode hand-off saying a tunnel session exists right
+    /// now and a coordinate has already landed on it. See the gate skip below.
+    private func start(cellularSessionEstablished: Bool = false,
+                       then completion: (@MainActor () -> Void)? = nil) {
         // A bring-up is already in flight (see `isStarting`). The joystick asks many times a second
         // and only the first ask may start a run.
         guard !isStarting else { return }
@@ -978,6 +1018,17 @@ struct WalkModeView: View {
         }
         if !License.shared.isLicensed && !TrialManager.shared.canUse(.joystick) {
             showPaywall = true
+            return
+        }
+        // ⚠️ A CELLULAR MODE HAND-OFF MUST NOT GO THROUGH THE GATE. `TunnelStartGate.then` awaits
+        // `WanderTunnel.ensureStarted()`, which — when it can get neither a recent confirmed inject
+        // nor a reachability probe, and on mobile data the probe can NEVER answer yes — calls
+        // `start()`, saving the VPN configuration and bouncing the tunnel. That would tear down the
+        // very session the airplane cycle just spent thirty seconds building, and no replacement can
+        // be born while cellular is the only transport. The session is already up; just walk.
+        if cellularSessionEstablished {
+            beginWalk(from: coordinate)
+            completion?()
             return
         }
         // Bring Wander's own tunnel up before the first write, the way the Teleport tab does.

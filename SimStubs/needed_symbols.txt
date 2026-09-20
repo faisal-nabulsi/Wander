@@ -27,7 +27,11 @@ heartbeat_send_polo
 idevice_data_free
 idevice_error_free
 idevice_init_logger
+idevice_pairing_file_free
+idevice_pairing_file_read
+idevice_provider_free
 idevice_string_free
+idevice_tcp_provider_new
 image_mounter_connect_rsd
 image_mounter_copy_devices
 image_mounter_free
@@ -41,6 +45,10 @@ location_simulation_clear
 location_simulation_free
 location_simulation_new
 location_simulation_set
+lockdown_location_simulation_clear
+lockdown_location_simulation_connect
+lockdown_location_simulation_free
+lockdown_location_simulation_set
 lockdownd_client_free
 lockdownd_connect_rsd
 lockdownd_get_value
@@ -66,6 +74,8 @@ remote_server_connect_rsd
 remote_server_free
 rp_pairing_file_free
 rp_pairing_file_read
+rsd_free_services
+rsd_get_services
 rsd_handshake_free
 rsd_service_available
 screenshot_client_free

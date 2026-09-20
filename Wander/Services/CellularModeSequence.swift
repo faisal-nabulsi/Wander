@@ -190,6 +190,23 @@ final class CellularModeSequence: ObservableObject {
     /// Carried from the work phase to the end, so the restore runs even when the teleport failed and
     /// the user is still told what happened.
     private var pendingOutcome: WanderLocationIntent.TeleportOutcome?
+    /// ══ WHAT THE CALLER WANTED THIS SESSION FOR. ══
+    ///
+    /// The sequence's job is to BIRTH a tunnel session while the radio is off; on the Route and
+    /// Joystick tabs the point of that session is the drive or the walk that follows it, and something
+    /// has to start it. Nothing outside could work out when to — success, failure and Cancel all end
+    /// in `phase == .idle`, `@Published` fires in `willSet` so a Combine sink sees `.idle` while
+    /// `failure` is still nil, and the Wi-Fi short-circuit in `start` doesn't set a phase
+    /// synchronously at all. Every way of INFERRING completion from the outside starts a route the
+    /// user cancelled; this reports it instead.
+    ///
+    /// Stored on the singleton rather than in a caller's view state on purpose: a run spans two trips
+    /// out to Shortcuts and back, and a `@State` latch would not survive the tab switch or the view
+    /// re-creation that can happen in between.
+    ///
+    /// Dropped by `reset()`, which is how a cancelled or failed run's caller hears nothing at all —
+    /// the same mechanism, and the same guarantee, as `generation` abandoning an in-flight await.
+    private var completion: ((WanderLocationIntent.TeleportOutcome) -> Void)?
     /// Set when we hand off to Shortcuts; the didBecomeActive handler ignores anything that arrives
     /// before we have actually left, so a same-runloop activation can't advance the sequence.
     private var hasLeftForShortcuts = false
@@ -233,7 +250,14 @@ final class CellularModeSequence: ObservableObject {
     /// The paywall gate is deliberately NOT here: callers already ask `CellularModeRun.isAllowedToStart`
     /// so they can present the paywall, and `WanderLocationIntent.teleport` asks it again before it
     /// charges anything. Two gates on the same predicate, no third opinion.
-    func start(latitude: Double, longitude: Double) {
+    ///
+    /// `onFinished` runs only when the whole run completed — signal back and all — and it is handed
+    /// the teleport's real verdict. It does NOT run for a cancel, for a failure, or for a second tap
+    /// that the re-entrancy guard below refuses. Callers that hand off to a movement engine must act
+    /// on `.ok` and nothing else.
+    func start(latitude: Double,
+               longitude: Double,
+               onFinished: ((WanderLocationIntent.TeleportOutcome) -> Void)? = nil) {
         // Re-entrancy: a second tap while a run is in flight would hand off to Shortcuts twice and
         // leave two state machines racing for one radio.
         guard phase == .idle else { return }
@@ -242,6 +266,7 @@ final class CellularModeSequence: ObservableObject {
         guard CLLocationCoordinate2DIsValid(coord) else { return }
         generation &+= 1
         target = coord
+        completion = onFinished
         radioIsOff = false
         pendingOutcome = nil
         failure = nil
@@ -760,12 +785,30 @@ final class CellularModeSequence: ObservableObject {
             // point of the alert is that it is in front of them with the gesture spelled out. The
             // teleport's own verdict waits; a phone with no calls beats a pin that didn't take.
             LogManager.shared.addInfoLog("Cellular Mode: signal did NOT come back — leaving the Airplane Mode card up")
+            // ══ THE RADIO IS NOT WHAT THE CALLER ASKED FOR. DELIVER THE OUTCOME ANYWAY. ══
+            //
+            // This branch used to `reset()` (which drops `completion`) and return, so a Route or
+            // Joystick hand-off was silently thrown away — even though the teleport had already
+            // SUCCEEDED, the tunnel session was alive, and the session is the entire thing the caller
+            // wanted. The user got the pin sitting at the route start, no drive, and their teleport
+            // allowance charged, with no way to know that tapping the ordinary Drive button would now
+            // work. And this is a TIMING outcome, not a fault: the comment above concedes that
+            // re-attaching "routinely takes ten seconds or more", so a modem that takes 27 s is normal.
+            //
+            // The established session does not depend on the radio — that is the premise of the whole
+            // feature — so the drive can start and run perfectly while the user flips the switch back
+            // by hand. Read the state out BEFORE `reset()` drops it, arm the alert FIRST (same
+            // ordering rule as `finish()`: nothing may present over an explanation the user still
+            // needs), then hand the outcome on.
+            let outcome = pendingOutcome
+            let completion = self.completion
             reset()
             failure = Failure(
                 title: L("cellular.fail.nosignal.title", fallback: "Turn Airplane Mode off yourself"),
                 message: L("cellular.fail.nosignal.body",
                            fallback: "Wander asked for Airplane Mode to go back off and can't see your signal return. Swipe down from the top-right corner of the screen and tap the airplane icon. Your location stays where you set it."),
                 offerSetup: false)
+            if let outcome { completion?(outcome) }
             return
         }
         finish()
@@ -773,6 +816,9 @@ final class CellularModeSequence: ObservableObject {
 
     private func finish() {
         let outcome = pendingOutcome
+        // Read BEFORE `reset()`, which drops it — that drop is what makes a cancelled or failed run
+        // silent, and it must not also silence the run that actually completed.
+        let completion = self.completion
         reset()
         switch outcome {
         case .none, .some(.ok):
@@ -788,6 +834,9 @@ final class CellularModeSequence: ObservableObject {
                             fallback: "Airplane Mode did its part, but the tunnel or the teleport failed — most often a missing pairing file (Settings → Pairing) or a tunnel that couldn't claim iOS's single VPN slot. Trying again usually does it."),
                  offerSetup: false)
         }
+        // LAST, and after the failure alert is already armed, so a caller that starts a drive here
+        // cannot present anything over an explanation the user still needs to read.
+        if let outcome { completion?(outcome) }
     }
 
     // MARK: - Helpers
@@ -830,5 +879,6 @@ final class CellularModeSequence: ObservableObject {
         target = nil
         radioIsOff = false
         pendingOutcome = nil
+        completion = nil
     }
 }

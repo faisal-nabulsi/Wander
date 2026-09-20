@@ -546,10 +546,26 @@ struct PlacesView: View {
     /// being pasted into Discord and still opens the app for anyone who has it installed.
     @ViewBuilder private func shareLink(for place: LocationBookmark) -> some View {
         if let url = WanderShareLink.webURL(forSpot: place.coordinate, name: place.name) {
-            ShareLink(item: url) {
+            // Share a STRING, not the bare URL. A naked link pasted into Discord says nothing about
+            // what it is or where it came from; the caption is what turns a shared spot into someone
+            // else's first look at Wander. We lose the URL's rich-preview thumbnail by sending text,
+            // which is the deliberate trade — the receiving app still linkifies the URL on its own.
+            // Name + link only: never put anything sensitive in a caption that leaves the device.
+            ShareLink(item: Self.shareCaption(for: place.name) + "\n" + url.absoluteString) {
                 Label(L("share.share_spot", fallback: "Share spot"), systemImage: "square.and.arrow.up")
             }
         }
+    }
+
+    /// The text that rides along with a shared spot. Named spots keep their name so the receiver
+    /// sees what they were sent before they tap anything.
+    static func shareCaption(for name: String?) -> String {
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return String(format: L("share.caption.spot_named",
+                                    fallback: "\u{1F4CD} %@ — check out this spot I found in Wander, the free no-jailbreak GPS location changer:"), name)
+        }
+        return L("share.caption.spot",
+                 fallback: "\u{1F4CD} Check out this spot I found in Wander, the free no-jailbreak GPS location changer:")
     }
 
     /// Read a share link out of the clipboard and hand it to the app's OWN deep-link handler by

@@ -1039,6 +1039,11 @@ struct AddressSearchBar: View {
         // Shared links often percent-encode the comma ("q=40.7128%2C-74.0060").
         let haystack = (lower.removingPercentEncoding ?? lower)
 
+        // Yandex Maps and 2GIS put LONGITUDE first (`ll=lng,lat`), the reverse of Apple/Google.
+        // The generic `ll=` scan below would otherwise read a Moscow link (ll=37.6,55.7) as
+        // lat=37.6,lng=55.7 and teleport to the Indian Ocean. Detect those hosts and swap the pair.
+        let axisReversed = lower.contains("yandex") || lower.contains("2gis")
+
         // Ordered by how specific the marker is: an explicit `ll=`/`q=` is the point
         // the sharer meant, whereas `@` is only the map's viewport centre.
         // `coordinate=` is Apple's newer /place link shape, which shares the same
@@ -1047,7 +1052,7 @@ struct AddressSearchBar: View {
         for marker in ["ll=", "coordinate=", "q=", "query=", "daddr=", "center=", "@"] {
             var searchStart = haystack.startIndex
             while let range = haystack.range(of: marker, range: searchStart..<haystack.endIndex) {
-                if let coord = leadingPair(haystack[range.upperBound...]) { return coord }
+                if let coord = leadingPair(haystack[range.upperBound...], reversed: axisReversed) { return coord }
                 // Keep scanning: `q=Statue+of+Liberty&ll=40.7,-74.0` has a q= that
                 // isn't a coordinate but a usable pair further along.
                 searchStart = range.upperBound
@@ -1057,15 +1062,17 @@ struct AddressSearchBar: View {
     }
 
     /// Read a "lat,lng" pair off the front of a URL fragment, stopping at the first
-    /// character that can't be part of a number pair (`&`, `/`, `z`, …).
-    private static func leadingPair(_ fragment: Substring) -> CLLocationCoordinate2D? {
+    /// character that can't be part of a number pair (`&`, `/`, `z`, …). When `reversed`
+    /// the source put longitude first (Yandex/2GIS), so the two are swapped back.
+    private static func leadingPair(_ fragment: Substring, reversed: Bool = false) -> CLLocationCoordinate2D? {
         var buffer = ""
         for ch in fragment {
             guard ch.isNumber || ch == "." || ch == "-" || ch == "," else { break }
             buffer.append(ch)
         }
         let parts = buffer.split(separator: ",")
-        guard parts.count >= 2, let lat = Double(parts[0]), let lng = Double(parts[1]) else { return nil }
+        guard parts.count >= 2, let a = Double(parts[0]), let b = Double(parts[1]) else { return nil }
+        let (lat, lng) = reversed ? (b, a) : (a, b)
         return validated(latitude: lat, longitude: lng)
     }
 

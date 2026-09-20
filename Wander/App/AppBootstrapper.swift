@@ -44,7 +44,7 @@ enum AppBootstrapper {
         guard UserDefaults.standard.bool(forKey: "keepAliveAudio") else {
             return
         }
-        BackgroundAudioManager.shared.start()
+        BackgroundAudioManager.shared.start(owner: .userSetting)
     }
 
     private static func applyDocumentPickerCopyWorkaround() {

@@ -67,6 +67,9 @@ struct SettingsView: View {
     @AppStorage("gsloc_mode_enabled") private var gslocModeEnabled = false
     @State private var showGslocSetup = false
     @State private var showGslocAutomations = false
+    @State private var showProxyProbe = false
+    @State private var showCASetup = false
+    @State private var showEngine = false
     @State private var showTunnelIP = false
     @State private var loopbackTunnelTest = (UserDefaults.standard.string(forKey: UserDefaults.Keys.targetDeviceIP) == "127.0.0.1")
     @EnvironmentObject private var localization: LocalizationManager
@@ -601,8 +604,8 @@ struct SettingsView: View {
                         }
                     }
                     .onChange(of: keepAliveAudio) { _, enabled in
-                        if enabled { BackgroundAudioManager.shared.start() }
-                        else { BackgroundAudioManager.shared.stop() }
+                        if enabled { BackgroundAudioManager.shared.start(owner: .userSetting) }
+                        else { BackgroundAudioManager.shared.stop(owner: .userSetting) }
                     }
 
                     Toggle(isOn: $keepAliveLocation) {
@@ -613,8 +616,11 @@ struct SettingsView: View {
                                 .wanderDetail()
                         }
                     }
-                    .onChange(of: keepAliveLocation) { _, enabled in
-                        if !enabled { BackgroundLocationManager.shared.stop() }
+                    .onChange(of: keepAliveLocation) { _, _ in
+                        // Both directions. Turning it OFF stops the updates; turning it back ON while
+                        // a spoof is already running now starts them, instead of the toggle quietly
+                        // doing nothing until the next session.
+                        BackgroundLocationManager.shared.settingDidChange()
                     }
                 } header: {
                     Text(localized: "settings.keepalive.header", fallback: "Keep simulation alive")
@@ -701,6 +707,20 @@ struct SettingsView: View {
 
                     navRow(L("settings.experimental.gsloc.automations", fallback: "Shortcuts & automations"),
                            icon: Wander.Icon.shortcuts) { showGslocAutomations = true }
+
+                    // THROWAWAY DIAGNOSTIC (ProxyProbeView): tests whether locationd's gs-loc lookup
+                    // travels through an in-app Wi-Fi HTTP proxy. If yes, Wander could host gs-loc
+                    // itself (no Shadowrocket) on the Wi-Fi path. Remove once the question is settled.
+                    navRow("Proxy probe (in-app gs-loc test)",
+                           icon: "network.badge.shield.half.filled") { showProxyProbe = true }
+
+                    // In-app gs-loc engine — the CA install/trust flow. Reachable while the engine is
+                    // being brought up; harmless if the user never runs the engine.
+                    navRow("Trust Wander's certificate (in-app engine)",
+                           icon: "checkmark.shield") { showCASetup = true }
+
+                    navRow("Run in-app gs-loc engine (test)",
+                           icon: "bolt.horizontal.circle") { showEngine = true }
 
                     Toggle(isOn: $loopbackTunnelTest) {
                         Label(L("settings.experimental.loopback",
@@ -819,6 +839,15 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showLocationDiagnostic) {
             LocationDiagnosticView()
+        }
+        .sheet(isPresented: $showProxyProbe) {
+            ProxyProbeView()
+        }
+        .sheet(isPresented: $showCASetup) {
+            GslocCASetupView()
+        }
+        .sheet(isPresented: $showEngine) {
+            GslocEngineView()
         }
         .alert("Two-Factor Code", isPresented: wanderAccount.twoFactorPrompt(for: .settings)) {
             TextField("6-digit code", text: $twoFactorCode)

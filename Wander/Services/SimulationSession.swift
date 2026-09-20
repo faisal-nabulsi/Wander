@@ -333,7 +333,22 @@ final class SimulationSession: ObservableObject {
         // now wrong. This is the common case, not an edge one: clearing a pin to choose a different
         // spot lands here within seconds, and must never pay for a tunnel restart.
         WanderTunnel.shared.cancelAutoDisconnect()
-        BackgroundLocationManager.shared.requestStart()
+        // ONE LEASE PER SESSION, NOT ONE PER TELEPORT. This is called from thirteen places (every
+        // teleport, every mode start), and it used to call `requestStart()` — a reference COUNT —
+        // while only `stopAll()` ever released, and `markStopped()` (what the Map tab's Stop actually
+        // uses) released nothing at all. The count therefore only climbed, so continuous 100 m
+        // location updates and the GPS ran for the rest of the process after the first stop.
+        // `setSessionActive` is idempotent, so thirteen callers take one lease and either stop path
+        // puts it down.
+        BackgroundLocationManager.shared.setSessionActive(true)
+        // AND THE AUDIO KEEP-ALIVE, which is the stronger of the two and which a live spoof used to
+        // not ask for at all — it ran only if the user happened to have "Silent Audio" on. Suspension
+        // is fatal precisely here (iOS reclaims the DVT socket, TN2277, and on cellular it can never
+        // be rebuilt), so the session takes both leases for its lifetime. Still gated on the user's
+        // "keepAliveAudio" setting inside the manager, same as the location lease.
+        BackgroundAudioManager.shared.setSessionActive(true)
+        // A fresh session gets a fresh loss report — see SpoofLossReporter.
+        SpoofLossReporter.shared.armForNewSession()
         scheduleReminderIfEnabled()
         maybeShowCellularTip()
         // Start the tunnel heartbeat + best-effort self-heal for this session.
@@ -387,6 +402,11 @@ final class SimulationSession: ObservableObject {
         // last step. See InjectedLocationRecord.
         InjectedLocationRecord.clear()
         TunnelHealthMonitor.shared.stopMonitoring()
+        // Release the session's keep-alive lease. This path — the Map tab's Stop — never released it
+        // at all, which is the half of the leak that mattered most: teleport-and-stop is the app's
+        // most common cycle. See BackgroundLocationManager.setSessionActive.
+        BackgroundLocationManager.shared.setSessionActive(false)
+        BackgroundAudioManager.shared.setSessionActive(false)
         cancelReminder()
         // A deliberate stop ends the session — cancel the pending "cooldown cleared" ping so it can't
         // fire after the user has already stopped (the in-app chip still counts down if it re-shows).
@@ -433,16 +453,28 @@ final class SimulationSession: ObservableObject {
         LocationSimulationCommandQueue.suppressResends = true
         NotificationCenter.default.post(name: .stopSimulationRequested, object: nil)
         LocationSimulationCommandQueue.submitClear {
-            _ = clear_simulated_location()
-            // Every return path of that call has already run `LocationSimulationState.cleanup()`, so
-            // at this instant no FFI session handle exists. That fact — recorded here, on the
-            // location queue — is what lets the tunnel's fire-time guard tell "nothing is holding a
-            // session" from "I merely can't see one".
-            LocationSessionActivity.noteSessionClosed()
-            DispatchQueue.main.async {
-                BackgroundLocationManager.shared.requestStop()
+            // THE RETURN CODE IS NO LONGER THROWN AWAY. It used to be `_ =`, which meant a Stop that
+            // never reached the device was indistinguishable from one that did — from the only stop
+            // path Route, Joystick, geofences, schedules and Panic all funnel through. The user-facing
+            // half of a refused clear is raised inside `clear_simulated_location` itself (see
+            // `SpoofLossReporter.noteStopDidNotClear`), so all this owes is a line in the log; putting
+            // the report there rather than here is what makes every stop path inherit it.
+            let code = clear_simulated_location()
+            if code != 0 {
+                LogManager.shared.addInfoLog("[spoof] global stop: clear returned \(code)")
             }
+            // Whether a session handle still exists — recorded here, on the location queue — is what
+            // lets the tunnel's fire-time guard tell "nothing is holding a session" from "I merely
+            // can't see one". It is a CHECK, not an assumption: two of that call's return paths keep
+            // the handle deliberately (an owed clear, and one retry after a refused one), and pulling
+            // the transport out from under either is how a stop stops being deliverable.
+            LocationSessionActivity.noteSessionClosed()
         }
+        // Released here rather than in the clear's completion: the lease belongs to the session, and
+        // the session ended the moment `isActive` went false above. Waiting for the device clear to
+        // return meant a stop whose clear never came back (tunnel down) left the keep-alive running.
+        BackgroundLocationManager.shared.setSessionActive(false)
+        BackgroundAudioManager.shared.setSessionActive(false)
         // MUST stay after the clear is enqueued above. The scheduler waits its turn on that SAME
         // serial queue, so the grace timer only starts once the clear has actually returned — the
         // tunnel is the transport the clear rides on, and pulling it out mid-clear is how you get an

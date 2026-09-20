@@ -1,0 +1,4 @@
+module OpenSSLShim {
+  header "wander_openssl_shim.h"
+  export *
+}

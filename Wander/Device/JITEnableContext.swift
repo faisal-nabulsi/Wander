@@ -52,8 +52,35 @@ final class JITEnableContext {
     private var syslogLineHandler: SyslogLineHandler?
     private var syslogErrorHandler: SyslogErrorHandler?
 
-    var adapterHandle: OpaquePointer? { adapter }
-    var handshakeHandle: OpaquePointer? { handshake }
+    /// How long a REPLACED adapter/handshake pair is kept alive before it is freed.
+    ///
+    /// These handles leave the class as RAW POINTERS (`adapterHandle`/`handshakeHandle` →
+    /// `IdeviceBridge.activeTunnelHandles`) and are then held across FFI calls on other threads —
+    /// `isMounted()` runs them on the LOCATION SERIAL QUEUE from the teleport error-recovery path.
+    /// Nothing refcounts them. Freeing the old pair the instant a rebuild lands is therefore a
+    /// use-after-free on any reader that took the pointer a moment earlier: it does not crash often,
+    /// but it crashes at the worst possible time. Retiring the pair and freeing it after a grace
+    /// window costs one delayed dispatch and closes the window for every call that returns inside it.
+    private static let retiredHandleGrace: TimeInterval = 30
+    private let retireQueue = DispatchQueue(label: "com.wander.tunnel.retire")
+
+    /// Read under the lock, because `startTunnel()` swaps them from a background thread.
+    var adapterHandle: OpaquePointer? { tunnelLock.withLock { adapter } }
+    var handshakeHandle: OpaquePointer? { tunnelLock.withLock { handshake } }
+
+    /// True when a tunnel has been built and its handles are still cached. A NIL-check, not a
+    /// liveness check — the tunnel behind them may be dead (iOS reclaims the socket while the app is
+    /// suspended, TN2277). Callers that care about the difference must say which they mean.
+    var hasTunnelHandles: Bool { tunnelLock.withLock { adapter != nil && handshake != nil } }
+
+    /// Free a REPLACED handle pair later, never inline. See `retiredHandleGrace`.
+    private func retire(adapter staleAdapter: OpaquePointer?, handshake staleHandshake: OpaquePointer?) {
+        guard staleAdapter != nil || staleHandshake != nil else { return }
+        retireQueue.asyncAfter(deadline: .now() + Self.retiredHandleGrace) {
+            if let staleHandshake { rsd_handshake_free(staleHandshake) }
+            if let staleAdapter { adapter_free(staleAdapter) }
+        }
+    }
 
     private init() {
         let logURL = FileManager.default
@@ -304,19 +331,21 @@ final class JITEnableContext {
             throw tunnelError
         }
 
-        if let handshake {
-            rsd_handshake_free(handshake)
-        }
-        if let adapter {
-            adapter_free(adapter)
-        }
-
+        // SWAP UNDER THE LOCK, FREE LATER. This used to free the previous handles right here with no
+        // lock held, while other threads were free to be mid-FFI-call on those exact pointers (see
+        // `retiredHandleGrace`). The publish is now atomic against `adapterHandle`/`handshakeHandle`,
+        // and the old pair is retired rather than destroyed under a reader's feet.
+        tunnelLock.lock()
+        let staleAdapter = adapter
+        let staleHandshake = handshake
         adapter = newAdapter
         handshake = newHandshake
+        tunnelLock.unlock()
+        retire(adapter: staleAdapter, handshake: staleHandshake)
     }
 
     func ensureTunnel() throws {
-        if adapter == nil || handshake == nil {
+        if !hasTunnelHandles {
             try startTunnel()
         }
     }
@@ -327,13 +356,18 @@ final class JITEnableContext {
     /// back. Safe — `simulate_location` builds its own tunnel and doesn't use these handles.
     func invalidateTunnel() {
         tunnelLock.lock()
-        defer { tunnelLock.unlock() }
-        guard !tunnelConnecting else { return }   // don't free mid-creation
-        if let handshake { rsd_handshake_free(handshake) }
-        if let adapter { adapter_free(adapter) }
+        guard !tunnelConnecting else {            // don't free mid-creation
+            tunnelLock.unlock()
+            return
+        }
+        let staleAdapter = adapter
+        let staleHandshake = handshake
         adapter = nil
         handshake = nil
         lastTunnelError = nil
+        tunnelLock.unlock()
+        // Retired, not freed inline — same reader race as the swap in `startTunnel()`.
+        retire(adapter: staleAdapter, handshake: staleHandshake)
     }
 
     private func withFreshDebugTunnel<T>(

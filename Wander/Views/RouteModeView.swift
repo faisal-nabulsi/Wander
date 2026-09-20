@@ -532,12 +532,16 @@ struct RouteModeView: View {
         guard !keepAliveHeld else { return }
         keepAliveHeld = true
         BackgroundLocationManager.shared.requestStart()
+        // BOTH keep-alives — see WalkModeView.holdKeepAlive. A route playback keeps injecting
+        // through `SimulationSession.markStopped()`, which releases the session's audio lease.
+        BackgroundAudioManager.shared.requestStart()
     }
 
     private func releaseKeepAlive() {
         guard keepAliveHeld else { return }
         keepAliveHeld = false
         BackgroundLocationManager.shared.requestStop()
+        BackgroundAudioManager.shared.requestStop()
     }
 
     @State private var playbackTask: Task<Void, Never>?
@@ -1173,6 +1177,42 @@ struct RouteModeView: View {
                         .font(.wanderLabel)
                 }
                 .tint(Wander.brand)
+
+                // ── CELLULAR MODE, ONE STEP BEFORE DRIVE ──────────────────────────────────────────
+                //
+                // Placed here, and only after Preview has resolved, for two reasons that are both
+                // about the radio being off for ~30 s. First, `routeCoordinates.first` is the exact
+                // first fix the drive will write, so it is the right place to birth the session — a
+                // session born somewhere else would make the drive's opening write a teleport. Second,
+                // everything ABOVE this line needs the network (MKDirections, the Worker's Google
+                // routing, the speed-limit prefetch), so offering the airplane cycle around Preview
+                // would break the very thing the user is trying to do.
+                //
+                // Once the session exists the drive runs over it normally — the wall is on connection
+                // BIRTH only — so the handoff is simply "start the drive we were going to start".
+                CellularModeStartButton(
+                    coordinate: routeCoordinates.first,
+                    isOffered: !isDriving && !simSession.isActive
+                        && routeCoordinates.count > 1 && pairingFilePath() != nil,
+                    note: L("route.cellular.note",
+                            fallback: "Mobile data, no Wi-Fi — iOS won't let the tunnel connect. Cellular Mode turns Airplane Mode on just long enough to get it up, puts you at the start of the route, then turns it back off and drives. You're offline for up to about half a minute."),
+                    readyLabel: L("route.cellular.run", fallback: "Drive — Cellular Mode"),
+                    isDisabled: isComputing,
+                    // The route's OWN allowance, checked up front. Cellular Mode's gate is the
+                    // teleport allowance (it really does teleport, and charges one), so a free user
+                    // spends both — but finding that out from a paywall thirty seconds in, with the
+                    // radio already off, would be the worst possible moment to be told.
+                    extraAllowance: { License.shared.isLicensed || TrialManager.shared.canUse(.route) },
+                    onEstablished: {
+                        // The component already refused the hand-off for a Stop landing mid-run and
+                        // for another tab's engine taking the stream. This is the term only this view
+                        // can check: a drive started from this tab's own Drive button while the radio
+                        // was off. Two playback tasks on one stream is the backward jump that trips
+                        // PoGo's "Failed to detect location (12)".
+                        guard !isDriving else { return }
+                        Task { await startDrive(cellularSessionEstablished: true) }
+                    }
+                )
 
                 HStack(spacing: MapModeChrome.rowSpacing) {
                     Button {
@@ -2644,7 +2684,13 @@ struct RouteModeView: View {
     /// Drive the route. Pass `prebuiltSamples` to play an already-timed track (a recorded
     /// route replayed at its real pace) — this bypasses speed-mode sample building and the
     /// road-following coordinates entirely.
-    private func startDrive(prebuiltSamples: [RoutePlaybackSample]? = nil) async {
+    ///
+    /// `cellularSessionEstablished` is the Cellular Mode hand-off saying, as a fact rather than an
+    /// inference, that a tunnel session exists RIGHT NOW and a coordinate has landed on it — the run
+    /// only reports `.ok` because `WanderLocationIntent.teleport` got a zero back from the device. See
+    /// the two gates below, both of which that fact supersedes.
+    private func startDrive(prebuiltSamples: [RoutePlaybackSample]? = nil,
+                            cellularSessionEstablished: Bool = false) async {
         let usingPrebuilt = prebuiltSamples != nil
         guard usingPrebuilt || routeCoordinates.count > 1 else { return }
         guard pairingFilePath() != nil else {
@@ -2726,7 +2772,13 @@ struct RouteModeView: View {
         // 12s), so two taps started two concurrent drives, i.e. two playback tasks both writing
         // location. It is cleared on every exit path instead: the bail above, and just below.
         let stopEpochAtStart = SimulationSession.shared.stopGeneration
-        if TunnelStartGate.isNeeded {
+        // ⚠️ NEVER RUN THIS AFTER A CELLULAR MODE HAND-OFF. `ensureStarted()` will, if it cannot get a
+        // yes out of `hasRecentConfirmedSuccess()` or a reachability probe, call `start()` — which
+        // saves the VPN configuration and BOUNCES our tunnel. On mobile data the probe can never say
+        // yes, so the one place this would fire is the one place it is fatal: it would tear down the
+        // session the airplane cycle just spent thirty seconds building, and iOS will not let a
+        // replacement be born while cellular is the only transport.
+        if TunnelStartGate.isNeeded, !cellularSessionEstablished {
             await WanderTunnel.shared.ensureStarted()
         }
         // A global Stop / Panic during the bring-up must win. Without this the deferred start runs
@@ -2746,7 +2798,28 @@ struct RouteModeView: View {
         // Reuses the shipped bounded probe (`isTunnelSimEndpointReachable`) rather than adding
         // another one, hopped off the main thread because it is a blocking TCP connect. Skipped in
         // gs-loc mode, which injects through the proxy and has no dev tunnel to reach.
-        if !GslocMode.enabled, await !tunnelEndpointIsReachable() {
+        //
+        // ⚠️ A CONFIRMED INJECT OUTRANKS THE PROBE, AND IT HAS TO — ASKED IN THAT ORDER, CHEAP FIRST.
+        // That probe opens a NEW connection to the pairing listener, and on mobile data iOS refuses
+        // those unconditionally (`SO_RESTRICT_DENY_CELLULAR` on the listener; the wall is on
+        // connection BIRTH only). So this line refused to start ANY drive on cellular — including,
+        // absurdly, the drive that a Cellular Mode run had just built a healthy session for — while
+        // the first write would have gone straight down the cached handle without dialling anything.
+        // Same reasoning, and the same fix, as `TunnelHealthMonitor.apply` in build 148: the device
+        // confirming a real coordinate is better evidence than our ability to open a second
+        // connection to it.
+        //
+        // ⚠️ AND A HAND-OFF OUTRANKS BOTH, BECAUSE NEITHER CAN STILL SEE WHAT IT KNOWS.
+        // `hasRecentConfirmedSuccess` is a 20-SECOND window, and a Cellular Mode run is DESIGNED to
+        // exceed it: between the teleport that produced the confirmed inject and this line sit a
+        // Shortcuts round trip, up to 25 s waiting for the modem to re-attach, sample building, and
+        // the tunnel gate. Worse, that teleport's own evidence is deleted mid-flow — `started()` →
+        // `TunnelHealthMonitor.startMonitoring()` used to call `TunnelInjectStatus.reset()` (now
+        // `resetFailures()`, which is half of this fix). So the flagship cellular flow was refused with
+        // "Tunnel: disconnected" on the very session it had just built. `cellularSessionEstablished`
+        // is that run's own verdict, carried forward instead of re-derived from a wall clock.
+        if !GslocMode.enabled, !cellularSessionEstablished,
+           !TunnelInjectStatus.hasRecentConfirmedSuccess(), await !tunnelEndpointIsReachable() {
             isComputing = false
             alertText = "\(LocationSimulationOutcome.tunnelDownTitle) — \(LocationSimulationOutcome.tunnelDownMessage)"
             return
@@ -3264,10 +3337,23 @@ struct RouteModeView: View {
     /// a Share button that only ever errors is worse than no Share button on that row.
     @ViewBuilder private func shareLink(for route: SavedRoute) -> some View {
         if let link = routeShareLinks[route.id] {
-            ShareLink(item: link.url) {
+            // Share a STRING so the link arrives with context — see the note on the spot share in
+            // PlacesView. A route link that lands in a group chat with no caption reads as spam.
+            ShareLink(item: Self.routeShareCaption(for: route.name) + "\n" + link.url.absoluteString) {
                 Label(L("share.share_route", fallback: "Share route"), systemImage: "square.and.arrow.up")
             }
         }
+    }
+
+    /// Caption for a shared route. Mirrors the spot caption in PlacesView so both share paths
+    /// introduce Wander the same way.
+    static func routeShareCaption(for name: String?) -> String {
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return String(format: L("share.caption.route_named",
+                                    fallback: "\u{1F5FA} %@ — a route for Wander, the free no-jailbreak GPS location changer. Open it in the app:"), name)
+        }
+        return L("share.caption.route",
+                 fallback: "\u{1F5FA} A route for Wander — the free no-jailbreak GPS location changer. Open it in the app:")
     }
 
     /// Load a saved route's waypoints, compute the road path, and start driving.

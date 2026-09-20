@@ -38,6 +38,9 @@ final class LocationDiagnostic: NSObject, ObservableObject, CLLocationManagerDel
     }
 
     @Published var reading: Reading?
+    /// The raw CLLocation behind `reading`. Evidence capture must snapshot the OS object itself, not our
+    /// flattened copy — a derived struct is exactly where a measurement quietly becomes an assertion.
+    @Published var lastLocation: CLLocation?
     @Published var updates = 0
     @Published var authStatus: CLAuthorizationStatus = .notDetermined
     @Published var accuracyAuth: CLAccuracyAuthorization = .fullAccuracy
@@ -102,6 +105,7 @@ final class LocationDiagnostic: NSObject, ObservableObject, CLLocationManagerDel
         )
         Task { @MainActor in
             self.reading = r
+            self.lastLocation = loc
             self.updates += 1
         }
     }
@@ -125,6 +129,20 @@ struct LocationDiagnosticView: View {
     @ObservedObject private var places = PlaceLabelService.shared
     @Environment(\.dismiss) private var dismiss
     @State private var copied = false
+    @ObservedObject private var log = ExperimentLog.shared
+    @State private var evidenceLabel = ""
+    @State private var captured = false
+
+    private func captureEvidence() {
+        guard let loc = diag.lastLocation else { return }
+        let record = ExperimentLog.capture(location: loc,
+                                           label: evidenceLabel.trimmingCharacters(in: .whitespaces))
+        log.add(record)
+        captured = true
+        evidenceLabel = ""
+        // Brief confirmation, then re-arm — a run is usually several captures in a row.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { captured = false }
+    }
 
     var body: some View {
         NavigationStack {
@@ -132,6 +150,41 @@ struct LocationDiagnosticView: View {
                 Section {
                     Text("Start a spoof FIRST (teleport, then also try joystick), then read these. This is the exact location iOS hands every app — including Pokémon GO. Read-only; it changes nothing.")
                         .font(.footnote).foregroundStyle(.secondary)
+                }
+
+                if diag.lastLocation != nil {
+                    Section {
+                        TextField("What are you testing? e.g. dual engine, cached gs-loc + DVT", text: $evidenceLabel)
+                            .font(.footnote)
+                        Button {
+                            captureEvidence()
+                        } label: {
+                            Label(captured ? "Captured ✓" : "Capture evidence",
+                                  systemImage: captured ? "checkmark.seal.fill" : "camera.metering.matrix")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(evidenceLabel.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                        NavigationLink {
+                            ClaimVerificationView()
+                        } label: {
+                            Label("Verify the claims Wander is built on", systemImage: "checkmark.seal")
+                        }
+
+                        if !log.records.isEmpty {
+                            NavigationLink {
+                                ExperimentLogView()
+                            } label: {
+                                Label("\(log.records.count) recorded experiment\(log.records.count == 1 ? "" : "s")",
+                                      systemImage: "list.clipboard")
+                            }
+                        }
+                    } header: {
+                        Text("Evidence")
+                    } footer: {
+                        Text("Saves this exact reading — coordinates, accuracy, both source flags, and which engines were on — so a claim can be re-read later instead of remembered. Survives relaunch; exportable as text.")
+                    }
                 }
 
                 if let r = diag.reading {

@@ -945,12 +945,32 @@ final class CMSDecoderHelper: NSObject {
 /// transition so the failure can be READ instead of guessed at. Timestamps are what matter: correlate the
 /// moment the map snaps back with what this path was doing.
 enum SpoofTrace {
-    /// Master switch. On while diagnosing the airplane-off revert; turn OFF before shipping widely — it
-    /// writes a line every ~4s hold tick.
+    /// Master switch for the lines that MATTER — every session teardown, every rebuild, every late
+    /// write outcome. These fire on transitions, not on a timer, so they cost nothing on a healthy
+    /// session and they are the only record of how a spoof died. Leave this ON.
     static var enabled = true
+
+    /// The per-tick chatter, split out and OFF by default.
+    ///
+    /// The old comment on `enabled` said "turn OFF before shipping widely — it writes a line every ~4s
+    /// hold tick", and it was never turned off. That is ~900 entries an hour appended to a main-thread
+    /// `@Published` array, hitting `LogManager`'s 4000-entry cap in about four and a half hours and
+    /// then trimming continuously — steady allocation and main-thread churn for the entire life of
+    /// exactly the long background sessions this release is trying to protect.
+    ///
+    /// Switching the whole trace off was the wrong answer, because it is also the only diagnostic that
+    /// can prove what killed a session. So the tick lines go quiet and the transitions stay. Flip this
+    /// to true when you need a blow-by-blow of a single hold.
+    static var verbose = false
 
     static func log(_ message: String) {
         guard enabled else { return }
+        LogManager.shared.addInfoLog("[spoof] \(message)")
+    }
+
+    /// A line that fires on the 4 s hold tick. Silent unless `verbose`.
+    static func tick(_ message: String) {
+        guard verbose else { return }
         LogManager.shared.addInfoLog("[spoof] \(message)")
     }
 }
@@ -967,6 +987,12 @@ private enum LocationSimulationStatus {
     /// The developer-tunnel endpoint did not answer the bounded reachability probe, so NO
     /// un-timeout-able FFI call was attempted. One source of truth — see `LocationSimulationOutcome`.
     static let tunnelUnreachable: Int32 = LocationSimulationOutcome.tunnelUnreachable
+    /// A stop was SENT but has not come back inside its bound. Deliberately distinct from
+    /// `tunnelUnreachable`, which means the opposite thing (nothing was ever sent).
+    static let clearStalled: Int32 = LocationSimulationOutcome.clearStalled
+    /// A stop could NOT be sent yet because a write was still out on the detached FFI thread. The
+    /// session is kept and the clear is owed — see `LocationSimulationState.clearOwed`.
+    static let clearDeferred: Int32 = LocationSimulationOutcome.clearDeferred
 }
 
 /// The public half of the status codes: the one thing the UI is allowed to ask about a raw code, and
@@ -984,16 +1010,138 @@ enum LocationSimulationOutcome {
     /// A location write / clear was refused because the tunnel endpoint (ip:49152) did not answer.
     static let tunnelUnreachable: Int32 = 13
 
+    /// A stop WAS issued on the live session but did not report back inside its bound. It is not
+    /// `tunnelUnreachable` (which means nothing was dialled and nothing was sent) and it is not
+    /// `locationClear` (which means the device answered with an error). Kept separate because those
+    /// three want three different sentences: "nothing to stop", "your device refused", "we asked and
+    /// haven't heard back".
+    static let clearStalled: Int32 = 14
+
+    /// A stop that was NOT sent, because a location write was still outstanding on the detached FFI
+    /// thread and the library is not safe to call twice on one handle. The session is KEPT and the
+    /// clear is owed: it goes out by itself the moment that write comes back. Distinct from all three
+    /// codes above because it is the only one where nothing has left the phone AND nothing has been
+    /// given up on.
+    static let clearDeferred: Int32 = 15
+
     /// Did this code mean "the tunnel is not connected"?
     static func isTunnelUnreachable(_ code: Int32) -> Bool { code == tunnelUnreachable }
+
+    /// Did this code mean "the stop went out but has not been confirmed"?
+    static func isClearStalled(_ code: Int32) -> Bool { code == clearStalled }
+
+    /// Did this code mean "the stop has not gone out yet, and will"?
+    static func isClearDeferred(_ code: Int32) -> Bool { code == clearDeferred }
+
+    static var stopStalledTitle: String {
+        L("stop.stalled.title", fallback: "Stop sent")
+    }
+
+    /// The stop is on the wire and the answer is simply late. Say that, and give the one instruction
+    /// that resolves it if it never lands — deliberately NOT phrased as a failure, because on a
+    /// healthy-but-slow tunnel this resolves itself a second later.
+    ///
+    /// ⚠️ TAKES THE TRANSPORT, for the same reason `tunnelDownMessage` does. The old single string
+    /// told everybody to "turn Airplane Mode on and then off, and tap Stop again". On Wi-Fi that
+    /// names the wrong problem entirely (the fix there is to reconnect LocalDevVPN), and on cellular
+    /// it is worse than wrong: this path has already DROPPED the session handle, so tapping Stop
+    /// again has nothing to send over and iOS will not let a replacement session be born on mobile
+    /// data. The only sequence that can work there is a Cellular Mode run, which is exactly what the
+    /// app-wide alert offers.
+    static func stopStalledMessage(onCellular: Bool) -> String {
+        if onCellular {
+            return L("stop.stalled.message.cellular",
+                     fallback: "Wander told your device to stop simulating, but your device hasn't confirmed it yet. Wander has stopped everything on its side. If your location doesn't go back to normal within a few seconds, use Cellular Mode to clear it — on mobile data that is the only way to reach your device again.")
+        }
+        return L("stop.stalled.message",
+                 fallback: "Wander told your device to stop simulating, but your device hasn't confirmed it yet. Wander has stopped everything on its side. If your location doesn't go back to normal within a few seconds, check that the tunnel is connected and tap Stop again.")
+    }
+
+    /// ══ NOTHING WAS SENT, AND THAT IS THE HONEST WORD FOR IT. ══
+    ///
+    /// This is `stopStalledMessage`'s opposite and it must never borrow its copy: "Wander told your
+    /// device to stop simulating" would be a straight untruth here. A write is still outstanding on
+    /// the FFI thread, so the stop is queued behind it rather than lost — Wander sends it itself when
+    /// that write comes back, and the user does not have to do anything.
+    static var stopDeferredTitle: String {
+        L("stop.deferred.title", fallback: "Finishing the last update first")
+    }
+
+    static var stopDeferredMessage: String {
+        L("stop.deferred.message",
+          fallback: "Wander has stopped on its side, but it couldn't send the stop to your device yet — the previous location update hasn't come back. Wander will send it automatically as soon as that finishes. If your location hasn't gone back to normal in a minute, tap Stop again.")
+    }
+
+    static var stopRefusedTitle: String {
+        L("stop.refused.title", fallback: "Your device is still showing the fake location")
+    }
+
+    /// ⚠️ THE DEVICE, NOT WANDER, IS THE ONE STILL HOLDING THE FIX HERE, and the copy has to say so —
+    /// this is the one stop outcome where the user walks away believing they are back on real GPS
+    /// while they are not.
+    ///
+    /// On cellular the honest instruction is the Airplane cycle and nothing else: the session that
+    /// carried the stop is now dead, and `remotepairingdeviced` marks its own listeners deny-cellular,
+    /// so no amount of retrying opens a replacement while mobile data is the only transport.
+    static func stopRefusedMessage(onCellular: Bool) -> String {
+        if onCellular {
+            return L("stop.refused.message.cellular",
+                     fallback: "Wander stopped on its side, but your device refused the stop and is still reporting the simulated location. You're on mobile data with no Wi-Fi, so Wander can't open a new connection to fix it in place — Cellular Mode turns Airplane Mode on just long enough to reconnect, clears the location, then turns it back off.")
+        }
+        return L("stop.refused.message",
+                 fallback: "Wander stopped on its side, but your device refused the stop and is still reporting the simulated location. Check that the tunnel is connected, then tap Stop again.")
+    }
 
     static var tunnelDownTitle: String {
         L("tunnel.down.title", fallback: "Tunnel: disconnected")
     }
 
+    /// ⚠️ THE ADVICE DEPENDS ON THE TRANSPORT, and getting this wrong is worse than saying nothing.
+    ///
+    /// This used to be one string telling everybody to connect LocalDevVPN and wait for the chip to
+    /// read "Tunnel: connected". On mobile data with no Wi-Fi that instruction is not merely unhelpful,
+    /// it is FALSE: the tunnel is already connected, reconnecting it changes nothing, and the actual
+    /// fix — an Airplane Mode cycle — was never mentioned. That is the most common cellular failure in
+    /// the app, so the single most common failure message was confidently sending people the wrong way.
+    ///
+    /// WHY THE AIRPLANE CYCLE IS THE ANSWER THERE, in one line: `remotepairingdeviced` marks its own
+    /// listeners deny-cellular, so iOS refuses to open a NEW connection to them while the only
+    /// transport is cellular. An ESTABLISHED session survives the toggle back, which is why one cycle
+    /// at the start buys a whole session and why nothing in the app can substitute for it.
     static var tunnelDownMessage: String {
-        L("tunnel.down.message",
-          fallback: "Wander couldn't reach the connection it injects location through, so nothing was sent to your device. Connect LocalDevVPN (or turn on Wander's own tunnel in Settings), wait for the chip to read \"Tunnel: connected\", then try again.")
+        // One question, asked through the app's existing NWPathMonitor flag (which reads the
+        // UNDERLYING transport, so Wander's own utun can't fool it into saying Wi-Fi).
+        if NetworkReachability.isOnCellularSnapshot {
+            return L("tunnel.down.message.cellular",
+                     fallback: "Wander couldn't reach the connection it injects location through, so nothing was sent to your device. You're on mobile data with no Wi-Fi, and iOS refuses to open this connection on cellular — reconnecting the tunnel won't help. Turn Airplane Mode ON, start the spoof, then turn Airplane Mode back OFF: the connection survives the switch. Cellular Mode does exactly that for you.")
+        }
+        return L("tunnel.down.message",
+                 fallback: "Wander couldn't reach the connection it injects location through, so nothing was sent to your device. Connect LocalDevVPN (or turn on Wander's own tunnel in Settings), wait for the chip to read \"Tunnel: connected\", then try again.")
+    }
+
+    /// Title + body for "the spoof you had is gone", as distinct from "it never started".
+    static var sessionLostTitle: String {
+        L("spoof.lost.title", fallback: "Spoof stopped")
+    }
+
+    /// ⚠️ TAKES THE TRANSPORT AS AN ARGUMENT — IT MUST NOT RE-READ IT.
+    ///
+    /// This was a computed property that asked `NetworkReachability` at RENDER time, and it was
+    /// wrong: the recovery button is chosen from the transport recorded when the session DIED, so the
+    /// two could disagree and the alert would offer "Run Cellular Mode" above a paragraph telling the
+    /// user to check their tunnel. Caught on screen — the sim reports Wi-Fi, so a loss recorded as
+    /// cellular rendered the Wi-Fi copy under the cellular button.
+    ///
+    /// The transport genuinely can change between the death and the moment the user reads this (they
+    /// walk out of Wi-Fi range; the alert waits while the phone is in a pocket), and the message is
+    /// the half that carries the instructions. One recorded fact, both halves.
+    static func sessionLostMessage(onCellular: Bool) -> String {
+        if onCellular {
+            return L("spoof.lost.message.cellular",
+                     fallback: "Your device stopped accepting the simulated location, so it's back on real GPS. On mobile data iOS won't let Wander open a new connection, so this can't be fixed in place — Cellular Mode turns Airplane Mode on just long enough to reconnect, sets your spot again, then turns it back off.")
+        }
+        return L("spoof.lost.message",
+                 fallback: "Your device stopped accepting the simulated location, so it's back on real GPS. Check that the tunnel is connected, then start again.")
     }
 
     /// Used when a location command has not reported back at all — we know the queue is waiting on
@@ -1030,7 +1178,67 @@ private enum LocationSimulationState {
         set { liveTargetLock.lock(); _liveTarget = newValue; liveTargetLock.unlock() }
     }
 
+    /// Why the session was torn down, recorded at the ONE place that can know it.
+    ///
+    /// WHY THIS EXISTS. There are nine `cleanup()` call sites and, from outside, every one of them
+    /// produced the identical observable outcome: the handle is gone and the device is back on real
+    /// GPS. So "the user's spoof died" could never be attributed — a write that came back a real FFI
+    /// error, a user switching to gs-loc mid-session, and a normal Stop were indistinguishable after
+    /// the fact, and so were a jetsam and a force-quit. Two shipped regressions in this area were both
+    /// diagnosed from symptoms because this fact was never written down.
+    ///
+    /// ⚠️ OBSERVATION ONLY, same rule as `LocationSessionProbeState`. Nothing may branch spoofing
+    /// behaviour on this value.
+    enum TeardownReason: String {
+        /// A bounded write came back an actual FFI error inside its bound. Involuntary.
+        case writeFailed = "write returned an error"
+        /// A write we had stopped waiting on came back an error later. Involuntary, and the most
+        /// likely honest death for a backgrounded user.
+        case lateWriteFailed = "late write returned an error"
+        /// A rebuild leg failed. No live session was lost — this is a failed resurrection.
+        case rebuildFailed = "rebuild leg failed"
+        /// The user switched into gs-loc mode while a DVT session was live.
+        case gslocModeSwitch = "switched to gs-loc mode"
+        /// Stop, and the device came back with an error rather than taking the stop. Closing path,
+        /// but the one where the device may still be holding the fix.
+        case clearFailed = "stop, device refused the clear"
+        /// Stop, and the clear did not come back inside its bound — so the handle was DROPPED, not
+        /// freed (the detached FFI thread may still be using it). Closing path.
+        case clearStalled = "stop, clear did not come back"
+        /// Stop, normally. Closing path.
+        case cleared = "stop"
+    }
+
+    private static let teardownLock = NSLock()
+    private static var _lastTeardown: (reason: TeardownReason, at: Date)?
+    static var lastTeardown: (reason: TeardownReason, at: Date)? {
+        teardownLock.lock(); defer { teardownLock.unlock() }; return _lastTeardown
+    }
+
+    static func cleanup(reason: TeardownReason) {
+        noteTeardown(reason)
+        cleanup()
+    }
+
+    /// Record WHY without freeing anything.
+    ///
+    /// Split out of `cleanup(reason:)` for the one caller that must not free: a stop whose clear
+    /// stalled has to drop its references rather than release them (the detached FFI thread may still
+    /// be using the pointers), and it still deserves to say what happened. Everything the reason is
+    /// used for is observation, so recording it separately from the free is safe by construction.
+    static func noteTeardown(_ reason: TeardownReason) {
+        // Only record when something was actually torn down; the rebuild legs call this against a
+        // half-built session and would otherwise drown out the real deaths.
+        guard locationSimulation != nil || liveTarget != nil else { return }
+        teardownLock.lock()
+        _lastTeardown = (reason, Date())
+        teardownLock.unlock()
+        SpoofTrace.log("SESSION TORN DOWN — \(reason.rawValue)")
+    }
+
     static func cleanup() {
+        // The count describes ONE handle's refusals. Whatever happens next gets a fresh one.
+        resetFailedClearCount()
         liveTarget = nil
         if let locationSimulation {
             location_simulation_free(locationSimulation)
@@ -1065,10 +1273,68 @@ private enum LocationSimulationState {
         set { writeLock.lock(); _writeInFlight = newValue; writeLock.unlock() }
     }
 
+    /// ══ A STOP THE USER ASKED FOR THAT WE HAVE NOT MANAGED TO DELIVER YET. ══
+    ///
+    /// `clearOwed` — Stop arrived while a write was still out on the detached FFI thread. The library
+    /// is not safe to call twice on one handle, so the clear could not be issued THEN; this is the
+    /// note that says it still must be. `_boundedSet`'s late-outcome callback honours it the instant
+    /// the write comes back, which is the only moment the handle becomes free. Without it, that Stop
+    /// was simply dropped on the floor — the owner-reported symptom, with a different trigger.
+    ///
+    /// `clearUnconfirmed` — a clear WAS issued but never came back inside its bound, so the handle
+    /// had to be dropped rather than freed. Nothing else in the process can tell that state from "we
+    /// have no session because nothing is running", and conflating them is what made a second Stop
+    /// return a fabricated `ok`.
+    ///
+    /// Both are plain observed facts, set and read on the serial location queue and the FFI thread,
+    /// so they carry the same lock as the rest of this state.
+    private static let stopFlagsLock = NSLock()
+    private static var _clearOwed = false
+    private static var _clearUnconfirmed = false
+
+    static var clearOwed: Bool {
+        get { stopFlagsLock.lock(); defer { stopFlagsLock.unlock() }; return _clearOwed }
+        set { stopFlagsLock.lock(); _clearOwed = newValue; stopFlagsLock.unlock() }
+    }
+
+    /// Read-and-clear, so the late-write callback and a concurrent Stop cannot both act on one debt.
+    static func takeClearOwed() -> Bool {
+        stopFlagsLock.lock(); defer { stopFlagsLock.unlock() }
+        let owed = _clearOwed
+        _clearOwed = false
+        return owed
+    }
+
+    static var clearUnconfirmed: Bool {
+        get { stopFlagsLock.lock(); defer { stopFlagsLock.unlock() }; return _clearUnconfirmed }
+        set { stopFlagsLock.lock(); _clearUnconfirmed = newValue; stopFlagsLock.unlock() }
+    }
+
+    /// How many times in a row the device has answered a clear with an error over the CURRENT handle.
+    /// The first failure keeps the session so a second Stop can retry for free (an FFI error is not
+    /// proof the channel is dead, and on cellular no replacement can be born); the second frees it, so
+    /// a genuinely dead handle is not retried forever. Zeroed whenever a session is established or
+    /// released, so it can never carry over into a new one.
+    private static var _failedClearCount = 0
+
+    static var failedClearCount: Int {
+        stopFlagsLock.lock(); defer { stopFlagsLock.unlock() }
+        return _failedClearCount
+    }
+
+    static func noteFailedClear() {
+        stopFlagsLock.lock(); _failedClearCount += 1; stopFlagsLock.unlock()
+    }
+
+    static func resetFailedClearCount() {
+        stopFlagsLock.lock(); _failedClearCount = 0; stopFlagsLock.unlock()
+    }
+
     /// Drop our references WITHOUT freeing them — used only when a bounded write TIMED OUT and the
     /// detached FFI thread may still be using the pointers. Leaks one dead session; the alternative is a
     /// use-after-free. The next inject rebuilds, which is what actually restores the spoof.
     static func dropReferencesUnsafeToFree() {
+        resetFailedClearCount()
         liveTarget = nil
         locationSimulation = nil
         remoteServer = nil
@@ -1105,6 +1371,19 @@ enum LocationSessionProbeState {
     /// session — see `_simulate_location` — but knowing a write was mid-flight across a transport
     /// change is half of reading what happened.
     static var isWriteInFlight: Bool { LocationSimulationState.writeInFlight }
+
+    /// Why the last session teardown happened, and when. See `LocationSimulationState.TeardownReason`.
+    static var lastTeardownReason: String? { LocationSimulationState.lastTeardown?.reason.rawValue }
+
+    /// True when the last teardown was something that happened TO us rather than something a person
+    /// asked for. This is the class that costs a cellular user an Airplane Mode toggle, so it is the
+    /// class worth telling them about.
+    static var lastTeardownWasInvoluntary: Bool {
+        switch LocationSimulationState.lastTeardown?.reason {
+        case .writeFailed, .lateWriteFailed: return true
+        default: return false
+        }
+    }
 }
 
 /// Arbitrates the race between a bounded write's caller giving up and the detached FFI thread finishing,
@@ -1139,9 +1418,40 @@ enum LocationSimulationCommandQueue {
     /// simulation starts. Lock-guarded since it's read on this queue and written on the main thread.
     private static let suppressLock = NSLock()
     private static var _suppressResends = false
+    private static var _lastStreamClaimAt: Date?
     static var suppressResends: Bool {
         get { suppressLock.lock(); defer { suppressLock.unlock() }; return _suppressResends }
-        set { suppressLock.lock(); _suppressResends = newValue; suppressLock.unlock() }
+        set {
+            suppressLock.lock()
+            _suppressResends = newValue
+            if newValue { _lastStreamClaimAt = Date() }
+            suppressLock.unlock()
+        }
+    }
+
+    /// ══ "IS A MOVEMENT ENGINE WRITING RIGHT NOW?" — DERIVED, NOT DECLARED. ══
+    ///
+    /// The Route and Joystick engines each own the location stream while they run, and each says so by
+    /// setting `suppressResends = true` — not once, but on EVERY TICK (`WalkModeView.step`,
+    /// `RouteModeView`'s playback loop), because a cross-tab teleport may re-enable the map's resend
+    /// at any moment. That re-assertion is already a heartbeat; this just timestamps it.
+    ///
+    /// It exists for one question, asked by one caller: Cellular Mode's deferred hand-off. A run takes
+    /// about thirty seconds and the closure that starts the drive or the walk is stashed at TAP time,
+    /// so between the tap and the start the user can switch tabs and begin the OTHER engine by hand.
+    /// Both would then write the stream — the two-writer backward jump that produces Pokémon GO's
+    /// "Failed to detect location (12)" (OTA 92). Nothing else could see across the two tabs: each
+    /// engine's `isDriving`/`isWalking` is `@State` private to its own view.
+    ///
+    /// ⚠️ IT IS A VETO, NOT A GATE, and the distinction is why this is safe. Only the hand-off asks;
+    /// the ordinary Drive and Start buttons are untouched. And it EXPIRES: the stop paths also set
+    /// `suppressResends = true` (deliberately — see the property above), so the flag alone would read
+    /// "a writer is running" forever after any Stop. The timestamp is what makes a finished run stop
+    /// claiming the stream a few seconds later, with no latch anybody has to remember to release.
+    static func movementWriterActive(within seconds: TimeInterval = 6) -> Bool {
+        suppressLock.lock(); defer { suppressLock.unlock() }
+        guard _suppressResends, let at = _lastStreamClaimAt else { return false }
+        return Date().timeIntervalSince(at) <= seconds
     }
 }
 
@@ -1204,9 +1514,34 @@ enum TunnelInjectStatus {
     /// Consecutive inject failures since the last success. Reset to 0 on any success.
     private static var _consecutiveFailures = 0
 
+    /// ── SOFT SUCCESS vs CONFIRMED SUCCESS, and why the difference is load-bearing ────────────────
+    ///
+    /// `_simulate_location` deliberately returns `ok` on two paths where the write has NOT landed: a
+    /// write still in flight on the detached thread, and a bounded write that timed out (kept on
+    /// purpose — that is the build-52 behaviour airplane-off survival depends on). Those are the right
+    /// return values for the INJECT path, because a stall is not a dead session.
+    ///
+    /// They are the wrong input for a HEALTH claim. The classifier is about to let a recent success
+    /// outrank an unreachable probe, and it may only do that on evidence that the device really took
+    /// the coordinate. So the two soft paths mark themselves, and the classifier treats a soft success
+    /// as "unknown" rather than as proof. Without this, a permanently-blocked FFI write would read as
+    /// a healthy green session forever — a fabricated signal, which is exactly what this file's
+    /// header promises never to produce.
+    private static var _pendingSoft = false
+    private static var _lastSuccessWasSoft = false
+
+    /// Called by the soft-ok paths in `_simulate_location`, immediately before the `record(success:)`
+    /// that follows them on the same (serial) queue.
+    static func markNextSuccessSoft() {
+        lock.lock(); defer { lock.unlock() }
+        _pendingSoft = true
+    }
+
     static func record(success: Bool) {
         lock.lock(); defer { lock.unlock() }
         let now = Date()
+        if success { _lastSuccessWasSoft = _pendingSoft }
+        _pendingSoft = false
         if success {
             _lastSuccessAt = now
             _consecutiveFailures = 0
@@ -1221,13 +1556,43 @@ enum TunnelInjectStatus {
         let lastSuccessAt: Date?
         let lastFailureAt: Date?
         let consecutiveFailures: Int
+        /// See `markNextSuccessSoft`. True when the most recent success was a stall we chose to keep,
+        /// not a confirmed landing — so it may not be used as proof the session is alive.
+        let lastSuccessWasSoft: Bool
     }
 
     static var snapshot: Snapshot {
         lock.lock(); defer { lock.unlock() }
         return Snapshot(lastSuccessAt: _lastSuccessAt,
                         lastFailureAt: _lastFailureAt,
-                        consecutiveFailures: _consecutiveFailures)
+                        consecutiveFailures: _consecutiveFailures,
+                        lastSuccessWasSoft: _lastSuccessWasSoft)
+    }
+
+    /// ══ "THE SESSION WE HAVE IS CARRYING TRAFFIC" — THE ANSWER A REACHABILITY PROBE CANNOT GIVE. ══
+    ///
+    /// Every place in the app that asked "is the tunnel usable?" asked it by opening a NEW connection
+    /// to the pairing listener. On mobile data that question has a fixed answer and it is the wrong
+    /// one: `remotepairingdeviced` marks its own listeners `SO_RESTRICT_DENY_CELLULAR`, XNU's port
+    /// lookup SKIPS restricted sockets, and the SYN draws an instant RST. The wall is on connection
+    /// BIRTH only — an ESTABLISHED session keeps working on cellular indefinitely — so a live spoof
+    /// and a dead tunnel are indistinguishable to that probe.
+    ///
+    /// This is the other half of the evidence, and it is strictly better evidence: the device itself
+    /// returning success for a real `location_simulation_set` on the handle we already hold.
+    /// `TunnelHealthMonitor.apply` was fixed in build 148 to let exactly this outrank the probe; this
+    /// makes the same test available to the start paths, which were still probe-only.
+    ///
+    /// ⚠️ CONFIRMED SUCCESSES ONLY. A soft success is a write still in flight or one that timed out
+    /// and was deliberately kept — neither has landed, and treating either as proof would fabricate a
+    /// green signal for a permanently-blocked write. A non-zero consecutive-failure count also
+    /// disqualifies it: whatever was working has stopped since.
+    static func hasRecentConfirmedSuccess(within seconds: TimeInterval = 20) -> Bool {
+        let snap = snapshot
+        guard snap.consecutiveFailures == 0, !snap.lastSuccessWasSoft, let at = snap.lastSuccessAt else {
+            return false
+        }
+        return Date().timeIntervalSince(at) <= seconds
     }
 
     /// Clear history — called when a session starts so a stale failure from a prior run doesn't paint
@@ -1237,6 +1602,30 @@ enum TunnelInjectStatus {
         _lastSuccessAt = nil
         _lastFailureAt = nil
         _consecutiveFailures = 0
+        _pendingSoft = false
+        _lastSuccessWasSoft = false
+    }
+
+    /// ══ FORGET THE FAILURES, KEEP THE PROOF. ══
+    ///
+    /// `reset()` is called from `TunnelHealthMonitor.startMonitoring()`, which is called from
+    /// `SimulationSession.started()`, which every teleport calls — INCLUDING the teleport inside a
+    /// Cellular Mode run. So the full reset wiped the confirmed inject that the teleport had recorded
+    /// microseconds earlier: the one piece of evidence that outranks a reachability probe, destroyed
+    /// by the very flow that produced it. Everything downstream then fell back to
+    /// `isTunnelSimEndpointReachable()`, which is FALSE BY CONSTRUCTION on mobile data, and refused to
+    /// start the drive Cellular Mode had just built a healthy session for.
+    ///
+    /// What `startMonitoring` actually needs is stated in its own comment — "so a failure from a
+    /// previous run can't paint the chip red". That is the failure history, and only the failure
+    /// history. A success from the last few seconds is a true fact about the transport whichever
+    /// session recorded it, and every reader of it is already time-bounded
+    /// (`hasRecentConfirmedSuccess(within:)`), so keeping it cannot make anything stale.
+    static func resetFailures() {
+        lock.lock(); defer { lock.unlock() }
+        _lastFailureAt = nil
+        _consecutiveFailures = 0
+        _pendingSoft = false
     }
 }
 
@@ -1255,6 +1644,19 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
         // to hardcode `success: true`, which meant a teleport that never left the device was recorded
         // identically to one that landed.
         TunnelInjectStatus.record(success: GslocMode.lastPushOutcome.looksAccepted)
+        // DUAL ENGINE WAS REMOVED 2026-08-10 — the hypothesis is DISPROVEN, not untested.
+        //
+        // The idea was that gs-loc could anchor Apple's network location while the DVT tunnel supplied
+        // smooth movement, letting Pokémon GO accept a moving fix. A controlled on-device A/B killed it:
+        // holding the location constant at one coordinate (both sources agreeing), the tunnel's presence
+        // ALONE decided the outcome — flag TRUE → Error 12; stop the tunnel, same coordinate, flag FALSE
+        // → PoGo works. Error 12 tracks `isSimulatedBySoftware`, so pairing the tunnel with anything is
+        // pointless: the tunnel IS the rejected thing.
+        //
+        // It was also actively harmful. Falling through ran the DVT inject too, and when the tunnel was
+        // down (the normal state in gs-loc mode, since Shadowrocket holds iOS's single VPN slot) its
+        // failure became this function's return value — turning a SUCCESSFUL gs-loc push into a reported
+        // teleport failure.
         return LocationSimulationStatus.ok
     }
     let code = _simulate_location(deviceIP, latitude, longitude, pairingFile)
@@ -1367,12 +1769,80 @@ private func _boundedSet(_ sim: OpaquePointer, _ latitude: Double, _ longitude: 
         }
     }
     if sem.wait(timeout: .now() + timeoutSeconds) == .timedOut {
-        // Tiny race: the thread may have signalled right at the boundary. If it already finished it
-        // won't invoke the closure, so we must — otherwise the in-flight latch is never cleared.
-        if handoff.markCallerGaveUp() { onLateOutcome?(setError == nil) }
+        // ── THE BOUNDARY RACE, AND WHAT IT ACTUALLY MEANS ────────────────────────────────────────
+        // `markCallerGaveUp()` returning TRUE means the detached thread had ALREADY finished when we
+        // stopped waiting (that is the arbiter's whole contract — see `BoundedSetHandoff`). So this
+        // is not a stall at all: the write is done, its result is sitting in `setError`, and the
+        // lock inside the handoff is the happens-before edge that makes reading it safe.
+        //
+        // The old code reported that as `.timedOut` anyway and never freed the error. Both were
+        // wrong in the same direction: it leaked one `IdeviceFfiError` per occurrence, and it made a
+        // completed write look like a stall, which downstream records as a SOFT success — a green
+        // signal for something that had a real, knowable answer. Report the real one.
+        //
+        // ⚠️ `onLateOutcome` IS DELIBERATELY NOT CALLED HERE. It is the LATE path's handler — it
+        // clears the in-flight latch and, on a failure, enqueues a `cleanup()` on the serial location
+        // queue. Firing it while we are still ON that queue and about to return `.failed` would queue
+        // a free that lands AFTER the caller's own rebuild, tearing down the session it just built.
+        // Returning the real result instead hands the outcome to the caller's own `.ok`/`.failed`
+        // arms, which already do the right thing synchronously.
+        if handoff.markCallerGaveUp() {
+            let landed = setError == nil
+            if let err = setError { idevice_error_free(err); setError = nil }
+            return landed ? .ok : .failed
+        }
         return .timedOut
     }
     if let err = setError { idevice_error_free(err); return .failed }
+    return .ok
+}
+
+/// The same bound, around `location_simulation_clear`. A literal mirror of `_boundedSet` on purpose —
+/// same semaphore, same `BoundedSetHandoff` arbiter, same detached thread, same "on timeout you MUST
+/// NOT free the handle" contract — because the constraint is identical: the FFI has no timeout of its
+/// own and a blocking call made directly on `LocationSimulationCommandQueue` would wedge the serial
+/// queue that Stop and Panic ride on.
+///
+/// THE BOUND IS THE SAME 8 s, AND THAT IS NOT A COPY-PASTE. The reason `_boundedSet` is generous — a
+/// healthy loopback write can sit in TCP retransmit backoff for seconds while iOS rebuilds interfaces,
+/// which is exactly what Airplane-Mode-off does — applies to a clear word for word. Nothing the user
+/// can see waits on this: the local half of Stop is synchronous and has already completed by the time
+/// this runs (see `MapSelectionView.clear()` and `SimulationSession.stopAll()`).
+///
+/// `onLateOutcome(landed:)` fires if the clear comes back after we stopped waiting. It is for the LOG
+/// ONLY — by then the caller has dropped its references without freeing them, so this closure owns
+/// nothing and must free nothing.
+private func _boundedClear(_ sim: OpaquePointer,
+                           timeoutSeconds: Double = 8,
+                           onLateOutcome: ((Bool) -> Void)? = nil) -> BoundedSetResult {
+    let sem = DispatchSemaphore(value: 0)
+    let handoff = BoundedSetHandoff()
+    var clearError: UnsafeMutablePointer<IdeviceFfiError>?
+    Thread.detachNewThread {
+        clearError = location_simulation_clear(sim)
+        let callerGaveUp = handoff.markThreadFinished()
+        sem.signal()
+        if callerGaveUp {
+            let ok = clearError == nil
+            if let err = clearError { idevice_error_free(err); clearError = nil }
+            onLateOutcome?(ok)
+        }
+    }
+    if sem.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+        // Same boundary race as `_boundedSet`, resolved the same way: `markCallerGaveUp()` returning
+        // true means the thread is KNOWN FINISHED, so the clear's real answer is in hand, freeing the
+        // error object is safe, and the handle is safe to free too. Reporting `.timedOut` there cost
+        // us a leaked `IdeviceFfiError` AND a leaked session (the `.timedOut` arm drops the adapter,
+        // the RSD handshake and the simulation handle without freeing them) for a stop that had
+        // actually completed.
+        if handoff.markCallerGaveUp() {
+            let landed = clearError == nil
+            if let err = clearError { idevice_error_free(err); clearError = nil }
+            return landed ? .ok : .failed
+        }
+        return .timedOut
+    }
+    if let err = clearError { idevice_error_free(err); return .failed }
     return .ok
 }
 
@@ -1397,7 +1867,9 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
     if LocationSimulationState.writeInFlight {
         // Still waiting on the previous write. Do not start a second concurrent write on the same handle
         // (the FFI is not safe for that) and do not tear anything down.
-        SpoofTrace.log("  write still in flight — holding session, no rebuild")
+        SpoofTrace.tick("  write still in flight — holding session, no rebuild")
+        // SOFT. We are reporting ok without a landing (see TunnelInjectStatus.markNextSuccessSoft).
+        TunnelInjectStatus.markNextSuccessSoft()
         return LocationSimulationStatus.ok
     }
     if let sim = LocationSimulationState.locationSimulation {
@@ -1405,25 +1877,66 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
         let result = _boundedSet(sim, latitude, longitude, onLateOutcome: { landed in
             SpoofTrace.log("  LATE write outcome: \(landed ? "LANDED — session alive, spoof held" : "ERROR — session dead")")
             LocationSimulationState.writeInFlight = false
+            // ══ THE STOP THE USER ALREADY ASKED FOR, DELIVERED AT THE FIRST MOMENT IT CAN BE. ══
+            //
+            // A Stop that arrived while this write was outstanding could not be issued then — the FFI
+            // is not safe to call twice on one handle — so it was recorded as owed. THIS is the
+            // instant the handle becomes free again, and it is the only one: nothing else in the
+            // process is watching for it. Read-and-clear so a concurrent Stop cannot double-issue.
+            let owed = LocationSimulationState.takeClearOwed()
             if !landed {
                 // A genuine error (not a stall). The thread has returned so freeing is safe; the next
                 // inject rebuilds.
-                LocationSimulationCommandQueue.shared.async { LocationSimulationState.cleanup() }
+                LocationSimulationCommandQueue.shared.async {
+                    LocationSimulationState.cleanup(reason: .lateWriteFailed)
+                    if owed {
+                        // The stop is now undeliverable: the session it would have ridden is gone and
+                        // on cellular no replacement can be born. This is exactly the case the
+                        // failed-stop report exists for, and it is the ONE path where the device is
+                        // very likely still holding our fix with nobody having been told.
+                        SpoofTrace.log("STOP: the owed clear cannot be delivered — the late write failed")
+                        if NetworkReachability.isOnCellularSnapshot {
+                            SpoofLossReporter.noteStopDidNotClear(
+                                LocationSimulationState.TeardownReason.lateWriteFailed.rawValue)
+                        }
+                    }
+                    // TELL SOMEBODY. This is the single most likely honest death for a backgrounded
+                    // user, and until now it freed the session in silence: the hold loop's next tick
+                    // rebuilt or failed, and nothing anywhere raised a word. See SpoofLossReporter.
+                    SpoofLossReporter.noteSessionLost(LocationSimulationState.TeardownReason.lateWriteFailed.rawValue)
+                }
+            } else if owed {
+                // The write landed, so the session is alive and the handle is ours again. Send the
+                // stop. Enqueued on the serial location queue rather than run here, because we are on
+                // a detached FFI thread and every other FFI call in this file is made from that queue.
+                LocationSimulationCommandQueue.shared.async {
+                    SpoofTrace.log("STOP: the write came back — delivering the clear that was owed")
+                    let code = clear_simulated_location()
+                    LogManager.shared.addInfoLog("[spoof] deferred stop delivered: clear returned \(code)")
+                    LocationSessionActivity.noteSessionClosed()
+                }
             }
         })
-        SpoofTrace.log("  cached-handle set -> \(result)")
+        SpoofTrace.tick("  cached-handle set -> \(result)")
         switch result {
         case .ok:
             LocationSimulationState.writeInFlight = false
+            // A landed write means this session is the one the device is acting on, so any earlier
+            // stop we never got confirmation for is moot: whatever fix it failed to clear has just
+            // been overwritten, and a Stop from here will ride THIS session. Clearing the flag keeps
+            // the "we owe you an unconfirmed stop" state from outliving the thing it described.
+            LocationSimulationState.clearUnconfirmed = false
             DeviceReadiness.markSimulationSucceeded()
             return LocationSimulationStatus.ok
         case .failed:
             LocationSimulationState.writeInFlight = false
-            LocationSimulationState.cleanup()   // real error → fall through and rebuild
+            LocationSimulationState.cleanup(reason: .writeFailed)   // real error → fall through and rebuild
         case .timedOut:
             // STILL RUNNING. Keep the session — this is the case build 52 survived and every later
             // version broke. Report ok so nothing upstream treats a stall as a lost spoof.
             SpoofTrace.log("  write still running — KEEPING session (build-52 behaviour)")
+            // SOFT, for the same reason as the in-flight branch above: ok, but nothing has landed.
+            TunnelInjectStatus.markNextSuccessSoft()
             return LocationSimulationStatus.ok
         }
     }
@@ -1533,7 +2046,7 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
             SpoofTrace.log("  rebuild FAILED at tunnel_create_rppairing\(attemptLabel): " + _ffiDetail(providerError))
             idevice_error_free(providerError)
             SpoofTrace.log("  rebuild: tunnel_create_rppairing FAILED")
-            LocationSimulationState.cleanup()
+            LocationSimulationState.cleanup(reason: .rebuildFailed)
             failureStatus = LocationSimulationStatus.providerCreate
             continue
         }
@@ -1551,7 +2064,7 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
             SpoofTrace.log("  rebuild FAILED at remote_server_connect_rsd\(attemptLabel): " + _ffiDetail(remoteServerError))
             idevice_error_free(remoteServerError)
             SpoofTrace.log("  rebuild: remote_server_connect_rsd FAILED")
-            LocationSimulationState.cleanup()
+            LocationSimulationState.cleanup(reason: .rebuildFailed)
             failureStatus = LocationSimulationStatus.remoteServer
             continue
         }
@@ -1564,7 +2077,7 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
             SpoofTrace.log("  rebuild FAILED at location_simulation_new\(attemptLabel): " + _ffiDetail(locationSimulationError))
             idevice_error_free(locationSimulationError)
             SpoofTrace.log("  rebuild: location_simulation_new FAILED")
-            LocationSimulationState.cleanup()
+            LocationSimulationState.cleanup(reason: .rebuildFailed)
             failureStatus = LocationSimulationStatus.locationSimulation
             continue
         }
@@ -1594,11 +2107,14 @@ private func _simulate_location(_ deviceIP: String, _ latitude: Double, _ longit
         SpoofTrace.log("  rebuild FAILED at location_simulation_set(first): " + _ffiDetail(locationSetError))
         idevice_error_free(locationSetError)
         SpoofTrace.log("  rebuild: first location_simulation_set FAILED")
-        LocationSimulationState.cleanup()
+        LocationSimulationState.cleanup(reason: .rebuildFailed)
         return LocationSimulationStatus.locationSet
     }
 
     SpoofTrace.log("  rebuild OK — NEW session established")
+    // Same reasoning as the cached-handle `.ok` arm: a live session with a landed fix supersedes any
+    // stop we never got confirmation for.
+    LocationSimulationState.clearUnconfirmed = false
     DeviceReadiness.markSimulationSucceeded()
     return LocationSimulationStatus.ok
 }
@@ -1613,43 +2129,186 @@ func clear_simulated_location() -> Int32 {
         // safe with LocalDevVPN off. (The device's own DVT fix can only be cleared with the tunnel up
         // — so the guidance is to Stop before switching modes.)
         if LocationSimulationState.locationSimulation != nil {
-            LocationSimulationState.cleanup()
+            LocationSimulationState.cleanup(reason: .gslocModeSwitch)
         }
         return LocationSimulationStatus.ok
     }
     guard let locationSimulation = LocationSimulationState.locationSimulation else {
-        return LocationSimulationStatus.locationClear
+        // ⚠️ TWO DIFFERENT STATES REACH THIS LINE AND THEY MUST NOT SHARE AN ANSWER.
+        //
+        // The ordinary one: nothing is open, because nothing is running or a previous Stop completed.
+        // `ok` is the truthful answer to "is anything of ours still simulating", and it is why this
+        // stopped returning `locationClear` (12) — a second Stop tap, or a Stop with nothing running,
+        // used to pop "Clear Failed (error 12)" at a user who had done nothing wrong.
+        //
+        // The other one: a clear WAS issued, never came back inside its bound, and the handle had to
+        // be DROPPED rather than freed (the detached FFI thread may still be dereferencing it). We
+        // have no session and no confirmation that the device took the stop. Answering `ok` there is
+        // a fabricated success — the user taps Stop a second time, sees a clean silent stop, and
+        // walks away while the device may still be reporting the simulated location. Say the same
+        // thing we said the first time instead, so the recovery the UI offers stays on screen.
+        if LocationSimulationState.clearUnconfirmed {
+            SpoofTrace.log("STOP: no session handle, and the last clear was never confirmed — reporting stalled, not ok")
+            return LocationSimulationStatus.clearStalled
+        }
+        return LocationSimulationStatus.ok
     }
-    // Don't call the un-timeout-able clear over a dead tunnel (it would hang the serial queue). If
-    // unreachable, drop the handle — the device can't be cleared until the tunnel returns, but the
-    // app stays responsive and Stop/teleport work again once it's back.
+
+    // ══ WHY THIS NO LONGER ASKS A PROBE FOR PERMISSION TO STOP. DO NOT PUT THE GATE BACK. ══
     //
-    // PROBE THE FAMILY THAT CARRIES THIS SESSION, not the IPv4 default. On an IPv6-only carrier —
-    // the exact case the experiment exists for — 10.7.0.1 is unreachable by definition, so the old
-    // default-argument probe failed for a perfectly healthy v6 session, dropped the handle without
-    // ever calling location_simulation_clear, and left the device spoofed with no way to clear it
-    // from the UI. `liveTarget` is non-nil whenever `locationSimulation` is (both are set on the
-    // successful rebuild and cleared together); the fallback keeps the old behaviour for a handle
-    // established before this bookkeeping existed.
-    let clearProbeAddress = LocationSimulationState.liveTarget?.address
-        ?? DeviceConnectionContext.targetIPAddress
-    if !_isSimEndpointReachable(clearProbeAddress) {
-        LocationSimulationState.cleanup()
-        // NOT a failure the user should be alarmed by, and it must not read like one. The DVT
-        // location session is connection-scoped: with the transport gone the device is not holding
-        // our fix any more, so there is nothing live left to clear — we are only freeing a local
-        // handle. Returning the distinct code lets Stop say "stopped; the tunnel was down" instead
-        // of the old "Clear Failed (error 12)", which is what made a successful stop look broken.
-        return LocationSimulationStatus.tunnelUnreachable
+    // Until build 151 this function opened with a bounded TCP probe to the pairing listener and, if
+    // the probe failed, freed the local handle and returned WITHOUT ever sending the stop. The
+    // comment that stood here argued that was safe on two grounds. One of them was wrong and one of
+    // them is still true, so read both before touching this.
+    //
+    // WRONG: "this is the CLOSING path, so the session is ending either way". On mobile data that
+    // probe is FALSE BY CONSTRUCTION and has nothing to do with the session's health.
+    // `remotepairingdeviced` applies `SO_RESTRICT_DENY_CELLULAR` to its own listeners and XNU's port
+    // lookup skips restricted sockets, so a new connect draws an instant RST — while the session we
+    // ALREADY HOLD keeps working indefinitely, because the wall is on connection BIRTH only. That is
+    // the whole premise of Cellular Mode. So the guaranteed-false probe was the sole decider on every
+    // cellular Stop: Wander freed the handle, reported a clean stop, and the device — which was never
+    // told anything — carried on reporting the fake location. That is the owner-reported bug this
+    // change fixes, and restoring the gate re-creates it exactly.
+    //
+    // ALSO WRONG, AND THE REASON THE ABOVE WENT UNNOTICED: the old comment asserted "the DVT location
+    // session is connection-scoped: with the transport gone the device is not holding our fix any
+    // more". Nothing in this codebase has ever measured that, and the protocol argues against it —
+    // `stopLocationSimulation` is an explicit RPC that the ancestors of this library (libimobiledevice
+    // `idevicesetlocation reset`, pymobiledevice3 `simulate-location clear`) issue from a brand-new
+    // connection, which is not a verb a self-reverting service would need. Treat "closing the channel
+    // clears the fix" as UNPROVEN and never as a reason to skip the stop.
+    //
+    // STILL TRUE, AND STILL THE BINDING CONSTRAINT: `location_simulation_clear` has NO timeout of its
+    // own. Called inline on `LocationSimulationCommandQueue` against a genuinely dead tunnel it blocks
+    // in TCP retransmit for over a minute and wedges the one serial queue that Stop and Panic ride on
+    // — a control that ends something must never be the thing that stops working. That constraint is
+    // now met STRUCTURALLY rather than by refusing to call at all: `_boundedClear` runs the FFI on a
+    // detached thread and bounds the wait, exactly as `_boundedSet` does for the inject path. The
+    // queue is occupied for at most the bound, never forever.
+    //
+    // So the order is the same one `_simulate_location` uses: act on the CACHED HANDLE first, and let
+    // the real outcome — not a probe's opinion — decide what happens to the session.
+
+    // ══ ONE WRITER AT A TIME — BUT WAITING IS NOT THE SAME AS GIVING UP. DO NOT SHORTEN THIS. ══
+    //
+    // The FFI is not safe to call concurrently on a single handle, and `_simulate_location` may have
+    // left a write out on a detached thread (`.timedOut` keeps the session on purpose — that is the
+    // build-52 behaviour airplane-off survival depends on). So a clear genuinely cannot be issued at
+    // this instant.
+    //
+    // WHAT THE FIRST VERSION OF THIS DID, AND WHY IT WAS THE ORIGINAL BUG WEARING A NEW HAT: it
+    // dropped the references and returned `clearStalled`. That reads as a stop that went out, and
+    // NOTHING went out. Worse, dropping the handle meant no LATER Stop could send one either — the
+    // guard above would find no session and report a clean success — so a single stalled hold write
+    // permanently converted every Stop into a lie. The window is not rare: it is open for as long as
+    // a wedged write takes to return, and a wedged write is the documented common case on cellular
+    // (TCP retransmit while iOS rebuilds interfaces).
+    //
+    // WHAT IT DOES NOW, in the order the constraints allow:
+    //   1. WAIT, bounded, for the write to come back. Nothing user-visible is waiting on us — Stop's
+    //      local half is synchronous and has already completed (see `MapSelectionView.clear()` and
+    //      `SimulationSession.stopAll()`) — and the bound is the same 8 s `_boundedClear` may occupy
+    //      this queue for anyway, so the serial queue's worst case is unchanged in kind.
+    //   2. If it comes back, fall through and CLEAR over the same live handle. This is the common
+    //      outcome and it is a real, delivered stop.
+    //   3. If it does not, KEEP the session (the thread still owns those pointers) and record the
+    //      stop as OWED. `_boundedSet`'s late-outcome callback issues it the moment the write lands.
+    //      Nothing is dropped, so a later Stop still has a handle to send over as well.
+    if LocationSimulationState.writeInFlight {
+        SpoofTrace.log("STOP: a write is still in flight — waiting for the handle before clearing")
+        let deadline = Date().addingTimeInterval(8)
+        while LocationSimulationState.writeInFlight, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        if LocationSimulationState.writeInFlight {
+            SpoofTrace.log("STOP: the write is still out — the clear is OWED and will be sent when it returns")
+            LocationSimulationState.clearOwed = true
+            // Deliberately NOT `noteTeardown` and NOT `dropReferencesUnsafeToFree`: nothing has been
+            // torn down, and the session is exactly what the owed clear needs.
+            return LocationSimulationStatus.clearDeferred
+        }
+        SpoofTrace.log("STOP: the write came back — clearing over the same session")
     }
 
-    let ffiError = location_simulation_clear(locationSimulation)
-    LocationSimulationState.cleanup()
+    let result = _boundedClear(locationSimulation, onLateOutcome: { landed in
+        // LOG ONLY. By the time this can run the caller has already dropped its references without
+        // freeing them, so this closure owns nothing — freeing here would be the use-after-free the
+        // drop exists to avoid.
+        SpoofTrace.log("  LATE clear outcome: \(landed ? "LANDED — the device took the stop" : "ERRORED")")
+    })
+    SpoofTrace.log("STOP: bounded clear -> \(result)")
 
-    if let ffiError {
-        idevice_error_free(ffiError)
+    switch result {
+    case .ok:
+        // A delivered stop settles any earlier one we never got confirmation for: whatever fix that
+        // one failed to clear, the device has now been told to stop simulating. Leaving the flag set
+        // would make the NEXT Stop-with-nothing-running report `clearStalled` at a user whose device
+        // is demonstrably clear.
+        LocationSimulationState.clearUnconfirmed = false
+        LocationSimulationState.cleanup(reason: .cleared)
+        return LocationSimulationStatus.ok
+
+    case .failed:
+        // ══ AN ERRORED CLEAR IS NOT PROOF THE SESSION IS DEAD — SO DON'T THROW IT AWAY FIRST. ══
+        //
+        // The detached thread has returned, so freeing WOULD be safe. It was also, until now, what we
+        // did: `cleanup(reason: .clearFailed)` released the adapter, the RSD handshake and the
+        // simulation handle on the very first error. That handle was irreplaceable. On mobile data a
+        // replacement session cannot be BORN at all (`SO_RESTRICT_DENY_CELLULAR` on the pairing
+        // listener), so freeing it converted "the device refused one clear" into "nothing in this
+        // process can ever ask again" — and the user's obvious next move, tapping Stop a second time,
+        // then found no handle and got a fabricated clean stop.
+        //
+        // `location_simulation_clear` returning an FFI error can just as easily be a transient RPC
+        // error over a live channel. So the FIRST failure keeps the session and reports honestly; a
+        // second Stop re-issues the clear over the same handle for free. Only when the retry fails
+        // too do we conclude the session really is gone and free it, which is also what stops a
+        // genuinely dead handle from being retried forever.
+        //
+        // `clearUnconfirmed` is armed either way: whatever happens to our local handle, the DEVICE was
+        // never confirmed to have taken the stop, and a later Stop with no handle must not answer
+        // `ok` to that.
+        LocationSimulationState.clearUnconfirmed = true
+        LocationSimulationState.noteFailedClear()
+        if LocationSimulationState.failedClearCount >= 2 {
+            SpoofTrace.log("STOP: second failed clear — releasing the session")
+            LocationSimulationState.cleanup(reason: .clearFailed)
+        } else {
+            // Deliberately NOT `noteTeardown`: nothing was torn down, and that record is read as
+            // "this is how the last session died".
+            SpoofTrace.log("STOP: the device refused the clear — KEEPING the session so a second Stop can retry")
+        }
+        if NetworkReachability.isOnCellularSnapshot {
+            SpoofLossReporter.noteStopDidNotClear(
+                LocationSimulationState.TeardownReason.clearFailed.rawValue)
+        }
         return LocationSimulationStatus.locationClear
-    }
 
-    return LocationSimulationStatus.ok
+    case .timedOut:
+        // THE DETACHED THREAD MAY STILL BE DEREFERENCING THIS HANDLE, so it must not be freed. Drop
+        // the references instead: that leaks exactly one dead session (a tunnel adapter plus an RSD
+        // handshake) and the alternative is a use-after-free crash. Same trade, same reason, as
+        // `_simulate_location`'s stalled-write path.
+        //
+        // The probe survives ONLY here, and only as after-the-fact attribution for the log — it
+        // decides nothing. "The stop didn't come back AND the endpoint is refusing new connections"
+        // reads very differently from "the stop didn't come back on a tunnel that answers".
+        let probeAddress = LocationSimulationState.liveTarget?.address
+            ?? DeviceConnectionContext.targetIPAddress
+        let alsoUnreachable = !_isSimEndpointReachable(probeAddress, timeoutSeconds: 1)
+        SpoofTrace.log("STOP: clear did not come back in time (endpoint \(alsoUnreachable ? "also unreachable" : "still answering"))")
+        // ⚠️ ARM THIS BEFORE DROPPING THE HANDLE, AND NEVER REMOVE IT. Dropping the references is
+        // forced (the detached FFI thread may still be dereferencing them), and it leaves this process
+        // with no session AND no confirmation that the device took the stop. The guard at the top of
+        // this function cannot tell that state from the ordinary "nothing is running", and it answers
+        // `ok` to the ordinary one — so without this flag a second Stop reported a clean, silent,
+        // fabricated success over a device that may still be simulating. The flag exists for exactly
+        // this line; it was declared and read but never set, which made the guard's whole
+        // two-states-one-answer defence dead code.
+        LocationSimulationState.clearUnconfirmed = true
+        LocationSimulationState.noteTeardown(.clearStalled)
+        LocationSimulationState.dropReferencesUnsafeToFree()
+        return LocationSimulationStatus.clearStalled
+    }
 }

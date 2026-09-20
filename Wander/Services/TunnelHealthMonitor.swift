@@ -7,9 +7,10 @@
 //  location "snapping back" to real GPS.
 //
 //  It classifies health as:
-//    • green    (connected)    — a recent successful inject AND the sim endpoint is reachable
-//    • yellow   (unstable)     — intermittent inject failures, OR reachable but no recent success
-//    • red      (disconnected) — endpoint unreachable, or repeated inject failures
+//    • green    (connected)    — a CONFIRMED recent inject (the probe cannot veto this — see below)
+//    • yellow   (unstable)     — reachable but unproven: one failure, an unlanded write, or nothing
+//                                confirmed in the last 20 s
+//    • red      (disconnected) — repeated inject failures, or nothing confirmed AND unreachable
 //
 //  The signal is derived from TWO honest sources, never a fabricated one:
 //    1. `TunnelInjectStatus` — the real success/failure of every `simulate_location` call (fed from
@@ -17,11 +18,18 @@
 //    2. A LIGHT reachability poll (`isTunnelSimEndpointReachable`, a bounded TCP probe to ip:49152)
 //       that runs ONLY while a simulation is active — never in a tight loop, never while idle.
 //
+//  ⚠️ THOSE TWO DISAGREE ON CELLULAR, BY DESIGN, AND (1) WINS. The probe opens a NEW connection, and
+//  new connections to the pairing listener are refused on mobile data no matter how healthy the
+//  session is; an ESTABLISHED session keeps working straight through it. Ordering the probe first is
+//  what made a working cellular spoof sit on a red chip and get "reconnected" six times. See
+//  `apply(snapshot:reachable:)` for the full reasoning and for why a SOFT success may not count.
+//
 //  On drop it makes a BEST-EFFORT auto-reconnect by re-asserting the last teleport target through
 //  the EXISTING teleport path (SimulationSession.resume → `.teleportToRequested`), with a small
-//  backoff and a hard attempt cap. This is honest recovery, NOT a guarantee: iOS can background-
-//  terminate the app/tunnel and there is no way to prevent that. Copy stays "trying to reconnect…",
-//  never "fixed".
+//  backoff and a hard attempt cap — and only from RED, never from yellow, and never on cellular
+//  where a rebuild is refused by the platform and the honest answer is Cellular Mode. This is honest
+//  recovery, NOT a guarantee: iOS can background-terminate the app/tunnel and there is no way to
+//  prevent that. Copy stays "trying to reconnect…", never "fixed".
 //
 
 import Foundation
@@ -103,7 +111,12 @@ final class TunnelHealthMonitor: ObservableObject {
         isActive = true
         reconnectAttempt = 0
         isReconnecting = false
-        TunnelInjectStatus.reset()
+        // FAILURES ONLY. A full `reset()` here also erased the CONFIRMED SUCCESS that the teleport
+        // calling us had just recorded — see `TunnelInjectStatus.resetFailures`. That is the one piece
+        // of evidence allowed to outrank a reachability probe, and on mobile data the probe can never
+        // say yes, so wiping it here is what refused a Cellular Mode drive on the session Cellular
+        // Mode had just built.
+        TunnelInjectStatus.resetFailures()
         state = .connected
         startPolling()
     }
@@ -158,20 +171,50 @@ final class TunnelHealthMonitor: ObservableObject {
         }
     }
 
+    /// ══ A CONFIRMED INJECT OUTRANKS THE REACHABILITY PROBE. READ THIS BEFORE REORDERING IT. ══
+    ///
+    /// The two inputs do not measure the same thing, and on cellular they disagree BY DESIGN:
+    ///
+    ///   • `reachable` is a NEW TCP connect to `liveTarget:49152`. `remotepairingdeviced` applies
+    ///     `SO_RESTRICT_DENY_CELLULAR` to its own listeners, and XNU's `in_pcblookup_hash_locked()`
+    ///     SKIPS a restricted socket rather than refusing it — so the connect takes the no-such-port
+    ///     path and gets an instant RST. Our own tunnel utun measures `IFRTYPE_FUNCTIONAL_CELLULAR`,
+    ///     so this happens even over the tunnel. On mobile data this probe therefore returns FALSE
+    ///     for a perfectly healthy session, every single time.
+    ///   • `lastSuccessAt` is the real return code of a real `location_simulation_set` on the
+    ///     ESTABLISHED handle. The wall is on tunnel BIRTH only; an established session keeps working.
+    ///
+    /// This used to test `!reachable` FIRST, which meant successful injects could never clear it: on
+    /// the flagship cellular flow the chip went red and STAYED red on a working spoof, and `setState`
+    /// then fired up to six auto-reconnects — each one yanking the user to the Location tab,
+    /// re-teleporting, and charging a free-trial teleport — to "fix" a session that was fine.
+    ///
+    /// So the order is inverted, and it is not a fabricated green: the device confirming a coordinate
+    /// is strictly better evidence of a live session than our ability to open a second connection to
+    /// it. The one thing that must not happen is treating a SOFT success as that evidence — a write
+    /// still in flight, or one that timed out and was deliberately kept, both report `ok` without
+    /// having landed. Those fall through to "unstable", which is the honest word for "we don't know".
     private func apply(snapshot snap: TunnelInjectStatus.Snapshot, reachable: Bool) {
         guard isActive else { return }
         let now = Date()
         let recentSuccess = snap.lastSuccessAt.map { now.timeIntervalSince($0) <= recentSuccessWindow } ?? false
+        let recentConfirmedSuccess = recentSuccess && !snap.lastSuccessWasSoft
 
         let newState: State
-        if !reachable || snap.consecutiveFailures >= downFailureThreshold {
-            // Endpoint gone or repeated inject failures → the tunnel is effectively down.
+        if snap.consecutiveFailures >= downFailureThreshold {
+            // Repeated real inject failures. This is the device telling us, not us guessing.
             newState = .disconnected
-        } else if snap.consecutiveFailures > 0 || !recentSuccess {
-            // Reachable but shaky: an intermittent failure, or no confirmed inject in a while.
-            newState = .unstable
-        } else {
+        } else if recentConfirmedSuccess && snap.consecutiveFailures == 0 {
+            // The device took a coordinate within the window. Whatever the probe says about opening a
+            // NEW connection, the one we have is carrying traffic.
             newState = .connected
+        } else if !reachable {
+            // No confirmed inject to lean on AND we can't open a connection. Now it really is down.
+            newState = .disconnected
+        } else {
+            // Reachable but shaky: an intermittent failure, a soft (unlanded) write, or nothing
+            // confirmed in a while.
+            newState = .unstable
         }
 
         setState(newState)
@@ -203,7 +246,15 @@ final class TunnelHealthMonitor: ObservableObject {
                 reconnectWork?.cancel()
                 reconnectWork = nil
             }
-        case .unstable, .disconnected:
+        case .unstable:
+            // NO AUTO-RECONNECT FROM YELLOW (changed here). "Unstable" means reachable-but-unproven:
+            // one intermittent failure, a write still in flight, or simply no confirmed inject in the
+            // last 20 s. The hold loop produces another inject every 4 s, so this self-heals — and a
+            // reconnect is not a quiet retry, it yanks the user to the Location tab, re-teleports and
+            // charges a trial teleport. Paying that for a condition that clears itself is what made a
+            // working session feel broken. Red still recovers; yellow waits one more tick.
+            break
+        case .disconnected:
             scheduleReconnectIfNeeded()
         }
     }
@@ -237,6 +288,49 @@ final class TunnelHealthMonitor: ObservableObject {
         // AND re-inject the stale pre-walk `lastTeleportCoordinate` (a backward jump), regressing the
         // Error-12 single-writer fix. So skip the reconnect while another mode owns the stream.
         guard !LocationSimulationCommandQueue.suppressResends else { return }
+        // ── ON CELLULAR THERE IS NOTHING TO RETRY, SO WE DON'T PRETEND ──────────────────────────
+        //
+        // A rebuild has to open a NEW connection to the pairing listener, and on mobile data with no
+        // Wi-Fi that connection is refused by construction (`SO_RESTRICT_DENY_CELLULAR` on the
+        // listener; the socket is skipped by the port lookup, so it is an instant RST, not a slow
+        // failure we could outwait). No entitlement, address, or backoff reaches it. Six attempts
+        // over ~72 s therefore buy exactly nothing here — while costing six forced tab switches, six
+        // re-teleports, and up to six modal alerts carrying advice that cannot work.
+        //
+        // The recovery on cellular is an Airplane Mode cycle, which only the user can perform. So we
+        // report the loss ONCE and offer Cellular Mode, instead of thrashing. `SpoofLossReporter`
+        // de-duplicates, so calling this on every 4 s poll costs one report per death.
+        //
+        // THIS ALSO CATCHES THE USER'S OWN "Try to reconnect" TAP, on purpose. Answering that tap with
+        // a retry we know is refused would be the app performing effort it knows is futile; answering
+        // it with the Cellular Mode offer hands them the thing that actually works. The transport is
+        // re-read at the moment of the tap, so a user who has since joined Wi-Fi takes the normal path.
+        if NetworkReachability.isOnCellularSnapshot {
+            // ⚠️ ONLY CLAIM A LOSS WHEN NO HANDLE IS OPEN. Red on cellular is not by itself proof the
+            // session died: a write still in flight reports a SOFT success, which is not confirmation,
+            // and the probe is refused on cellular no matter how healthy we are — so "unreachable and
+            // unconfirmed" describes an ordinary stall just as well as a death. Stalls are common in
+            // the exact window that matters (turning Airplane Mode back off), and a "your spoof
+            // stopped" notification fired at somebody whose spoof is fine would make this feature
+            // worse than the silence it replaces. `isSessionHeld` is a fact, not an inference.
+            if !LocationSessionProbeState.isSessionHeld {
+                // No handle, so recovery means a REBUILD, and a rebuild needs a new connection that
+                // this platform refuses on cellular. Report once; the answer is Cellular Mode.
+                SpoofLossReporter.shared.noteSessionLost(
+                    LocationSessionProbeState.lastTeardownReason ?? "tunnel unreachable on cellular")
+                isReconnecting = false
+                return
+            }
+            // The handle IS still open. A re-assert here writes through the CACHED handle and never
+            // opens a connection, so it is not blocked by the cellular wall and is a real thing to
+            // try — but only when a person asked for it. Letting the 4 s poll drive it would put the
+            // user through up to six forced tab switches and six charged trial teleports during a
+            // stall that resolves itself, which is the storm this whole change exists to end.
+            guard force else {
+                isReconnecting = false
+                return
+            }
+        }
         guard reconnectWork == nil else { return } // one in flight already
         guard force || reconnectAttempt < maxReconnectAttempts else {
             // Out of attempts: stop claiming we're reconnecting. Leaving this true is what made the chip

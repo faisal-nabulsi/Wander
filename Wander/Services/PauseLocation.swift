@@ -72,10 +72,30 @@ enum InjectedLocationRecord {
     private static var _latitude: Double?
     private static var _longitude: Double?
 
+    /// ══ THE SAME POINT, KEPT FOR A DIFFERENT AND LATER QUESTION. ══
+    ///
+    /// `clear()` exists so Pause can never freeze onto a finished run's last step, and it is called on
+    /// both stop paths BEFORE the device clear is even enqueued. That is right for Pause and wrong for
+    /// the one caller that only gets to ask AFTERWARDS: when a stop fails, "where is the device stuck?"
+    /// is precisely the last coordinate we wrote, and by then Pause's copy has already been wiped.
+    ///
+    /// `SpoofLossReporter` used `SimulationSession.lastTeleportCoordinate` for this, which only the
+    /// TELEPORT paths write. A Joystick or Route user who never teleported this launch had it nil — so
+    /// the one alert that exists to carry a working recovery carried no recovery button at all — and a
+    /// user who teleported earlier had it STALE, so the recovery run would have driven the device to
+    /// an old, unrelated point before clearing it.
+    ///
+    /// So the write survives `clear()` and is overwritten only by the next real write. Nothing reads it
+    /// except the failed-stop report, where "the last place Wander wrote" is exactly the question.
+    private static var _lastLatitude: Double?
+    private static var _lastLongitude: Double?
+
     static func note(_ coordinate: CLLocationCoordinate2D) {
         lock.lock()
         _latitude = coordinate.latitude
         _longitude = coordinate.longitude
+        _lastLatitude = coordinate.latitude
+        _lastLongitude = coordinate.longitude
         lock.unlock()
     }
 
@@ -93,6 +113,14 @@ enum InjectedLocationRecord {
         guard let lat = _latitude, let lng = _longitude else { return nil }
         return CLLocationCoordinate2D(latitude: lat, longitude: lng)
     }
+
+    /// The last coordinate any writer sent, retained across `clear()`. See the note above.
+    static var lastWritten: CLLocationCoordinate2D? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let lat = _lastLatitude, let lng = _lastLongitude else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lng)
+    }
 }
 
 extension SimulationSession {
@@ -104,6 +132,13 @@ extension SimulationSession {
     /// Where Wander is injecting right now, across every mode. `nil` when nothing is writing.
     nonisolated static var currentInjectedCoordinate: CLLocationCoordinate2D? {
         InjectedLocationRecord.coordinate
+    }
+
+    /// Where Wander LAST wrote, across every mode, surviving the stop that ended the session. This is
+    /// the honest answer to "where is the device stuck?" after a clear failed — see
+    /// `InjectedLocationRecord.lastWritten`.
+    nonisolated static var lastInjectedCoordinate: CLLocationCoordinate2D? {
+        InjectedLocationRecord.lastWritten
     }
 }
 

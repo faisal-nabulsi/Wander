@@ -514,6 +514,7 @@ struct MainTabView: View {
             // overlay regardless — the setup checklist and the reboot-resume alert are suppressed
             // for the duration instead. See `cellularRun`.
             .overlay(alignment: .top) { CellularModeBanner() }
+            .modifier(CellularModeAlerts())
     }
 
     /// Bundles the single consolidated plain-alert presentation (see `ActiveAlert`) plus the source
@@ -1535,18 +1536,43 @@ struct MainTabView: View {
             let code = clear_simulated_location()
             LocationSessionActivity.noteSessionClosed()
             DispatchQueue.main.async {
-                if code == 0 || LocationSimulationOutcome.isTunnelUnreachable(code) {
-                    // Tunnel down ⇒ the connection-scoped DVT session is already gone, so there was
-                    // nothing left on the device to clear. That is a completed stop, not a failure,
-                    // and alerting on it reported success as breakage.
+                if code == 0
+                    || LocationSimulationOutcome.isTunnelUnreachable(code)
+                    || LocationSimulationOutcome.isClearStalled(code)
+                    || LocationSimulationOutcome.isClearDeferred(code) {
+                    // 13 means no session handle existed, so there was nothing of ours to clear; 14
+                    // means the stop WAS sent and hasn't been confirmed yet, which usually resolves
+                    // itself a moment later; 15 means it has NOT been sent because a write is still
+                    // outstanding — the session is kept and Wander delivers the clear itself the
+                    // moment that write returns. None is a failure worth stopping a URL flow over,
+                    // but they are three different facts and the log has to say which one happened:
+                    // a Shortcuts-driven stop that logged a flat "Cleared" for 15 was reporting a
+                    // stop that had not left the phone.
+                    //
+                    // (This deliberately no longer claims "the tunnel is down so the device already
+                    // reverted" — that was never measured, and on cellular the probe that produced
+                    // code 13 was false for a perfectly live session. See `clear_simulated_location`.)
                     BackgroundLocationManager.shared.requestStop()
-                    LogManager.shared.addInfoLog("Cleared simulated location from URL")
+                    if LocationSimulationOutcome.isClearDeferred(code) {
+                        LogManager.shared.addInfoLog(
+                            "Stop from URL: a write is still outstanding — the clear is owed and will be sent when it returns")
+                    } else if LocationSimulationOutcome.isClearStalled(code) {
+                        LogManager.shared.addInfoLog(
+                            "Stop from URL: the clear was sent and hasn't been confirmed yet")
+                    } else {
+                        LogManager.shared.addInfoLog("Cleared simulated location from URL")
+                    }
                 } else {
-                    showAlert(
-                        title: "Clear Location Failed",
-                        message: "Could not clear simulated location from URL (error \(code)).",
-                        showOk: true
-                    )
+                    // The device answered with an error, so it may still be simulating. On cellular
+                    // `SpoofLossReporter` is already raising the recovery alert, which carries a
+                    // working fix rather than an OK button.
+                    if !NetworkReachability.isOnCellularSnapshot {
+                        showAlert(
+                            title: LocationSimulationOutcome.stopRefusedTitle,
+                            message: LocationSimulationOutcome.stopRefusedMessage(onCellular: false),
+                            showOk: true
+                        )
+                    }
                 }
             }
         }
@@ -2012,12 +2038,17 @@ final class WanderLinkAutomation {
         guard !keepAliveHeld else { return }
         keepAliveHeld = true
         BackgroundLocationManager.shared.requestStart()
+        // BOTH keep-alives — see WalkModeView.holdKeepAlive. The link automation keeps injecting
+        // through `SimulationSession.markStopped()`, which releases the session's audio lease, and
+        // a shortcut-driven run is by definition backgrounded almost immediately.
+        BackgroundAudioManager.shared.requestStart()
     }
 
     private func releaseKeepAlive() {
         guard keepAliveHeld else { return }
         keepAliveHeld = false
         BackgroundLocationManager.shared.requestStop()
+        BackgroundAudioManager.shared.requestStop()
     }
 
     /// A movement verb ran to its natural end (a Stop never lands here — that goes through stopAll()).

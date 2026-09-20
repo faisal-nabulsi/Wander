@@ -14,6 +14,10 @@ struct WanderApp: App {
     @UIApplicationDelegateAdaptor(WanderQuickActionDelegate.self) private var quickActions
     @Environment(\.scenePhase) private var scenePhase
     @State private var shouldAttemptTunnelReconnect = false
+    /// When the app last went to a REAL `.background`. Read once on the way back so the foreground
+    /// tunnel refresh can tell a quick hop to Settings from an absence long enough for iOS to have
+    /// suspended us and taken the socket. See `TunnelManager.refreshAfterForeground`.
+    @State private var backgroundedAt: Date?
     // Persisted: the welcome screen is FIRST-RUN onboarding, so it's shown once and never again.
     // (It used to be @State, which meant every single launch re-ran the tour before the map — a tax
     // on people who'd been using the app for months.)
@@ -113,13 +117,24 @@ struct WanderApp: App {
         switch newPhase {
         case .background:
             shouldAttemptTunnelReconnect = true
+            backgroundedAt = Date()
         case .active:
             // Re-evaluate schedules the moment we return to the foreground so any window we
             // crossed while suspended is corrected immediately.
             ScheduleManager.shared.handleForeground()
+            // Coming forward re-arms the keep-alive's recovery. Its rebuild attempts are capped so a
+            // condition it cannot fix (a call, an unusable route) does not churn a full engine
+            // rebuild every few seconds forever; the cap has to be lifted by something that means
+            // "the situation may have changed", and a user opening the app is exactly that.
+            BackgroundAudioManager.shared.handleForeground()
             if shouldAttemptTunnelReconnect {
                 shouldAttemptTunnelReconnect = false
-                startTunnelInBackground(showErrorUI: false)
+                // NOT a bare `startTunnelInBackground` any more. Coming forward is not by itself
+                // evidence that the tunnel needs rebuilding, and on mobile data a rebuild cannot
+                // succeed at all — TunnelManager now decides, and logs which way it went.
+                let away = backgroundedAt.map { Date().timeIntervalSince($0) } ?? .infinity
+                backgroundedAt = nil
+                TunnelManager.shared.refreshAfterForeground(backgroundedFor: away)
             }
         default:
             break

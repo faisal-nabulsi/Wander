@@ -34,10 +34,18 @@ import Foundation
 ///
 ///   * `TunnelInjectStatus` records EVERY call to `simulate_location` — success or failure, from
 ///     every mode — with a timestamp. An inject is the only thing that can OPEN a session.
-///   * `clear_simulated_location()` calls `LocationSimulationState.cleanup()` on every one of its
-///     return paths (gs-loc, no-handle, unreachable, real clear). So once it has returned, NO
-///     handle is open — unconditionally. `noteSessionClosed()` is called at each of its three call
-///     sites, on the location queue, immediately after it returns.
+///   * `clear_simulated_location()` USUALLY gives up its session — freed by `cleanup()` on the
+///     ordinary paths, and merely DROPPED (references released without freeing, because a detached
+///     FFI thread may still hold them) on the stalled one. `noteSessionClosed()` is called at each of
+///     its call sites, on the location queue, immediately after it returns.
+///
+///     ⚠️ IT IS NO LONGER UNCONDITIONAL, and `noteSessionClosed()` checks rather than assumes. Two
+///     paths KEEP the session on purpose: `clearDeferred` (a write is still out on the FFI thread, so
+///     the clear is OWED and will ride this same handle the moment it comes back) and the first
+///     `clearFailed` (an FFI error is not proof the channel is dead, and on cellular no replacement
+///     session could ever be born, so the handle is kept for one retry). Recording a close on those
+///     would tell the tunnel auto-disconnect that nothing holds a session, and it would pull the
+///     transport out from under the handle that is about to carry the user's stop.
 ///
 /// So "a handle may be open" is exactly "an inject was recorded after the last clear returned".
 /// Evaluated ON the serial `LocationSimulationCommandQueue`, that is a causal ordering test, not a
@@ -98,10 +106,17 @@ enum LocationSessionActivity {
         return _inFlight > 0
     }
 
-    /// Call IMMEDIATELY after `clear_simulated_location()` returns, on the location queue. Every one
-    /// of that function's return paths has already run `LocationSimulationState.cleanup()`, so at
-    /// this instant no FFI session handle exists.
+    /// Call IMMEDIATELY after `clear_simulated_location()` returns, on the location queue.
+    ///
+    /// It used to be safe to assume that meant the handle was gone. It is not any more — see the
+    /// second bullet in this file's header — so the assumption is now a CHECK. `isSessionHeld` is the
+    /// read-only window onto the same `liveTarget` the FFI state machine sets and clears with the
+    /// session, so this asks the definitive fact rather than inferring it.
     static func noteSessionClosed() {
+        guard !LocationSessionProbeState.isSessionHeld else {
+            // A deliberate keep: the clear is owed, or is one retry away. Nothing closed.
+            return
+        }
         // Read on the location queue, where every inject that preceded this clear has already
         // recorded itself — so this is "the newest inject the closed session could have been".
         // Taken BEFORE our lock: it acquires `TunnelInjectStatus`'s, and nesting two locks is worth

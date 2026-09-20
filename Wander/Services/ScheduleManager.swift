@@ -109,12 +109,16 @@ final class ScheduleManager: ObservableObject {
 
     private func updateKeepAlive() {
         if hasArmedSchedules {
-            BackgroundAudioManager.shared.start()
+            BackgroundAudioManager.shared.start(owner: .schedule)
             startTickIfNeeded()
         } else {
-            // No armed schedules: only stop the keep-alive if WE own it (no active window running).
+            // No armed schedules: release OUR claim on the keep-alive only, and only if no active
+            // window is running. Releasing by name matters because this runs on every foreground
+            // transition — it used to call the shared `stop()`, which switched the engine off under
+            // the user's own "Silent Audio" setting within minutes of launch for the (very common)
+            // user who has no schedules at all.
             if activeScheduleID == nil {
-                BackgroundAudioManager.shared.stop()
+                BackgroundAudioManager.shared.stop(owner: .schedule)
                 stopTick()
             }
         }
@@ -181,7 +185,7 @@ final class ScheduleManager: ObservableObject {
         }
         activeScheduleID = schedule.id
         didStartActiveSpoof = true
-        BackgroundAudioManager.shared.start()
+        BackgroundAudioManager.shared.start(owner: .schedule)
         startTickIfNeeded()
         // Bring Wander's own tunnel up BEFORE the first resend. This one is the sharpest edge of the
         // whole feature: `resend()` runs before `started()`, so a schedule window opening after the

@@ -137,6 +137,28 @@ enum GslocMode {
         }
     }
 
+    /// EXPERIMENT — run BOTH engines at once instead of gs-loc replacing DVT.
+    ///
+    /// The two engines are mutually exclusive today only because `simulate_location` early-returns after
+    /// the gs-loc push (IdeviceFFIBridge.swift). That is OUR gate, not a platform limit — nobody has ever
+    /// actually run them together. The hypothesis: gs-loc ANCHORS Apple's network location at the target
+    /// while DVT supplies smooth movement, so a player could joystick/route inside the GPS-vs-network
+    /// coherence tolerance instead of being stuck teleporting.
+    ///
+    /// ⚠️ THE PRIOR IS NEGATIVE, and it must not be sold as promising. Deep research (2026-07-22, recorded
+    /// in the `wander-wloc-protocol` memory) concluded a live DtSimulateLocation injection is a DEVICE-WIDE
+    /// 🪦 DISPROVEN AND REMOVED 2026-08-10 — kept only as a permanent `false` so historical
+    /// `ExperimentRecord`s still decode and so nothing accidentally revives it.
+    ///
+    /// The hypothesis: gs-loc anchors Apple's network location while DVT supplies smooth movement, so
+    /// Pokémon GO would accept a moving fix. A controlled on-device A/B killed it. Holding the location
+    /// constant at ONE coordinate (both sources agreeing), the tunnel's presence alone decided the
+    /// outcome: tunnel on → flag TRUE → Error 12; tunnel off, SAME coordinate → flag FALSE → PoGo works.
+    /// Error 12 tracks `isSimulatedBySoftware`, so pairing the tunnel with anything is pointless — the
+    /// tunnel IS the rejected thing. See [[wander-mode-separation]] / [[wander-error12-network-location]].
+    /// Do NOT re-add a toggle for this.
+    static var dualEngine: Bool { false }
+
     /// Thread-safe snapshot of the coordinate currently being pushed, for the verification banner to
     /// compare against the phone's own Core Location fix. nil when not spoofing (reset / never pushed).
     /// `q.sync` is a short critical section; safe to call from the main thread.

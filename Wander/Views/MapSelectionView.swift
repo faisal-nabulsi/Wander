@@ -904,15 +904,26 @@ struct LocationSimulationView: View {
     @AppStorage(CellularModeRun.legacyDetectedDefaultsKey) private var legacyShortcutDetected = false
     private var cellularModeReady: Bool { cellularModeShortcutVerified && !legacyShortcutDetected }
     @State private var showCellularSetup = false
-    /// Drives the in-place progress line and the failure alert for a Cellular Mode run. Wander is the
-    /// conductor now, so unlike the old Shortcut-driven flow there is something to report.
-    @ObservedObject private var cellularSequence = CellularModeSequence.shared
     // "First fix is real" guardrail (OFF by default — see RealGPSSeeder). When enabled, seeds the
     // device's real location before a teleport so the opening jump isn't an instant impossible delta.
     @StateObject private var realGPSSeeder = RealGPSSeeder()
 
     @State private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @State private var resendTimer: Timer?
+    /// Consecutive failed hold re-injects. See `noteHoldWriteOutcome`.
+    @State private var holdWriteFailures = 0
+    /// How many consecutive bad ticks a hold rides out before standing down, at 4 s per tick — so
+    /// 15 ticks is a full minute of nothing landing.
+    ///
+    /// DELIBERATELY MUCH LARGER THAN WALK'S THREE. See `noteHoldWriteOutcome` for the argument; the
+    /// short version is that an Airplane Mode cycle makes the endpoint unreachable for tens of
+    /// seconds by design, and a hold that gave up inside that window would destroy the session the
+    /// cycle just built. A minute outlasts a cellular re-attach and the health monitor's own ~72 s
+    /// reconnect budget. Telling the user does NOT wait for this — that happens the moment a
+    /// teardown proves the device reverted.
+    private static let holdFailuresBeforeStandDown = 15
+    /// The loss report + one-tap recovery for a session that died under us.
+    @ObservedObject private var spoofLoss = SpoofLossReporter.shared
     /// Mean-reverting "breathing" jitter state for the current stationary hold, so a parked
     /// location wanders ~1–3 m and drifts back instead of teleporting a fresh random metre each
     /// tick. Created per hold in startResendLoop, cleared in stopResendLoop.
@@ -1611,24 +1622,11 @@ struct LocationSimulationView: View {
             } message: {
                 Text(alertMessage)
             }
-            // FAIL LOUDLY. Every way a Cellular Mode run can go wrong — Shortcuts missing, the radio
-            // never switching, the tunnel or teleport failing — surfaces here as a sentence about what
-            // happened, with the manual route named in the copy. `offerSetup` is what separates "that
-            // didn't work" from "the shortcut isn't installed": only the second one sends the user
-            // back to the setup card, where the hand-add fallback also lives.
-            .alert(cellularSequence.failure?.title ?? "",
-                   isPresented: Binding(get: { cellularSequence.failure != nil },
-                                        set: { if !$0 { cellularSequence.failure = nil } })) {
-                if cellularSequence.failure?.offerSetup == true {
-                    Button(L("map.cellular.fix", fallback: "Set up Cellular Mode")) {
-                        cellularSequence.failure = nil
-                        showCellularSetup = true
-                    }
-                }
-                Button(L("action.ok", fallback: "OK"), role: .cancel) { cellularSequence.failure = nil }
-            } message: {
-                Text(cellularSequence.failure?.message ?? "")
-            }
+            // The Cellular Mode failure alert USED TO LIVE HERE and has moved to `MainTabView`.
+            // A run can now be started from Route and Joystick too, and an alert attached to a tab
+            // that isn't on screen never presents — this feature leaves the app for Shortcuts twice
+            // and can come back on a different tab, so a failure raised here would have gone
+            // completely unheard. One app-wide presenter, next to `CellularModeBanner`.
             .alert("Save Bookmark", isPresented: $showSaveBookmark) {
                 TextField("Name", text: $newBookmarkName)
                 Button("Save") { addBookmark() }
@@ -1683,9 +1681,8 @@ struct LocationSimulationView: View {
                 routeSpeedPrefetchTask = nil
                 cancelRoutePlayback(resetMarker: true)
                 stopResendLoop()
-                if backgroundTaskID != .invalid {
-                    BackgroundLocationManager.shared.requestStop()
-                }
+                // No keep-alive release here either: this branch is only reached when the session is
+                // already inactive, so the session lease is already down. See beginBackgroundTask().
                 endBackgroundTask()
             }
             .onReceive(NotificationCenter.default.publisher(for: .stopSimulationRequested)) { _ in
@@ -1708,6 +1705,56 @@ struct LocationSimulationView: View {
             }
             .sheet(isPresented: $showPaywall) { PaywallView(onClose: { showPaywall = false }) }
             .sheet(isPresented: $showCellularSetup) { CellularModeSetupView() }
+            // ── THE SESSION DIED. SAY SO, AND OFFER THE ONE THING THAT WORKS. ────────────────────
+            //
+            // Presented from a published loss rather than the shared `showAlert` state on purpose:
+            // this must not be swallowed by, or swallow, an ordinary command failure, and it carries
+            // an ACTION rather than just an OK. On cellular the action is Cellular Mode, because an
+            // Airplane Mode cycle is the only real recovery there and nothing previously offered it
+            // at the moment of failure — the diagnosis and the cure were in the app but never
+            // connected. Off cellular it is a plain retry through the normal teleport path.
+            //
+            // SCOPED TO `.sessionLost`. `SpoofLossReporter` now also carries the mirror-image event —
+            // a Stop the DEVICE refused, so it is still spoofing — and that one is presented app-wide
+            // from `MainTabView`, because a Stop can be pressed on any of the three tabs.
+            .alert(
+                LocationSimulationOutcome.sessionLostTitle,
+                isPresented: Binding(get: { spoofLoss.loss?.kind == .sessionLost },
+                                     set: { if !$0 { spoofLoss.acknowledge() } }),
+                presenting: spoofLoss.loss
+            ) { loss in
+                if let target = loss.target {
+                    if loss.needsCellularRecovery, cellularModeReady {
+                        Button(L("spoof.lost.action.cellular", fallback: "Run Cellular Mode")) {
+                            spoofLoss.acknowledge()
+                            // SAME PAYWALL GATE as every other door to this engine — see
+                            // CellularModeRun.isAllowedToStart.
+                            guard CellularModeRun.isAllowedToStart else {
+                                showPaywall = true
+                                return
+                            }
+                            applySelection(target)
+                            CellularModeSequence.shared.start(latitude: target.latitude,
+                                                              longitude: target.longitude)
+                        }
+                    } else if loss.needsCellularRecovery {
+                        Button(L("spoof.lost.action.setup", fallback: "Set up Cellular Mode")) {
+                            spoofLoss.acknowledge()
+                            showCellularSetup = true
+                        }
+                    } else {
+                        Button(L("spoof.lost.action.retry", fallback: "Teleport there again")) {
+                            spoofLoss.acknowledge()
+                            applySelection(target)
+                            simulate()
+                        }
+                    }
+                }
+                Button(L("action.ok", fallback: "OK"), role: .cancel) { spoofLoss.acknowledge() }
+            } message: { loss in
+                // The RECORDED transport, so the copy and the button can never contradict each other.
+                Text(LocationSimulationOutcome.sessionLostMessage(onCellular: loss.needsCellularRecovery))
+            }
             .onReceive(NotificationCenter.default.publisher(for: .teleportToRequested)) { note in
                 guard let lat = note.userInfo?["lat"] as? Double,
                       let lng = note.userInfo?["lng"] as? Double else { return }
@@ -2227,72 +2274,23 @@ struct LocationSimulationView: View {
         && !isRouteRunning
     }
 
+    /// The Teleport tab's Cellular Mode row.
+    ///
+    /// The button, the readiness rules, the paywall gate and the progress line all moved into
+    /// `CellularModeStartButton` when Route and Joystick grew the same entry point — same copy, same
+    /// keys, same behaviour. The teleport itself IS the whole run here, so nothing follows it: the
+    /// sequence's own success path already posts `.holdLocationRequested`, which this view picks up
+    /// and turns into the warm hold, exactly as it did before.
     @ViewBuilder private func cellularModeControls(for coord: CLLocationCoordinate2D) -> some View {
-        if offersCellularMode {
-            WanderPanelNote(
-                status: .caution,
-                text: L("map.cellular.note",
-                        fallback: "Mobile data, no Wi-Fi — iOS won't let the tunnel connect. Cellular Mode turns Airplane Mode on just long enough to get it up, sets this pin, then turns it back off. You're offline for up to about half a minute."),
-                icon: "antenna.radiowaves.left.and.right"
-            )
-            Button {
-                if cellularModeReady {
-                    // THE SAME PAYWALL GATE AS THE SIMULATE BUTTON BELOW (`simulate()`). Cellular
-                    // Mode is a teleport with an Airplane Mode dance wrapped around it; shipping it
-                    // ungated made it a free door to the paid engine. The predicate lives in
-                    // `CellularModeRun.isAllowedToStart` so the button and the retry in the recovery
-                    // banner cannot drift; the trial is CHARGED where every other path charges it —
-                    // at the confirmed teleport, in `WanderLocationIntent.teleport`.
-                    guard CellularModeRun.isAllowedToStart else {
-                        showPaywall = true
-                        return
-                    }
-                    // ONE PATH NOW. There is no second shortcut to route to: `CellularModeSequence`
-                    // conducts every run, and it refuses to start unless a check has proved the name
-                    // reaches the one-action file (see its `start`).
-                    CellularModeSequence.shared.start(latitude: coord.latitude, longitude: coord.longitude)
-                } else {
-                    showCellularSetup = true
-                }
-            } label: {
-                Label(cellularModeReady
-                      ? L("map.cellular.run", fallback: "Simulate — Cellular Mode")
-                      : L("map.cellular.setup", fallback: "Set up Cellular Mode"),
-                      systemImage: "airplane")
-                    .font(.wanderLabel)
-                    .frame(maxWidth: .infinity).frame(height: MapModeChrome.controlHeight)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Wander.brand)
-            .controlSize(.large)
-            .disabled(isBusy || isLoadingRoute || cellularSequence.isRunning)
-            .opacity((isBusy || isLoadingRoute || cellularSequence.isRunning) ? 0.5 : 1)
-
-            // WHAT THE OLD FLOW COULD NOT DO. While a Shortcut conducted the sequence, Wander was in
-            // the background with nothing to say; the user watched a dead screen and a dark radio.
-            // Wander conducts it now, so each step can name itself as it happens.
-            if let status = cellularSequence.statusText {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small).tint(Wander.brand)
-                    Text(status).wanderMicro()
-                    Spacer(minLength: 0)
-                    Button(L("action.cancel", fallback: "Cancel")) { cellularSequence.cancel() }
-                        .font(.caption)
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Wander.brand)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else if cellularModeReady {
-                // HONEST NUMBER. The old copy said "a few seconds"; the run is a 4 s settle, up to
-                // 12 s in `WanderTunnel.ensureStarted()`, up to ~12 s in the teleport, and the second
-                // Shortcuts hop. Someone waiting on a call notices the difference between that and
-                // "a few seconds", and a promise we break costs more than a number that sounds bad.
-                Text(localized: "map.cellular.cost",
-                     fallback: "Shortcuts flashes twice, and calls and data are off for up to about 30 seconds — usually less.")
-                    .wanderMicro()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
+        CellularModeStartButton(
+            coordinate: coord,
+            isOffered: offersCellularMode,
+            note: L("map.cellular.note",
+                    fallback: "Mobile data, no Wi-Fi — iOS won't let the tunnel connect. Cellular Mode turns Airplane Mode on just long enough to get it up, sets this pin, then turns it back off. You're offline for up to about half a minute."),
+            readyLabel: L("map.cellular.run", fallback: "Simulate — Cellular Mode"),
+            isDisabled: isBusy || isLoadingRoute,
+            onEstablished: {}
+        )
     }
 
     private var routeControls: some View {
@@ -2403,8 +2401,15 @@ struct LocationSimulationView: View {
         // a manual step. No-ops instantly unless the user opted in (useOwnTunnel) and never runs while
         // gs-loc owns the VPN slot — see WanderTunnel.ensureStarted. If the tunnel is already carrying
         // traffic the probe returns immediately, so the normal path is unaffected.
+        //
+        // ⚠️ THE CONFIRMED-INJECT TEST COMES FIRST, AND ON CELLULAR IT IS THE ONLY ONE THAT CAN PASS.
+        // `isTunnelSimEndpointReachable()` opens a NEW connection, which iOS refuses outright on mobile
+        // data — so with a perfectly live session this branch was taken on EVERY teleport, costing up
+        // to 12 s in `ensureStarted()` and, worse, potentially reaching `start()`, which saves the VPN
+        // profile and can bounce the very tunnel carrying the spoof.
         if UserDefaults.standard.bool(forKey: UserDefaults.Keys.useOwnTunnel),
            !GslocMode.enabled,
+           !TunnelInjectStatus.hasRecentConfirmedSuccess(),
            !isTunnelSimEndpointReachable() {
             Task {
                 await WanderTunnel.shared.ensureStarted()
@@ -2636,10 +2641,15 @@ struct LocationSimulationView: View {
     ///      so no state of that queue — backed up, busy, or wedged — can stop the button from working.
     ///      This is what "Stop always responds" means concretely.
     ///   2. THE DEVICE HALF is enqueued. Clearing the fix ON THE DEVICE requires the tunnel, so it
-    ///      inherently cannot be made independent of the transport — but it does not need to be:
-    ///      the DVT location session is connection-scoped, so if the tunnel is down there is nothing
-    ///      live left to clear and the device has already reverted to real GPS. Being late here costs
-    ///      nothing the user can see.
+    ///      inherently cannot be made independent of the transport. Being late here costs nothing the
+    ///      user can see, because half 1 has already finished.
+    ///
+    ///      ⚠️ IT IS NOT OPTIONAL, whatever the transport looks like. This used to say the DVT session
+    ///      was connection-scoped, so a stop over a down tunnel had nothing left to clear. That was
+    ///      never measured and the owner's cellular Stop disproved it in practice: on mobile data the
+    ///      endpoint probe is false by construction, Wander skipped the clear on the strength of it,
+    ///      and the device kept reporting the fake location. `clear_simulated_location()` now always
+    ///      sends the stop over the session it already holds — see the long note there.
     ///
     /// It also no longer returns early when `pairingExists` is false. Standing the local session down
     /// is exactly as valid without a pairing file — and bailing first was another way for a tap to
@@ -2656,8 +2666,12 @@ struct LocationSimulationView: View {
         // the user stopped cannot re-disable the buttons or re-alert over the stop.
         locationCommandToken &+= 1
         isBusy = false
+        holdWriteFailures = 0
         endBackgroundTask()
-        BackgroundLocationManager.shared.requestStop()
+        // The keep-alive lease is released by `markStopped()` at the end of this function, which owns
+        // it. Releasing it here too would decrement a count this view no longer holds — and with the
+        // old unbalanced pair that is exactly how a Walk running alongside a teleport could have its
+        // keep-alive pulled out from under it.
 
         // ── 2. DEVICE HALF — needs the tunnel, so it is enqueued and never gated on ──────────────
         // Ordering is unchanged from before and from `SimulationSession.stopAll()`: the clear is
@@ -2666,17 +2680,47 @@ struct LocationSimulationView: View {
         if pairingExists {
             LocationSimulationCommandQueue.submitClear {
                 let code = clear_simulated_location()
-                // Every return path of that call has already freed the FFI session, so no handle is
-                // open at this instant. Recorded on the location queue, where the tunnel's
-                // auto-disconnect reads it. See LocationSessionActivity.
+                // Recorded on the location queue, where the tunnel's auto-disconnect reads it. It no
+                // longer ASSUMES the handle is gone — two return paths keep it on purpose (an owed
+                // clear, and one retry after a refused one) and `noteSessionClosed` checks. See
+                // LocationSessionActivity.
                 LocationSessionActivity.noteSessionClosed()
                 DispatchQueue.main.async {
-                    // Only a REAL failure is worth an alert. "The tunnel was down" is not one: the
-                    // stop already happened locally and the device had nothing of ours left to clear,
-                    // so the old "Clear Failed (error 12)" reported a successful stop as broken.
+                    // ── WHAT EACH CODE MEANS NOW THAT THE STOP IS ACTUALLY SENT ──────────────────
+                    // Since build 151 the clear is attempted on the CACHED HANDLE and bounded, rather
+                    // than skipped whenever a reachability probe failed — which on cellular it always
+                    // did. So these codes now describe what the DEVICE said, and they deserve three
+                    // different sentences instead of one number.
+                    //
+                    //   0  — the device took the stop. Silent, as always.
+                    //   13 — nothing was ever dialled (no session). Also a completed stop.
+                    //   14 — the stop went out and hasn't been confirmed. Not a failure; give the
+                    //        user the one instruction that resolves it if it never lands.
+                    //   15 — the stop has NOT gone out: a location write is still outstanding on the
+                    //        FFI thread and the library is not safe to call twice on one handle. The
+                    //        session is kept and the clear is owed; Wander sends it itself the moment
+                    //        that write returns. It must NOT borrow 14's copy — "Wander told your
+                    //        device to stop simulating" is simply untrue here.
+                    //   12 — the device REFUSED. This is the one case where it may still be
+                    //        simulating, and the copy has to say so.
                     guard code != 0, !LocationSimulationOutcome.isTunnelUnreachable(code) else { return }
-                    alertTitle = "Clear Failed"
-                    alertMessage = "Could not clear simulated location (error \(code))."
+                    if LocationSimulationOutcome.isClearDeferred(code) {
+                        alertTitle = LocationSimulationOutcome.stopDeferredTitle
+                        alertMessage = LocationSimulationOutcome.stopDeferredMessage
+                    } else if LocationSimulationOutcome.isClearStalled(code) {
+                        alertTitle = LocationSimulationOutcome.stopStalledTitle
+                        alertMessage = LocationSimulationOutcome.stopStalledMessage(onCellular: reachability.isOnCellular)
+                    } else if reachability.isOnCellular {
+                        // A refused clear on cellular is already being reported app-wide by
+                        // `SpoofLossReporter.noteStopDidNotClear`, and THAT alert is the better one:
+                        // it carries a working recovery (a Cellular Mode run that re-establishes a
+                        // session and then clears) rather than an OK button. Two alerts for one
+                        // problem is how a user concludes they have two problems.
+                        return
+                    } else {
+                        alertTitle = LocationSimulationOutcome.stopRefusedTitle
+                        alertMessage = LocationSimulationOutcome.stopRefusedMessage(onCellular: false)
+                    }
                     showAlert = true
                 }
             }
@@ -2701,11 +2745,11 @@ struct LocationSimulationView: View {
         // the spoof is gone until Airplane Mode comes back. This is why it advances only while Wander
         // is frontmost.
         //
-        // Continuous location updates are one of the two things that actually keep an app running
-        // (declaring UIBackgroundModes alone grants nothing). requestStop() was already being called
-        // on stop/clear WITHOUT a matching requestStart() anywhere in this view — so the location
-        // keep-alive has never once started for a teleport, route, or walk.
-        BackgroundLocationManager.shared.requestStart()
+        // THE KEEP-ALIVE LEASE IS NO LONGER TAKEN HERE. It belongs to the SESSION, not to this view:
+        // `SimulationSession.started()` takes it and either stop path releases it
+        // (`BackgroundLocationManager.setSessionActive`). Taking a second one here was half of the
+        // leak that left continuous 100 m location updates — and the GPS — running for the rest of
+        // the process after a single teleport-and-stop cycle.
     }
 
     private func endBackgroundTask() {
@@ -2721,7 +2765,10 @@ struct LocationSimulationView: View {
         breathingJitter = BreathingJitter()
         LocationSimulationCommandQueue.suppressResends = false   // a new hold re-enables re-injection
         resendTimer?.invalidate()
-        resendTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { _ in
+        // .common, not the default mode: `Timer.scheduledTimer` installs into .default only, so the
+        // re-inject STOPS for as long as the user is dragging or scrolling the map (UITracking mode).
+        // The hold is what keeps the fix alive; it must not pause while someone pans around.
+        let timer = Timer(timeInterval: 4, repeats: true) { _ in
             guard let simulatedCoordinate else { return }
             // "Hold perfectly still" (frozen hold) disables the breathing jitter so a held
             // location is rock-steady. Otherwise we drive the injected point through the
@@ -2744,9 +2791,83 @@ struct LocationSimulationView: View {
             LocationSimulationCommandQueue.submit {
                 // A Stop/Clear may have landed after this tick was queued — don't re-inject then.
                 if LocationSimulationCommandQueue.suppressResends { return }
-                _ = locationUpdateCode(for: target)
+                let code = locationUpdateCode(for: target)
+                DispatchQueue.main.async { noteHoldWriteOutcome(code) }
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        resendTimer = timer
+    }
+
+    /// Reconcile the HOLD with the device: did that re-inject actually land?
+    ///
+    /// This line used to be `_ = locationUpdateCode(for: target)`. The hold is the majority flow and
+    /// the one running while the phone is in a pocket, and it threw away the answer to the only
+    /// question that matters — so a session that died in the background died in total silence, with
+    /// the map still showing the fake pin. Walk (`WalkModeView.noteWriteOutcome`) and Route
+    /// (`RouteModeView.noteWriteOutcome`) have reconciled every write for builds; this is the same
+    /// pattern, deliberately, so there is one behaviour to reason about instead of three.
+    ///
+    /// ── TELLING AND STOPPING ARE TWO DIFFERENT DECISIONS, ON TWO DIFFERENT CLOCKS ────────────────
+    ///
+    /// This is where the hold deliberately does NOT copy Walk. Walk treats a code 13 as definitive
+    /// and halts on the spot, and that is right for Walk: it is a foreground run whose marker is
+    /// actively moving across the map, so one bad write already means the screen is lying about
+    /// motion.
+    ///
+    /// A hold is the opposite kind of thing. It is the long-lived background case, and the single
+    /// most important sequence in the whole product — Airplane Mode ON, connect, Airplane Mode OFF —
+    /// makes the endpoint genuinely unreachable for tens of seconds while iOS re-attaches cellular.
+    /// Every tick in that window returns 13. Halting on the first one would tear down the exact
+    /// session the airplane trick exists to establish, which is how build 124 broke airplane-off. So
+    /// the two decisions are separated:
+    ///
+    ///   * TELL THE USER AS SOON AS IT IS TRUE, NOT AS SOON AS IT IS SUSPECTED. The moment we can
+    ///     PROVE the device is back on real GPS is when a real FFI error tore the session down and no
+    ///     handle is open — `lastTeardownWasInvoluntary && !isSessionHeld`. That is a fact about the
+    ///     device rather than an inference from a failure count, and it fires on the first tick that
+    ///     observes it.
+    ///   * ONLY STOP ONCE THE RECOVERY WINDOW HAS GENUINELY CLOSED. Sixty seconds of unbroken failure
+    ///     outlasts a cellular re-attach and the health monitor's own ~72 s reconnect budget, so
+    ///     anything still failing then is not coming back by itself. Until that point the hold keeps
+    ///     re-injecting, because a rebuild on a later tick is precisely how a spoof survives a blip.
+    ///
+    /// ⚠️ IT DOES NOT FREE ANYTHING AND IT DOES NOT PROBE. The OTA-124 rule — bounded write on the
+    /// CACHED HANDLE first, never `cleanup()` on the strength of a probe result — lives one layer
+    /// down in `_simulate_location`. This only reads a code that path already returned.
+    private func noteHoldWriteOutcome(_ code: Int32) {
+        guard simulatedCoordinate != nil else { return }   // the hold is over — nothing to reconcile
+        if code == 0 {
+            holdWriteFailures = 0
+            // A rebuild landed after a bad patch. Retire the loss card rather than keep offering a
+            // recovery for a spoof that recovered itself.
+            SpoofLossReporter.shared.noteRecovered()
+            return
+        }
+        holdWriteFailures += 1
+
+        // THE PROOF, not the suspicion. `SpoofLossReporter` de-duplicates, so repeating this on every
+        // failing tick still costs exactly one notification per death.
+        if LocationSessionProbeState.lastTeardownWasInvoluntary,
+           !LocationSessionProbeState.isSessionHeld {
+            SpoofLossReporter.shared.noteSessionLost(
+                LocationSessionProbeState.lastTeardownReason ?? "hold write failed (error \(code))")
+        }
+
+        guard holdWriteFailures >= Self.holdFailuresBeforeStandDown else { return }
+        holdWriteFailures = 0
+        // Nothing has landed for a minute. Say so if we have not already — this covers the case where
+        // every failure was a code 13 and no teardown was ever recorded — then stand down.
+        // SYNCHRONOUS on purpose (see `SpoofLossReporter.noteSessionLost(_:)`): the stop below clears
+        // `isActive`, and the reporter only speaks while a session is live.
+        SpoofLossReporter.shared.noteSessionLost(
+            LocationSessionProbeState.lastTeardownReason ?? "hold write failed (error \(code))")
+        // Reuse the ONE global stop path, exactly as `WalkModeView.haltRun` does — it clears the
+        // device fix, broadcasts `.stopSimulationRequested`, and this view's handler drops the hold
+        // and the marker, so nothing is left on screen implying a spoof the device isn't holding.
+        // `.automation` because nobody asked for this, and an automated stop must not take the
+        // tunnel down with it.
+        SimulationSession.shared.stopAll(source: .automation)
     }
 
     private func stopResendLoop() {

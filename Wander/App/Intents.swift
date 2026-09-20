@@ -385,7 +385,9 @@ enum WanderLocationIntent {
             SimulationSession.shared.started()
             SimulationSession.shared.noteTeleport(to: coord)
             SavedPlacesStore.recordRecent(coord, name: name)
-            BackgroundLocationManager.shared.requestStart()
+            // No `requestStart()` here: `started()` above takes the session's keep-alive lease. This
+            // extra call took a reference count nothing ever released — one of the three leaks that
+            // left the GPS running for the life of the process.
             if !License.shared.isLicensed { TrialManager.shared.chargeTeleport() }
             LogManager.shared.addInfoLog(String(format: "Teleported via Shortcut to %.5f, %.5f", coord.latitude, coord.longitude))
         }
@@ -483,7 +485,13 @@ struct StartTunnelIntent: AppIntent {
         // `isSupported` is false while LocalDevVPN may be carrying the loopback perfectly well, and
         // telling that user "this install can't run a tunnel" would be alarming AND wrong. This is
         // also the idempotent no-op the sequence needs — running the shortcut twice costs nothing.
-        if isTunnelSimEndpointReachable() {
+        //
+        // The confirmed-inject test leads for the cellular reason spelled out in
+        // `TunnelInjectStatus.hasRecentConfirmedSuccess`: on mobile data the reachability probe is
+        // false by construction, so this no-op never fired and the Cellular Mode sequence's own
+        // tunnel step fell through into `ensureStarted()` — twelve seconds, and a chance of bouncing
+        // the tunnel — on a phone whose session was fine.
+        if TunnelInjectStatus.hasRecentConfirmedSuccess() || isTunnelSimEndpointReachable() {
             // Same first statement, same reason, as `ensureStarted()`: somebody wants this tunnel up.
             // Without it a disconnect armed by an earlier Stop could fire during the teleport that
             // follows this action in the Cellular Mode shortcut. Safe from any thread.

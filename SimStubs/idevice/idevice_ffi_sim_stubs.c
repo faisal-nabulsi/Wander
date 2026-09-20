@@ -161,8 +161,26 @@ enum IdeviceLoggerError idevice_init_logger(enum IdeviceLogLevel console_level, 
     return Success;
 }
 
+void idevice_pairing_file_free(struct IdevicePairingFile *pairing_file) {
+    (void)pairing_file;
+}
+
+struct IdeviceFfiError *idevice_pairing_file_read(const char *path, struct IdevicePairingFile **pairing_file) {
+    if (pairing_file) *pairing_file = NULL;
+    return wander_sim_stub_error();
+}
+
+void idevice_provider_free(struct IdeviceProviderHandle *provider) {
+    (void)provider;
+}
+
 void idevice_string_free(char *string) {
     (void)string;
+}
+
+struct IdeviceFfiError *idevice_tcp_provider_new(const idevice_sockaddr *ip, struct IdevicePairingFile *pairing_file, const char *label, struct IdeviceProviderHandle **provider) {
+    if (provider) *provider = NULL;
+    return wander_sim_stub_error();
 }
 
 struct IdeviceFfiError *image_mounter_connect_rsd(struct AdapterHandle *provider, struct RsdHandshakeHandle *handshake, struct ImageMounterHandle **client) {
@@ -222,6 +240,23 @@ struct IdeviceFfiError *location_simulation_new(struct RemoteServerHandle *serve
 }
 
 struct IdeviceFfiError *location_simulation_set(struct LocationSimulationHandle *handle, double latitude, double longitude) {
+    return wander_sim_stub_error();
+}
+
+struct IdeviceFfiError *lockdown_location_simulation_clear(struct LocationSimulationServiceHandle *handle) {
+    return wander_sim_stub_error();
+}
+
+struct IdeviceFfiError *lockdown_location_simulation_connect(struct IdeviceProviderHandle *provider, struct LocationSimulationServiceHandle **handle) {
+    if (handle) *handle = NULL;
+    return wander_sim_stub_error();
+}
+
+void lockdown_location_simulation_free(struct LocationSimulationServiceHandle *handle) {
+    (void)handle;
+}
+
+struct IdeviceFfiError *lockdown_location_simulation_set(struct LocationSimulationServiceHandle *handle, const char *latitude, const char *longitude) {
     return wander_sim_stub_error();
 }
 
@@ -340,6 +375,15 @@ void rp_pairing_file_free(struct RpPairingFileHandle *handle) {
 
 struct IdeviceFfiError *rp_pairing_file_read(const char *path, struct RpPairingFileHandle **out) {
     if (out) *out = NULL;
+    return wander_sim_stub_error();
+}
+
+void rsd_free_services(struct CRsdServiceArray *services) {
+    (void)services;
+}
+
+struct IdeviceFfiError *rsd_get_services(struct RsdHandshakeHandle *handle, struct CRsdServiceArray **services) {
+    if (services) *services = NULL;
     return wander_sim_stub_error();
 }
 

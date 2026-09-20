@@ -111,3 +111,7 @@ iOSInjectionProject/
 .vscode/settings.json
 .vscode 
 .updates-webhook
+
+# Internal research notes — NEVER publish (anti-detection / gs-loc internals)
+TRIBUNAL_FINDINGS.md
+GSLOC_INAPP_PLAN.md
