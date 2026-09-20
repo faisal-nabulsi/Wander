@@ -11,6 +11,15 @@ import Darwin
 enum DeviceConnectionContext {
     static let defaultTargetIPAddress = "10.7.0.1"
 
+    /// The address the TUNNEL INTERFACE takes — LocalDevVPN's "Device IP", stored under
+    /// `UserDefaults.Keys.tunnelInterfaceIP`. It is deliberately NOT the same as
+    /// `defaultTargetIPAddress`: Wander dials the target, and `remotepairingd` resets any connection
+    /// whose source is an address the device itself owns. Collapse these two onto one value and every
+    /// dial becomes a device-owned-source dial that can never succeed — which is exactly what a user
+    /// hit on build 153 after the old error copy told him to "use the default 10.7.0.1 address"
+    /// without saying which of the two it meant.
+    static let defaultDeviceIPAddress = "10.7.0.0"
+
     /// The developer-tunnel (remotepairing) port. Same for both address families.
     static let developerTunnelPort: UInt16 = 49152
 

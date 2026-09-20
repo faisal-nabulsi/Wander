@@ -142,6 +142,31 @@ final class TunnelManager: ObservableObject {
             return
         }
 
+        // PRE-FLIGHT: refuse a dial whose destination is an address THIS DEVICE already owns.
+        //
+        // `remotepairingd` resets any connection sourced from a device-owned address, and when the
+        // target IS one of our interface addresses the kernel picks that same address as the source
+        // — so the dial is a device-owned-source dial by construction and can never succeed. It
+        // surfaces as errno 54 ECONNRESET, which reads like a network fault and is not one.
+        //
+        // This is not hypothetical: three users hit it on iOS 26.5.2 after setting LocalDevVPN's
+        // Device IP to the same value as its Tunnel IP. The old error copy invited exactly that by
+        // naming a single address. Catching it here turns a permanent, self-inflicted dead end into
+        // one sentence that names the fix, BEFORE we burn a connect attempt on it.
+        if let conflict = Self.targetIsOwnAddress(DeviceConnectionContext.targetIPAddress) {
+            let msg = "LocalDevVPN's Tunnel IP (\(DeviceConnectionContext.targetIPAddress)) is also your device's own \(conflict) address, so Wander would be dialling itself and iOS refuses that. In LocalDevVPN set Device IP to \(DeviceConnectionContext.defaultDeviceIPAddress) and Tunnel IP to \(DeviceConnectionContext.defaultTargetIPAddress) — they must be different — then reconnect."
+            LogManager.shared.addErrorLog("Tunnel pre-flight: target \(DeviceConnectionContext.targetIPAddress) is this device's own \(conflict) address — refusing to dial. \(msg)")
+            isConnected = false
+            isStarting = false
+            if showErrorUI {
+                showAlert(title: "Tunnel IP is your own address",
+                          message: msg,
+                          showOk: true,
+                          showTryAgain: false) { _ in }
+            }
+            return
+        }
+
         isStarting = true
         startedAt = Date()
 
@@ -272,12 +297,24 @@ private func tunnelConnectionAlertMessage(for error: NSError) -> String {
         // tunnel, so a device that refuses the tunnel also refuses the question — the row reads
         // "Can't check yet" and the user is never told the real cause. Leading with LocalDevVPN here
         // sent people down a Wi-Fi/IP rabbit hole for a setting three taps away in Settings.
-        likelyCause = "Your device refused the developer connection. This is almost always Developer Mode being off — not a Wi-Fi or VPN problem."
+        // MEASURED CAUSE (user report, build 153, iOS 26.5.2): the two tunnel addresses had been
+        // collapsed onto ONE. The RPPairing probe showed `10.7.0.1:49152 -> RESET, SOURCE 10.7.0.1`
+        // — dialling the target FROM the target, because LocalDevVPN's Device IP had been set to
+        // 10.7.0.1 as well. remotepairingd refuses a device-owned source, so that configuration can
+        // never connect; it is loopback wearing a tunnel's clothes.
+        //
+        // THE OLD COPY HERE CAUSED THAT. It said "make sure LocalDevVPN is using the default
+        // 10.7.0.1 address" — naming ONE address when there are two, and naming the one that must
+        // NOT be the interface. Users dutifully set Device IP to 10.7.0.1 and locked themselves out
+        // permanently; one wrote in saying he had changed both "to match". Always name both, and
+        // always say they must differ.
+        likelyCause = "Your device refused the developer connection. The usual cause is LocalDevVPN's two addresses being set to the same value — they must be different."
         recoverySteps = [
-            "Turn ON Settings → Privacy & Security → Developer Mode, then restart your iPhone. (No Developer Mode row? Connect the tunnel once so iOS reveals it, then come back.)",
-            "After the restart, reopen Wander and try again.",
-            "Still failing? Select a fresh pairing file — the device also refuses pairing material it doesn't accept.",
-            "Only then check the basics: LocalDevVPN connected, using the default \(DeviceConnectionContext.defaultTargetIPAddress) address.",
+            "In LocalDevVPN, set Device IP to \(DeviceConnectionContext.defaultDeviceIPAddress) and Tunnel IP to \(DeviceConnectionContext.defaultTargetIPAddress). They must NOT be the same — Wander dials the Tunnel IP, so if the interface also owns it, your device is dialling itself and refuses the connection.",
+            "Or just open Wander → Settings → Tunnel IP → Reset to defaults, then restart the tunnel, and make LocalDevVPN match those two values.",
+            "Reconnect LocalDevVPN, then try again.",
+            "Still failing? Turn ON Settings → Privacy & Security → Developer Mode and restart your iPhone. (No Developer Mode row? It only appears after a developer-signed app has asked for it.)",
+            "Still failing after that? Select a fresh pairing file.",
             "No Wi-Fi? Turn on Airplane Mode, then connect LocalDevVPN (the loopback tunnel works with no network)."
         ]
     } else if error.code == -18 || lowercasedMessage.contains("parse target ip") {
@@ -325,4 +362,22 @@ private func tunnelConnectionAlertMessage(for error: NSError) -> String {
     Technical details:
     Code \(error.code): \(rawMessage)
     """
+}
+
+extension TunnelManager {
+    /// The interface name that already owns `target`, or nil when nothing does.
+    ///
+    /// Compares raw bytes rather than strings so "10.7.0.1" and "010.007.000.001" cannot disagree,
+    /// and skips DOWN interfaces — a stale address on an interface that is not up cannot be the
+    /// source the kernel picks.
+    static func targetIsOwnAddress(_ target: String) -> String? {
+        guard let parsed = WiFiSubnet.parseAddress(target) else { return nil }
+        for iface in WiFiSubnet.allAddresses() {
+            guard iface.family == parsed.family,
+                  iface.flags & UInt32(IFF_UP) != 0,
+                  iface.addressBytes == parsed.bytes else { continue }
+            return iface.name
+        }
+        return nil
+    }
 }

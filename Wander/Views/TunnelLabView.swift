@@ -191,14 +191,25 @@ struct TunnelLabView: View {
 
             if !output.isEmpty {
                 Section {
-                    Text(output)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
+                    // COPY SITS ABOVE THE REPORT, AND IS .borderless, FOR A REASON.
+                    // `.textSelection(.enabled)` on the report below installs a gesture that wins
+                    // over the enclosing Form row's tap, so a plain Button rendered after it reads
+                    // as dead — tapping it starts a text selection instead of copying. A user hit
+                    // exactly that while trying to send a diagnostic, which is the worst possible
+                    // moment for the copy button not to work. `.borderless` makes the label itself
+                    // the tap target rather than the row, and an explicit contentShape keeps the
+                    // whole label hittable rather than just the glyphs.
                     Button {
                         UIPasteboard.general.string = output
                     } label: {
                         Label("Copy this report", systemImage: "doc.on.doc")
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.borderless)
+
+                    Text(output)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
                 } header: {
                     Text(outputTitle)
                 }
