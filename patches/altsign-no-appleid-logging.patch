@@ -1,0 +1,18 @@
+Stop logging the user's Apple ID to the device console.
+
+`debugLog` in Dependencies/AltSign/SwiftBridge/AltSignLogging.swift is an
+ungated `print()` (unlike `verboseLog`, which checks isLoggingEnabled), so this
+line ran in release builds and put the user's full email address in the console
+on every sign-in. Shipped in OTA build 155.
+
+--- a/Dependencies/AltSign/Sources/ALTAppleAPI+Authentication.swift
++++ b/Dependencies/AltSign/Sources/ALTAppleAPI+Authentication.swift
+@@
+         let sanitizedAppleID = unsanitizedAppleID.lowercased()
+ 
+-        debugLog("[AltSign] Starting authenticate for Apple ID: \(sanitizedAppleID)")
++        // Deliberately NOT logging the Apple ID itself: debugLog is an ungated print(), so
++        // this line runs in release builds and would put the user's address in the device console.
++        debugLog("[AltSign] Starting authenticate")
+ 
+         do {
