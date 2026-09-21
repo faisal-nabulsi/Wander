@@ -1,0 +1,95 @@
+Give every gsa.apple.com request its own URLSession, and therefore its own connection.
+
+Apple's edge in front of gsa.apple.com serves at most two requests per connection and
+answers the rest with HTTP 429. ALTAppleAPI.sharedAPI keeps one ephemeral URLSession for
+the app's lifetime, and .ephemeral still reuses keep-alive connections, so signing in
+(init -> complete -> apptokens) failed at `complete` every time.
+
+Verified on Apple's own URLSession stack, three POSTs to GsService2, two trials each:
+  shared session (build 155):  init=200  complete=429  apptokens=429
+  one-shot sessions (156):     init=200  complete=200  apptokens=200
+
+Mirrors rileytestut/AltSign#52. Also moves the four 2FA requests (trusted-device and SMS,
+request + verify) off the shared session, since they hit the same host. 2FA does not rely
+on cookies carried between those requests: isideload's client has no cookie store at all and
+upstream's 2FA works. developerservices2.apple.com calls keep the shared session.
+Shipped in OTA build 156. Apply from the repo root with: git apply patches/<this file>
+
+--- a/Dependencies/AltSign/Sources/ALTAppleAPI+Authentication.swift
++++ b/Dependencies/AltSign/Sources/ALTAppleAPI+Authentication.swift
+@@ -253,7 +253,9 @@
+ 
+         let request = makeTwoFactorCodeRequest(url: requestURL, dsid: dsid, idmsToken: idmsToken, anisetteData: anisetteData)
+ 
+-        let requestCodeTask = session.dataTask(with: request) { data, _, error in
++        let requestSession = ALTAppleAPI.makeOneShotGSASession()
++        defer { requestSession.finishTasksAndInvalidate() }
++        let requestCodeTask = requestSession.dataTask(with: request) { data, _, error in
+             do {
+                 guard error == nil else { throw error! }
+ 
+@@ -264,7 +266,9 @@
+                         var request = self.makeTwoFactorCodeRequest(url: verifyURL, dsid: dsid, idmsToken: idmsToken, anisetteData: anisetteData)
+                         request.allHTTPHeaderFields?["security-code"] = verificationCode
+ 
+-                        let verifyCodeTask = self.session.dataTask(with: request) { (data, response, error) in
++                        let verifySession = ALTAppleAPI.makeOneShotGSASession()
++                        defer { verifySession.finishTasksAndInvalidate() }
++                        let verifyCodeTask = verifySession.dataTask(with: request) { (data, response, error) in
+                             do
+                             {
+                                 guard let data = data else { throw error ?? ALTAppleAPIError.unknown }
+@@ -329,7 +333,9 @@
+             return
+         }
+ 
+-        let requestCodeTask = session.dataTask(with: request) { _, response, error in
++        let requestSession = ALTAppleAPI.makeOneShotGSASession()
++        defer { requestSession.finishTasksAndInvalidate() }
++        let requestCodeTask = requestSession.dataTask(with: request) { _, response, error in
+             do {
+                 guard error == nil else { throw error! }
+ 
+@@ -351,7 +357,9 @@
+                         let bodyData = try PropertyListSerialization.data(fromPropertyList: bodyXML, format: .xml, options: 0)
+                         request.httpBody = bodyData
+ 
+-                        let verifyCodeTask = self.session.dataTask(with: request) { _, response, error in
++                        let verifySession = ALTAppleAPI.makeOneShotGSASession()
++                        defer { verifySession.finishTasksAndInvalidate() }
++                        let verifyCodeTask = verifySession.dataTask(with: request) { _, response, error in
+                             do {
+                                 guard error == nil else { throw error! }
+ 
+@@ -449,7 +457,11 @@
+             request.httpBody = bodyData
+             httpHeaders.forEach { request.addValue($0.value, forHTTPHeaderField: $0.key) }
+ 
+-            let dataTask = self.session.dataTask(with: request) { (data, response, error) in
++            // Own session, therefore own connection - see makeOneShotGSASession().
++            let gsaSession = ALTAppleAPI.makeOneShotGSASession()
++            defer { gsaSession.finishTasksAndInvalidate() }
++
++            let dataTask = gsaSession.dataTask(with: request) { (data, response, error) in
+                 do
+                 {
+                     if let error {
+@@ -530,3 +542,18 @@
+         return request
+     }
+ }
++
++extension ALTAppleAPI {
++    /// Apple's edge in front of gsa.apple.com serves at most two requests per connection and answers
++    /// the rest with HTTP 429 (it was a 503 when first reported, around 2026-08-31). Signing in is three
++    /// requests (init, complete, apptokens) and 2FA adds two more, so any of them sharing a pooled
++    /// connection can be refused. `session` is one ephemeral URLSession on a singleton, and `.ephemeral`
++    /// only turns off on-disk storage - it still reuses keep-alive connections. So every gsa.apple.com
++    /// request gets its own session, and therefore its own connection. Mirrors rileytestut/AltSign#52.
++    /// Calls to developerservices2.apple.com keep using the shared `session`.
++    fileprivate static func makeOneShotGSASession() -> URLSession {
++        let configuration = URLSessionConfiguration.ephemeral
++        configuration.httpMaximumConnectionsPerHost = 1
++        return URLSession(configuration: configuration)
++    }
++}

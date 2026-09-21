@@ -11,3 +11,7 @@ to a vendored dependency must therefore be recorded here so it can be re-applied
 if the folder is ever re-cloned or reset.
 
 Apply with: `git apply patches/<name>.patch` from the repo root.
+
+Apply in this order (each was cut against the file as left by the one before):
+1. `altsign-no-appleid-logging.patch` (build 155)
+2. `altsign-one-connection-per-gsa-request.patch` (build 156)

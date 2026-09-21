@@ -1,6 +1,6 @@
 {
-  "build": 155,
+  "build": 156,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Fixes Apple ID sign-in, which had been failing with a 503 error since around 10 September. Apple began turning away sign-in requests before it ever looked at your Apple ID, so nothing about your account or password was wrong. Wander now identifies itself to Apple the way Apple expects. Also stops the app printing your Apple ID to the device console when you sign in."
+  "notes": "Fixes Apple ID sign-in, which could still fail with a 429 error after the last update. Apple now accepts only two requests per connection, and signing in takes three, so the last step was being refused. Each request to Apple now uses its own connection, and sign-in completes."
 }

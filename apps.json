@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "155",
+      "buildVersion": "156",
       "versionDate": "2026-09-20",
-      "versionDescription": "Fixes Apple ID sign-in, which had been failing with a 503 error since around 10 September. Apple began turning away sign-in requests before it ever looked at your Apple ID, so nothing about your account or password was wrong. Wander now identifies itself to Apple the way Apple expects. Also stops the app printing your Apple ID to the device console when you sign in.",
+      "versionDescription": "Fixes Apple ID sign-in, which could still fail with a 429 error after the last update. Apple now accepts only two requests per connection, and signing in takes three, so the last step was being refused. Each request to Apple now uses its own connection, and sign-in completes.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 22136208,
+      "size": 22136507,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "155",
+          "buildVersion": "156",
           "date": "2026-09-20",
-          "localizedDescription": "Fixes Apple ID sign-in, which had been failing with a 503 error since around 10 September. Apple began turning away sign-in requests before it ever looked at your Apple ID, so nothing about your account or password was wrong. Wander now identifies itself to Apple the way Apple expects. Also stops the app printing your Apple ID to the device console when you sign in.",
+          "localizedDescription": "Fixes Apple ID sign-in, which could still fail with a 429 error after the last update. Apple now accepts only two requests per connection, and signing in takes three, so the last step was being refused. Each request to Apple now uses its own connection, and sign-in completes.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 22136208,
+          "size": 22136507,
           "minOSVersion": "17.0"
         }
       ],
