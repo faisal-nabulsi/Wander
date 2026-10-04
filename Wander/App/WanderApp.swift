@@ -87,6 +87,9 @@ struct WanderApp: App {
                 // singleton loads the cached isPro from the Keychain and kicks off a background
                 // entitlement re-check; folds into License.isLicensed so the gates honor it.
                 await MainActor.run { _ = WanderProAccount.shared }
+                // Anonymous usage count (random per-install id, no account link). Fire-and-forget,
+                // at most once per 30 minutes; see UsageStats.
+                await MainActor.run { UsageStats.recordSession() }
                 // Register THIS install against the account's 5-device cap (server-enforced),
                 // while online. Fully fail-safe — on any error it keeps the cached registration
                 // so a paying user is never locked out offline. No-ops when not signed in.
@@ -127,6 +130,11 @@ struct WanderApp: App {
             // rebuild every few seconds forever; the cap has to be lifted by something that means
             // "the situation may have changed", and a user opening the app is exactly that.
             BackgroundAudioManager.shared.handleForeground()
+            // Re-check the account's Pro entitlement (throttled to once per 6 hours) and apply the
+            // 7-day offline grace to a cached Pro.
+            WanderProAccount.shared.handleForeground()
+            // Anonymous usage count; debounced to once per 30 minutes inside UsageStats.
+            UsageStats.recordSession()
             if shouldAttemptTunnelReconnect {
                 shouldAttemptTunnelReconnect = false
                 // NOT a bare `startTunnelInBackground` any more. Coming forward is not by itself

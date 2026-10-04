@@ -22,19 +22,19 @@
         "https://raw.githubusercontent.com/faisal-nabulsi/Wander/main/docs/screenshots/route.png"
       ],
       "version": "1.0",
-      "buildVersion": "156",
-      "versionDate": "2026-09-20",
-      "versionDescription": "Fixes Apple ID sign-in, which could still fail with a 429 error after the last update. Apple now accepts only two requests per connection, and signing in takes three, so the last step was being refused. Each request to Apple now uses its own connection, and sign-in completes.",
+      "buildVersion": "157",
+      "versionDate": "2026-10-04",
+      "versionDescription": "Pro status now refreshes whenever you come back to the app, not only on a fresh launch, so purchases and plan changes show up sooner. If you're offline, Pro stays active for up to 7 days between checks.",
       "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-      "size": 22136507,
+      "size": 22162993,
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "156",
-          "date": "2026-09-20",
-          "localizedDescription": "Fixes Apple ID sign-in, which could still fail with a 429 error after the last update. Apple now accepts only two requests per connection, and signing in takes three, so the last step was being refused. Each request to Apple now uses its own connection, and sign-in completes.",
+          "buildVersion": "157",
+          "date": "2026-10-04",
+          "localizedDescription": "Pro status now refreshes whenever you come back to the app, not only on a fresh launch, so purchases and plan changes show up sooner. If you're offline, Pro stays active for up to 7 days between checks.",
           "downloadURL": "https://wanderspoofer.com/downloads/Wander.ipa",
-          "size": 22136507,
+          "size": 22162993,
           "minOSVersion": "17.0"
         }
       ],

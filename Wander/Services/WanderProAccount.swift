@@ -16,10 +16,23 @@
 //  Plain URLSession REST against the Firebase REST APIs — deliberately NO Firebase SDK / SPM
 //  dependency, so the Xcode project builds unchanged. Only the PUBLIC web apiKey is embedded.
 //
-//  Persistence: uid, email, refreshToken, and the last-known isPro flag live in the Keychain
-//  (via WanderKeychain), so account-Pro survives relaunch AND delete/reinstall (iOS keeps
-//  Keychain items across app deletion). On a network error we KEEP the cached isPro — we never
-//  downgrade a paying user because their Wi-Fi dropped; only an explicit non-pro read clears it.
+//  Persistence: uid, email, refreshToken, the last-known isPro flag and `proVerifiedAt` (when a
+//  server read last said Pro) live in the Keychain (via WanderKeychain), so account-Pro survives
+//  relaunch AND delete/reinstall (iOS keeps Keychain items across app deletion).
+//
+//  Entitlement rule (same as the Worker, Android and desktop):
+//    Pro = (plan == "pro" OR lifetime == true) AND NOT (source == "comp" AND expiresAt has passed),
+//  ORed across licenses/{uid} and licenses/{lowercased email}; the email doc counts only when the
+//  account's email is verified (Firestore rules refuse it otherwise).
+//
+//  Cache policy:
+//    • Re-verified on launch and on every return to the foreground, at most once per 6 hours after
+//      a read that got an answer (a read that couldn't complete is retried on a later foreground).
+//    • A read that SUCCEEDS and says not-Pro (including "no such document" on every doc) drops
+//      Pro at once.
+//    • A read that can't complete (offline, transport error, auth hiccup) keeps the cached Pro only
+//      while `proVerifiedAt` is under 7 days old. After that the app is free until a read succeeds,
+//      so a revoked or expired licence can't live on forever in an offline cache.
 //
 
 import Foundation
@@ -67,11 +80,32 @@ final class WanderProAccount: ObservableObject {
     /// session (re-persisting uid/refresh) or silently re-enable Pro after sign-out.
     private var sessionGeneration = 0
 
+    /// When a server read last confirmed Pro. Mirrors the Keychain copy; nil whenever isPro is false.
+    private var proVerifiedAt: Date?
+    /// When an entitlement read last came back with a real answer (Pro OR not-Pro). Drives the
+    /// 6-hour foreground throttle. In memory only: every cold launch re-checks anyway.
+    private var lastConclusiveReadAt: Date?
+    /// When the last entitlement re-check STARTED (launch, sign-in, or foreground). Only spaces out
+    /// retries after a check that couldn't complete.
+    private var lastVerifyAttemptAt: Date?
+    /// True while a launch/foreground re-check is running, so overlapping triggers don't stack.
+    private var verifyInFlight = false
+
+    /// Foreground re-checks happen at most this often after a check that got an answer.
+    private static let reverifyInterval: TimeInterval = 6 * 60 * 60
+    /// After a check that could NOT complete (offline, server error), the next foreground retries,
+    /// but no sooner than this — so a paying user whose offline grace ran out gets Pro back as soon
+    /// as they're online, without a token request on every app switch while offline.
+    private static let retryAfterFailureInterval: TimeInterval = 5 * 60
+    /// How long a cached Pro survives reads that can't complete (offline / errors).
+    private static let offlineGrace: TimeInterval = 7 * 24 * 60 * 60
+
     private enum Key {
         static let uid = "wander.account.uid"
         static let email = "wander.account.email"
         static let refresh = "wander.account.refreshToken"
         static let isPro = "wander.account.isPro"
+        static let proVerifiedAt = "wander.account.proVerifiedAt"
     }
 
     private init() {
@@ -271,6 +305,8 @@ final class WanderProAccount: ObservableObject {
         self.uid = uid
         self.email = email
         persistSession()
+        // A new session starts its own re-check clock (never inherits a previous account's).
+        lastConclusiveReadAt = nil
 
         // Read entitlement now so the UI can dismiss straight into a Pro state.
         await fetchEntitlement()
@@ -650,7 +686,7 @@ final class WanderProAccount: ObservableObject {
             }
             guard http.statusCode == 200,
                   let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-                return false   // 5xx / unparseable → transient; keep the cached session + Pro.
+                return false   // 5xx / unparseable → transient; keep the session (Pro rides the 7-day grace).
             }
             // Secure-token responses are snake_case.
             if let newId = obj["id_token"] as? String { self.idToken = newId }
@@ -661,55 +697,97 @@ final class WanderProAccount: ObservableObject {
             persistSession()
             return self.idToken != nil
         } catch {
-            return false   // transport error → transient; never downgrade a paid user offline.
+            return false   // transport error → transient; cached Pro rides the 7-day offline grace.
         }
     }
 
     // MARK: - Entitlement (Firestore REST)
 
-    /// GET licenses/{uid}; if that isn't Pro, fall back to licenses/{lowercased-email}. Sets
-    /// isPro only on a definitive read. On a network/transport error we KEEP the cached isPro
-    /// (never downgrade a paid user offline) — only an explicit non-pro document clears it.
+    /// GET licenses/{uid} and, when the account's email is verified, licenses/{lowercased email}.
+    /// Any doc that grants Pro → Pro (and stamps proVerifiedAt). Every doc read SUCCEEDED and none
+    /// grants Pro (a "not found" counts as a successful not-Pro answer) → Pro drops at once. Any
+    /// read could not complete and none granted Pro → inconclusive: the cached Pro stays only
+    /// inside the 7-day offline grace.
     func fetchEntitlement() async {
-        // Ensure a usable idToken. If we hold none, mint one from the refresh token; a read with
-        // a stale token would just 401 (inconclusive) and preserve the cache, but refreshing
-        // first avoids that round-trip. Bail if we can't get a token at all (not signed in).
+        let gen = sessionGeneration
+        lastVerifyAttemptAt = Date()
+
+        // Ensure a usable idToken. If we hold none, mint one from the refresh token.
         if idToken == nil {
-            guard await refreshIfNeeded() else { return }
+            guard await refreshIfNeeded(), sessionGeneration == gen else {
+                if sessionGeneration == gen { expireStaleCacheIfNeeded() }
+                return
+            }
         }
 
-        // Primary lookup by uid.
-        if let uid, let result = await readLicenseDoc(docId: uid) {
-            if result {
+        let claims = idToken.flatMap { Self.claims(fromIdToken: $0) }
+        let uidKey = nonEmpty(uid)
+        // The email doc only counts for a VERIFIED email (Firestore rules refuse it otherwise, and
+        // the Worker ignores it). If the token can't be decoded at all we still try the read and
+        // let the rules decide; a refusal then counts as an inconclusive read, never a downgrade.
+        let emailVerified: Bool? = claims.map { ($0["email_verified"] as? Bool) == true }
+        // Prefer the token's own email: it is what the Firestore rule compares the doc id against.
+        let rawEmail = nonEmpty(claims?["email"] as? String) ?? nonEmpty(email)
+        let emailKey: String? = (emailVerified == false)
+            ? nil
+            : nonEmpty(rawEmail?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+
+        guard uidKey != nil || emailKey != nil else {
+            // Nothing we can read (no uid and no verified email): no answer either way.
+            expireStaleCacheIfNeeded()
+            return
+        }
+
+        var anyReadFailed = false
+        for docId in [uidKey, emailKey == uidKey ? nil : emailKey].compactMap({ $0 }) {
+            let result = await readLicense(docId: docId)
+            // Signed out (or re-signed-in) while the read was in flight: never apply a stale answer.
+            guard sessionGeneration == gen else { return }
+            switch result {
+            case .pro:
+                lastConclusiveReadAt = Date()
                 setPro(true)
                 return
+            case .notPro, .notFound:
+                continue
+            case .failed, .unauthorized:
+                anyReadFailed = true
             }
-            // Doc existed but wasn't pro — try the email-keyed doc before concluding non-pro.
-            if let email = email?.lowercased(), let byEmail = await readLicenseDoc(docId: email) {
-                setPro(byEmail)
-                return
-            }
-            // No email fallback available / not found → the uid doc is authoritative: not pro.
-            setPro(false)
-            return
         }
 
-        // No uid doc (missing, or the read errored). Try the email-keyed doc.
-        if let email = email?.lowercased(), let byEmail = await readLicenseDoc(docId: email) {
-            setPro(byEmail)
-            return
+        if anyReadFailed {
+            expireStaleCacheIfNeeded()
+        } else {
+            lastConclusiveReadAt = Date()
+            setPro(false)
         }
-        // Everything we tried was inconclusive (network error / no docs). Leave cached isPro as-is.
     }
 
-    /// Read one Firestore document `licenses/{docId}`.
-    /// - Returns `true`/`false` when the document is readable (plan == "pro" or not),
-    ///   or `nil` when the read was inconclusive (404 not-found, auth, or transport error) so
-    ///   the caller can fall back / preserve the cache.
-    private func readLicenseDoc(docId: String) async -> Bool? {
-        guard let idToken else { return nil }
+    /// The outcome of reading one `licenses/{docId}` document.
+    private enum LicenseRead: Equatable {
+        case pro            // 200, and the doc grants Pro
+        case notPro         // 200, and the doc does not grant Pro (free, expired comp, no plan…)
+        case notFound       // 404: no such doc (a successful "not Pro" answer for this key)
+        case unauthorized   // 401: the idToken expired
+        case failed         // transport error, 403/5xx, or an unreadable body: no answer
+    }
+
+    /// Read one license doc, minting a fresh idToken and retrying ONCE if the first try 401s (the
+    /// short-lived token can expire between a launch and a later foreground re-check).
+    private func readLicense(docId: String) async -> LicenseRead {
+        let first = await readLicenseDoc(docId: docId)
+        guard first == .unauthorized else { return first }
+        let gen = sessionGeneration
+        guard await refreshIfNeeded(), sessionGeneration == gen else { return .failed }
+        let second = await readLicenseDoc(docId: docId)
+        return second == .unauthorized ? .failed : second
+    }
+
+    /// Read one Firestore document `licenses/{docId}` and classify the answer.
+    private func readLicenseDoc(docId: String) async -> LicenseRead {
+        guard let idToken else { return .failed }
         let path = "projects/\(Self.projectId)/databases/(default)/documents/licenses/\(Self.pathEncode(docId))"
-        guard let url = URL(string: "https://firestore.googleapis.com/v1/\(path)") else { return nil }
+        guard let url = URL(string: "https://firestore.googleapis.com/v1/\(path)") else { return .failed }
 
         var req = URLRequest(url: url, timeoutInterval: 20)
         req.httpMethod = "GET"
@@ -717,25 +795,139 @@ final class WanderProAccount: ObservableObject {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: req)
-            guard let http = response as? HTTPURLResponse else { return nil }
-            guard http.statusCode == 200 else {
-                // 404 = no such license doc (a real "not this key"); anything else is a
-                // transport/auth hiccup. Either way this specific doc didn't confirm Pro; return
-                // nil so the caller can try the fallback / keep the cache rather than downgrade.
-                return nil
+            guard let http = response as? HTTPURLResponse else { return .failed }
+            switch http.statusCode {
+            case 200: break
+            case 404: return .notFound
+            case 401: return .unauthorized
+            default: return .failed
             }
             // Firestore document shape: { "fields": { "plan": { "stringValue": "pro" }, ... } }
-            guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                  let fields = obj["fields"] as? [String: Any],
-                  let plan = fields["plan"] as? [String: Any],
-                  let planValue = plan["stringValue"] as? String else {
-                // Document exists but has no readable plan field → treat as not pro.
-                return false
+            // A body that isn't JSON at all is not an answer (keep the cache under the grace rule);
+            // a real document with no fields / no plan is a definitive "not Pro".
+            guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                return .failed
             }
-            return planValue == "pro"
+            let fields = (obj["fields"] as? [String: Any]) ?? [:]
+            return Self.licenseGrantsPro(fields: fields, now: Date()) ? .pro : .notPro
         } catch {
-            return nil
+            return .failed
         }
+    }
+
+    /// The shared entitlement rule over one Firestore document's `fields`:
+    ///   (plan == "pro" OR lifetime == true) AND NOT (source == "comp" AND expiresAt has passed).
+    /// A comp whose expiresAt is missing or unreadable is treated as not expired.
+    private static func licenseGrantsPro(fields: [String: Any], now: Date) -> Bool {
+        let plan = (fields["plan"] as? [String: Any])?["stringValue"] as? String
+        let lifetime = ((fields["lifetime"] as? [String: Any])?["booleanValue"] as? Bool) == true
+        guard plan == "pro" || lifetime else { return false }
+
+        let source = (fields["source"] as? [String: Any])?["stringValue"] as? String
+        if source == "comp",
+           let expiresAt = firestoreDate(fields["expiresAt"]),
+           expiresAt <= now {
+            return false
+        }
+        return true
+    }
+
+    /// Decode a Firestore REST value into a Date. Accepts a timestampValue (RFC 3339), a
+    /// stringValue (RFC 3339 date-time or a bare YYYY-MM-DD, read as midnight UTC), or an
+    /// integerValue/doubleValue of Unix seconds (milliseconds when the number is that large).
+    private static func firestoreDate(_ value: Any?) -> Date? {
+        guard let v = value as? [String: Any] else { return nil }
+        if let s = (v["timestampValue"] as? String) ?? (v["stringValue"] as? String) {
+            return parseISODate(s)
+        }
+        var number: Double?
+        if let s = v["integerValue"] as? String { number = Double(s) }        // int64 travels as a string
+        else if let n = v["integerValue"] as? NSNumber { number = n.doubleValue }
+        else if let n = v["doubleValue"] as? NSNumber { number = n.doubleValue }
+        guard let raw = number, raw.isFinite, raw > 0 else { return nil }
+        return Date(timeIntervalSince1970: raw > 1e12 ? raw / 1000 : raw)
+    }
+
+    private static func parseISODate(_ raw: String) -> Date? {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return nil }
+        // Firestore emits 0, 3, 6 or 9 fractional digits; drop them so one formatter covers all.
+        let trimmed = s.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression)
+        let full = ISO8601DateFormatter()
+        full.formatOptions = [.withInternetDateTime]
+        if let d = full.date(from: trimmed) { return d }
+        let dateOnly = ISO8601DateFormatter()
+        dateOnly.formatOptions = [.withFullDate]
+        dateOnly.timeZone = TimeZone(identifier: "UTC")
+        if let d = dateOnly.date(from: trimmed) { return d }
+        // A date-time with no zone: read as UTC, which is what the Worker's Date.parse does
+        // (Workers run in UTC), so both sides expire the same comp at the same moment.
+        let noZone = DateFormatter()
+        noZone.locale = Locale(identifier: "en_US_POSIX")
+        noZone.timeZone = TimeZone(identifier: "UTC")
+        for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd HH:mm:ss"] {
+            noZone.dateFormat = format
+            if let d = noZone.date(from: trimmed) { return d }
+        }
+        return nil
+    }
+
+    // MARK: - Re-verification (launch + foreground) and the offline grace
+
+    /// Call whenever the app becomes active. Applies the 7-day offline grace right away (no
+    /// network needed), then re-reads the entitlement if the last read that got an answer is 6+
+    /// hours old. A check that couldn't complete is retried on a later foreground (5+ min later).
+    func handleForeground() {
+        expireStaleCacheIfNeeded()
+        guard isSignedIn, !verifyInFlight else { return }
+        if Self.isRecent(lastConclusiveReadAt, within: Self.reverifyInterval) { return }
+        if Self.isRecent(lastVerifyAttemptAt, within: Self.retryAfterFailureInterval) { return }
+        reverify(registerDevice: false)
+    }
+
+    /// True when `date` is less than `interval` ago. A date in the future (the clock moved
+    /// backwards) counts as not recent, so the check is treated as due.
+    private static func isRecent(_ date: Date?, within interval: TimeInterval) -> Bool {
+        guard let date else { return false }
+        let elapsed = Date().timeIntervalSince(date)
+        return elapsed >= 0 && elapsed < interval
+    }
+
+    /// Mint a fresh idToken, then read the entitlement. On launch this also re-registers the
+    /// device, exactly as before. A token refresh that can't complete is an inconclusive read:
+    /// the cached Pro survives only inside the offline grace.
+    private func reverify(registerDevice: Bool) {
+        guard isSignedIn, !verifyInFlight else { return }
+        verifyInFlight = true
+        lastVerifyAttemptAt = Date()
+        // Capture the session generation so a sign-out during this async chain aborts it — a late
+        // read must never re-enable Pro after the user signed out. (#19)
+        let gen = sessionGeneration
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.verifyInFlight = false }
+            guard await self.refreshIfNeeded(), self.sessionGeneration == gen else {
+                if self.sessionGeneration == gen { self.expireStaleCacheIfNeeded() }
+                return
+            }
+            await self.fetchEntitlement()
+            guard registerDevice, self.sessionGeneration == gen else { return }
+            // Re-register this device on launch (while online). Fail-safe: never locks out.
+            await WanderDeviceActivation.shared.activate()
+        }
+    }
+
+    /// Drop a cached Pro that no server read has confirmed for 7 days.
+    private func expireStaleCacheIfNeeded() {
+        guard isPro else { return }
+        if let verified = proVerifiedAt, Self.isWithinOfflineGrace(verified) { return }
+        setPro(false)
+    }
+
+    private static func isWithinOfflineGrace(_ verifiedAt: Date) -> Bool {
+        let age = Date().timeIntervalSince(verifiedAt)
+        // A stamp more than a day in the future means the clock was wound back; don't trust it.
+        return age > -24 * 60 * 60 && age < offlineGrace
     }
 
     // MARK: - Authenticated Firestore access (for opt-in features like place sync)
@@ -828,6 +1020,8 @@ final class WanderProAccount: ObservableObject {
         WanderKeychain.set(Key.email, "")
         WanderKeychain.set(Key.refresh, "")
         WanderKeychain.set(Key.isPro, "0")
+        lastConclusiveReadAt = nil
+        lastVerifyAttemptAt = nil
         status = "Signed out."
         // Clear this device's registration state so the next account starts fresh (effective Pro
         // already drops because the account is no longer Pro; this just tidies the device gate).
@@ -886,43 +1080,69 @@ final class WanderProAccount: ObservableObject {
 
     /// Load the cached session + Pro flag from the Keychain (synchronous, offline), then — if a
     /// session exists — kick off a background refresh + entitlement re-check. The cached isPro
-    /// keeps Pro alive instantly on launch and through offline launches.
+    /// keeps Pro alive instantly on launch and through offline launches, but only while its
+    /// last server confirmation is under 7 days old.
     func restore() {
         let cachedUid = nonEmpty(WanderKeychain.string(Key.uid))
         let cachedRefresh = nonEmpty(WanderKeychain.string(Key.refresh))
         let cachedEmail = nonEmpty(WanderKeychain.string(Key.email))
-        let cachedPro = WanderKeychain.string(Key.isPro) == "1"
+        var cachedPro = WanderKeychain.string(Key.isPro) == "1"
+        var verifiedAt = Self.decodeDate(WanderKeychain.string(Key.proVerifiedAt))
+
+        // A Pro cache written by a build that predates proVerifiedAt has no stamp. Start its 7-day
+        // clock now (once), so a paying user who updates while offline isn't locked out.
+        if cachedPro && verifiedAt == nil {
+            let now = Date()
+            verifiedAt = now
+            WanderKeychain.set(Key.proVerifiedAt, Self.encodeDate(now))
+        }
+        // Offline grace used up: launch as free until a read succeeds. Written straight to the
+        // Keychain (not via setPro) because this runs inside `init`, and setPro → License.shared
+        // → WanderProAccount.shared would re-enter the singleton's initializer.
+        if cachedPro, let stamp = verifiedAt, !Self.isWithinOfflineGrace(stamp) {
+            cachedPro = false
+            WanderKeychain.set(Key.isPro, "0")
+            WanderKeychain.set(Key.proVerifiedAt, "")
+        }
 
         uid = cachedUid
         refreshToken = cachedRefresh
         email = cachedEmail
+        proVerifiedAt = cachedPro ? verifiedAt : nil
         if cachedPro { isPro = true }   // reflect cache immediately; don't publish false spuriously
 
         guard cachedRefresh != nil else { return }
 
-        // Live re-check in the background; failures preserve the cached state. Capture the current
-        // session generation so a sign-out during this async chain aborts it (belt-and-suspenders
-        // with refreshIfNeeded's own guard — keeps a late entitlement read from re-enabling Pro
-        // after the user signed out). (#19)
-        let gen = sessionGeneration
-        Task { [weak self] in
-            guard let self else { return }
-            guard await self.refreshIfNeeded(), self.sessionGeneration == gen else { return }
-            await self.fetchEntitlement()
-            guard self.sessionGeneration == gen else { return }
-            // Re-register this device on launch (while online). Fail-safe: never locks out.
-            await WanderDeviceActivation.shared.activate()
-        }
+        // Live re-check in the background (refresh token → entitlement → device registration).
+        reverify(registerDevice: true)
     }
 
     // MARK: - Internals
 
     /// Single choke point for flipping Pro: publishes the flag, caches it, and asks License to
     /// recompute so the (key OR account) effective-Pro used by every gate stays in sync.
+    /// `true` is only ever passed after a server read said Pro, so it also stamps proVerifiedAt.
     private func setPro(_ value: Bool) {
+        if value {
+            let now = Date()
+            proVerifiedAt = now
+            WanderKeychain.set(Key.proVerifiedAt, Self.encodeDate(now))
+        } else {
+            proVerifiedAt = nil
+            WanderKeychain.set(Key.proVerifiedAt, "")
+        }
         WanderKeychain.set(Key.isPro, value ? "1" : "0")
         if isPro != value { isPro = value }
         License.shared.refresh()
+    }
+
+    private static func encodeDate(_ date: Date) -> String {
+        String(date.timeIntervalSince1970)
+    }
+
+    private static func decodeDate(_ raw: String?) -> Date? {
+        guard let raw, let seconds = Double(raw), seconds.isFinite, seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
     }
 
     private func persistSession() {
@@ -978,6 +1198,14 @@ final class WanderProAccount: ObservableObject {
     /// Extract the Firebase `user_id`/`sub` claim from an idToken's JWT payload (base64url middle
     /// segment). Used only as a fallback when mfaSignIn:finalize omits `localId`.
     private static func uid(fromIdToken token: String) -> String? {
+        guard let claims = claims(fromIdToken: token) else { return nil }
+        return (claims["user_id"] as? String) ?? (claims["sub"] as? String)
+    }
+
+    /// Decode an idToken's JWT payload (the base64url middle segment) into its claims. Read-only
+    /// and unverified — used only to pick which license docs to read (`email_verified`, `email`);
+    /// Firestore's rules still verify the token on every read.
+    private static func claims(fromIdToken token: String) -> [String: Any]? {
         let parts = token.split(separator: ".")
         guard parts.count >= 2 else { return nil }
         var b64 = String(parts[1])
@@ -985,11 +1213,8 @@ final class WanderProAccount: ObservableObject {
             .replacingOccurrences(of: "_", with: "/")
         // Pad to a multiple of 4 for Foundation's base64 decoder.
         while b64.count % 4 != 0 { b64 += "=" }
-        guard let data = Data(base64Encoded: b64),
-              let claims = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            return nil
-        }
-        return (claims["user_id"] as? String) ?? (claims["sub"] as? String)
+        guard let data = Data(base64Encoded: b64) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
     private static func formEncode(_ s: String) -> String {
