@@ -8,12 +8,12 @@
 
 ### Set your iPhone's location to anywhere on Earth — no jailbreak.
 
-Teleport with a tap, roam with a live on-screen joystick, or drive a realistic multi-stop route. Cross-platform for iPhone, Android, Mac &amp; Windows, with a real free trial — the affordable alternative to paid apps like **iMyFone AnyTo** and **Tenorshare iAnyGo**.
+Teleport with a tap, roam with a live on-screen joystick, or drive a realistic multi-stop route. Cross-platform for iPhone, Android, Mac &amp; Windows, with a free plan that refills — a lower-priced alternative to apps like **iMyFone AnyTo** and **Tenorshare iAnyGo**.
 
 <br/>
 
 [![Website](https://img.shields.io/badge/🌐_Website-wanderspoofer.com-4C8BF5?style=for-the-badge)](https://wanderspoofer.com)
-[![Download](https://img.shields.io/badge/⬇️_Download-Free_trial-22C55E?style=for-the-badge)](https://wanderspoofer.com/#download)
+[![Download](https://img.shields.io/badge/⬇️_Download-Free_plan-22C55E?style=for-the-badge)](https://wanderspoofer.com/#download)
 [![Discord](https://img.shields.io/badge/💬_Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/gfHdsRXUVA)
 
 ![Platform](https://img.shields.io/badge/platform-iOS_·_Android_·_macOS_·_Windows-lightgrey?style=flat-square)
@@ -99,35 +99,33 @@ Teleport with a tap, roam with a live on-screen joystick, or drive a realistic m
 - 🔓 **No jailbreak** — runs on a normal, up-to-date iPhone.
 - 🔄 **Over-the-air self-updates** — set it up once; it refreshes itself, no computer needed again.
 
-Start with a **free trial**. **Wander Pro** unlocks the movement modes (joystick, routes, and more).
+Start on the **free plan**: 1 teleport every day, plus 15 minutes of joystick and 3 routes every month. **Wander Pro** ($3.99 a month, $36 a year, or $80 once) makes them unlimited and unlocks the other movement modes.
 
 ---
 
-## ⚖️ Wander vs. the paid apps
+## ⚖️ Wander vs. iMyFone AnyTo
 
-| | **Wander** | iMyFone AnyTo | Tenorshare iAnyGo |
-|---|:---:|:---:|:---:|
-| **Real free trial** | ✅ | ⚠️ | ⚠️ |
-| **Price** | ✅ **$80 lifetime** | 💰 ~$120/yr | 💰 ~$120/yr |
-| **No jailbreak** | ✅ | ✅ | ✅ |
-| **Teleport** | ✅ | ✅ | ✅ |
-| **Live joystick** | ✅ | ✅ | ✅ |
-| **Multi-stop routes** | ✅ | ✅ | ✅ |
-| **PoGo mode + cooldown** | ✅ | ⚠️ | ⚠️ |
-| **Transport modes (incl. flights)** | ✅ | ⚠️ | ⚠️ |
-| **AI natural-language teleport** | ✅ | ❌ | ❌ |
-| **GPX & KML import / export** | ✅ | ⚠️ | ⚠️ |
-| **Works on cellular (no Wi-Fi)** | ✅ | ⚠️ | ⚠️ |
-| **iOS · Android · macOS · Windows** | ✅ | ⚠️ | ⚠️ |
-| **Over-the-air self-updates** | ✅ | ❌ | ❌ |
+| | **Wander** | iMyFone AnyTo (VIP plan) |
+|---|:---:|:---:|
+| **Monthly** | **$3.99** | $14.99 |
+| **Yearly** | **$36** | $59.99 |
+| **Lifetime** | **$80** | $89.99 |
+| **Free use** | Free plan that refills: 1 teleport a day, plus 15 joystick minutes and 3 routes a month | Limited free trial |
+| **No jailbreak** | ✅ | ✅ |
+| **Teleport, joystick, multi-stop routes** | ✅ | ✅ |
+| **Open source** | ✅ iPhone and desktop apps | ❌ |
+
+AnyTo prices are its VIP plan as listed on [iMyFone's store](https://www.imyfone.com/location-changer/purchase/) on 15 November 2026; its SVIP plan costs more. Prices change often, so check both stores.
+
+Wander also includes PoGo mode with a cooldown timer, transport modes including flights, AI natural-language teleport, GPX & KML import and export, cellular support, over-the-air self-updates, and one account for iOS · Android · macOS · Windows (up to 3 devices).
 
 ---
 
-## ⬇️ Get Wander — in 2 minutes
+## ⬇️ Get Wander
 
 Wander isn't on the App Store, but installing it is quick and needs **no jailbreak and no paid developer account**.
 
-### 👉 [**Get it in ~2 minutes at wanderspoofer.com**](https://wanderspoofer.com/#download)
+### 👉 [**Get it at wanderspoofer.com**](https://wanderspoofer.com/#download)
 
 The site walks you through the whole thing with the free **Wander Installer** and always has the latest build. Prefer to grab the raw app? [`Wander.ipa`](https://github.com/faisal-nabulsi/Wander/releases/latest) is on the Releases page.
 
@@ -152,14 +150,14 @@ The site walks you through the whole thing with the free **Wander Installer** an
 
 ## 🤔 Why Wander?
 
-The other location spoofers work, but they lock movement modes behind a yearly subscription and give you a token trial. Wander gives you a **real free trial** and one honest **$80 lifetime** license that unlocks every platform — teleport, joystick, routes, PoGo Mode and more on iPhone, Android, Mac, and Windows, with no jailbreak and no monthly bill.
+The other location spoofers work. Wander costs less — **$3.99 a month, $36 a year, or $80 once** — and one account unlocks every platform: teleport, joystick, routes, PoGo Mode and more on iPhone, Android, Mac, and Windows, with no jailbreak. Its **free plan** refills every day and month, so you can keep using it without paying.
 
 ---
 
 ## ❓ FAQ
 
 **Is Wander free?**
-Yes — there's a real free trial (not a locked demo), and one-tap teleport is free. **Wander Pro** unlocks the movement modes (live joystick, multi-stop routes, and more) for a one-time **$80 lifetime** license that covers iPhone, Android, Mac and Windows — no subscription.
+There is a free plan that refills: 1 teleport every day, plus 15 minutes of joystick and 3 routes every month. **Wander Pro** makes those unlimited and unlocks the other movement modes for **$3.99 a month, $36 a year, or $80 once**. One account covers iPhone, Android, Mac and Windows on up to 3 devices.
 
 **Does it need a jailbreak?**
 No. Wander runs on a **stock, up-to-date iPhone** with no jailbreak and no paid Apple developer account.
@@ -167,14 +165,14 @@ No. Wander runs on a **stock, up-to-date iPhone** with no jailbreak and no paid 
 **Which platforms does it support?**
 iPhone (iOS), Android, macOS and Windows — one project, four apps.
 
-**Is Wander a free alternative to iMyFone AnyTo, Tenorshare iAnyGo, or iToolab AnyGo?**
-Yes. It does the same core things — teleport, live joystick walking, and multi-stop routes with no jailbreak — with a real free trial and a one-time lifetime price instead of a yearly subscription. See the [comparison table](#️-wander-vs-the-paid-apps) above.
+**Is Wander an alternative to iMyFone AnyTo, Tenorshare iAnyGo, or iToolab AnyGo?**
+Yes. It does the same core things — teleport, live joystick walking, and multi-stop routes with no jailbreak — with a free plan that refills and lower prices than AnyTo's VIP plan on every billing period. See the [comparison table](#️-wander-vs-imyfone-anyto) above.
 
 **Will I get banned in Pokémon GO?**
 Wander does **not** modify the Pokémon GO client, so it passes the Play Integrity checks that get client-modding tools like PGSharp and iPogo banned, and it includes a cooldown timer to help you respect the game's soft-ban clock. That said, **spoofing any game still carries risk** — play responsibly and at your own discretion.
 
 **How do I install it without the App Store?**
-About 2 minutes, guided by the free **Wander Installer**. Start at **[wanderspoofer.com](https://wanderspoofer.com/#download)**.
+About 10 minutes the first time on iPhone (a one-time setup with a Mac or Windows PC), guided by the free **Wander Installer**. Android takes about a minute. Start at **[wanderspoofer.com](https://wanderspoofer.com/#download)**.
 
 ---
 
