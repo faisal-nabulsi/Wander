@@ -76,10 +76,15 @@ TODAY=$(date +%Y-%m-%d)
 BUILD="$BUILD" VERSION="$VERSION" NOTES="$NOTES" SIZE="$SIZE" TODAY="$TODAY" python3 - <<'PY'
 import json, os
 p = "apps.json"
+if not os.path.exists(p):
+    # The SideStore source was withdrawn on 2026-11-17: its download link was dead and it
+    # shares a bundle identifier with StikDebug. Restore apps.json to bring this step back.
+    print("apps.json not present - skipping the SideStore source update")
+    raise SystemExit(0)
 d = json.load(open(p))
 build = os.environ["BUILD"]; version = os.environ["VERSION"]; notes = os.environ["NOTES"]
 size = int(os.environ["SIZE"]); today = os.environ["TODAY"]
-url = "https://wanderspoofer.com/downloads/Wander.ipa"
+url = "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa"
 app = d["apps"][0]
 minos = (app.get("versions") or [{}])[0].get("minOSVersion", "17.0")
 app["version"] = version; app["buildVersion"] = build; app["versionDate"] = today
@@ -138,4 +143,5 @@ fi
 
 echo
 echo "== Payload uploaded + manifests written (build $BUILD). Ship it by pushing this repo: =="
-echo "  cd ~/Developer/wander-ios && git add update.json apps.json Wander.xcodeproj/project.pbxproj && git commit -m \"OTA build $BUILD: $NOTES\" && git push"
+APPS_JSON=""; [ -f apps.json ] && APPS_JSON=" apps.json"
+echo "  cd ~/Developer/wander-ios && git add update.json$APPS_JSON Wander.xcodeproj/project.pbxproj && git commit -m \"OTA build $BUILD: $NOTES\" && git push"
