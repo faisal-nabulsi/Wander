@@ -82,7 +82,7 @@ Teleport with a tap, roam with a live on-screen joystick, or drive a realistic m
 - 🧠 **AI "believable day"** generator (prompt or surprise-me) and a read-only **raids / eggs / events** board.
 
 **Stay believable**
-- 🌊 **Distance-jump smoothing** — big teleports glide over a few seconds so apps can't flag an impossible instant jump (great for dating apps &amp; Life360). _(iOS &amp; Android)_
+- 🌊 **Distance-jump smoothing** — big teleports glide over a few seconds so apps can't flag an impossible instant jump (great for dating &amp; location-sharing apps). _(iOS &amp; Android)_
 - 🌧️ **Weather-aware pacing** — routes slow down for rain and snow. _(iOS &amp; Android)_
 - 🧊 **Privacy toggles** — **Frozen / hold-still** and **Approximate (~3–5 km)** location modes. _(iOS &amp; Android; desktop has hold-still via the fluctuation toggle)_
 - 🛰️ **GPS jitter** for natural-looking, slightly noisy fixes.
