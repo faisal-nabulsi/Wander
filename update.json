@@ -1,6 +1,6 @@
 {
-  "build": 157,
+  "build": 158,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Pro status now refreshes whenever you come back to the app, not only on a fresh launch, so purchases and plan changes show up sooner. If you're offline, Pro stays active for up to 7 days between checks."
+  "notes": "Clearer wording in a few settings."
 }
