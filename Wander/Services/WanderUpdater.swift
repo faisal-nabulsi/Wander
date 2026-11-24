@@ -9,19 +9,36 @@
 //
 //  Requirements to install mirror self-refresh: signed in to an Apple ID + tunnel connected.
 //
+//  INTEGRITY (2026-10-12): the manifest is Ed25519-signed by tools/sign-ota-manifest.py with a key
+//  that lives OFF GitHub, and carries the IPA's SHA-256 + byte size. `check()` ignores any manifest
+//  that doesn't verify against the public key compiled in below, and `installUpdate()` refuses an
+//  IPA whose size/hash/CFBundleVersion don't match the signed values — BEFORE unzipping or re-signing.
+//  Write access to the repo or release assets alone can no longer push code to every device.
+//
 
 import Foundation
 import AltSign
+import CryptoKit
 
 @MainActor
 final class WanderUpdater: ObservableObject {
     static let shared = WanderUpdater()
 
+    /// Plain `Decodable` with the default JSONDecoder: unknown keys are ignored, so builds that
+    /// predate the integrity fields decode a signed manifest fine (and keep updating), and these
+    /// optional fields mean an old/unsigned manifest still decodes here — it just fails verification.
     struct Manifest: Decodable {
         let build: Int
         let version: String
         let payloadURL: String
+        /// Display-only release notes. NOT covered by the signature — never let it drive behavior.
         let notes: String?
+        /// Lowercase hex SHA-256 of the IPA at `payloadURL` (signed).
+        let sha256: String?
+        /// Byte size of that IPA (signed).
+        let size: Int?
+        /// Base64 Ed25519 signature over `OTAIntegrity.canonicalMessage(...)`.
+        let sig: String?
     }
 
     @Published private(set) var available: Manifest?
@@ -62,12 +79,20 @@ final class WanderUpdater: ObservableObject {
     var currentBuildVersionLabel: String { "v\(currentVersion) (\(currentBuild))" }
 
     /// Fetch the manifest; record whether a newer build than this one is published.
+    /// Only a manifest whose signature verifies is ever recorded — an unsigned or tampered one is
+    /// treated exactly like "no manifest" (no update offered, no What's New notes taken from it).
     func check() async {
         var req = URLRequest(url: Self.manifestURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
         req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         guard let (data, _) = try? await URLSession.shared.data(for: req),
               let m = try? JSONDecoder().decode(Manifest.self, from: data) else {
             return   // no manifest / offline == no update
+        }
+        do {
+            _ = try OTAIntegrity.verify(m)
+        } catch {
+            LogManager.shared.addErrorLog("[updater] Ignoring update.json (build \(m.build)): \(error.localizedDescription)")
+            return
         }
         latestManifest = m
         available = (m.build > currentBuild) ? m : nil
@@ -80,7 +105,16 @@ final class WanderUpdater: ObservableObject {
     /// a 2FA prompt indefinitely; the launch auto-install passes `false` so 2FA can't hang.
     func installUpdate(interactive: Bool = true) async throws {
         guard let m = available else { throw UpdateError.step("No update available.") }
-        guard let url = URL(string: m.payloadURL) else { throw UpdateError.step("The update URL is invalid.") }
+        // Re-verify here too (not just in check()), so nothing that ever sets `available` can route
+        // around the signature. This also enforces an https payloadURL.
+        let signed: OTAIntegrity.SignedPayload
+        do {
+            signed = try OTAIntegrity.verify(m)
+        } catch {
+            rejectUpdate("update.json for build \(m.build) failed verification: \(error.localizedDescription)")
+            throw UpdateError.integrity("This update failed Wander's security check, so it won't be installed. (\(error.localizedDescription))")
+        }
+        let url = signed.url
 
         // A proxy VPN (Shadowrocket, for PoGo gs-loc mode) breaks the update two ways: it intercepts the
         // connection to Apple's sign-in servers (→ "Couldn't reach Apple" deep in signing) AND it holds
@@ -116,20 +150,57 @@ final class WanderUpdater: ObservableObject {
         let session = URLSession(configuration: cfg)
         let (tmp, response) = try await session.download(from: url)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            try? FileManager.default.removeItem(at: tmp)
             throw UpdateError.step("Download failed (HTTP \(http.statusCode)).")
         }
         // Free-space guard: the IPA has to be unzipped + re-signed, which needs headroom. Bail early
         // with an actionable message rather than filling the disk mid-install.
         if let free = try? URL.documentsDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
             .volumeAvailableCapacityForImportantUsage, free < 300_000_000 {
+            try? FileManager.default.removeItem(at: tmp)
             throw UpdateError.step("Not enough free space to install the update. Free up some storage and try again.")
         }
         let ipa = work.appendingPathComponent("update.ipa")
         try? FileManager.default.removeItem(at: ipa)
         try FileManager.default.moveItem(at: tmp, to: ipa)
 
+        // INTEGRITY GATE: the bytes must be exactly what the signed manifest names — size first
+        // (cheap), then SHA-256 — BEFORE anything is unzipped, re-signed or installed. On a mismatch
+        // the download is deleted. (A benign cause: the IPA was re-uploaded but the new update.json
+        // isn't pushed yet; the next launch's check() picks up the matching manifest.)
+        status = "Verifying download…"
+        let digest: OTAIntegrity.FileDigest
+        do {
+            digest = try await Task.detached(priority: .userInitiated) { try OTAIntegrity.fileDigest(at: ipa) }.value
+        } catch {
+            try? FileManager.default.removeItem(at: work)
+            throw UpdateError.step("Couldn't read the downloaded update to verify it (\(error.localizedDescription)). Try again.")
+        }
+        guard digest.size == signed.size, digest.sha256Hex == signed.sha256Hex else {
+            try? FileManager.default.removeItem(at: work)
+            rejectUpdate("downloaded IPA for build \(signed.build) does not match the signed manifest "
+                         + "(size \(digest.size) vs \(signed.size), sha256 \(digest.sha256Hex) vs \(signed.sha256Hex))")
+            throw UpdateError.integrity("The downloaded update didn't match its signed checksum, so it was deleted and NOT installed. Try again later.")
+        }
+
         status = "Unpacking…"
-        let appURL = try FileManager.default.unzipAppBundle(at: ipa, toDirectory: work)
+        let appURL: URL
+        do {
+            appURL = try FileManager.default.unzipAppBundle(at: ipa, toDirectory: work)
+        } catch {
+            try? FileManager.default.removeItem(at: work)
+            throw error
+        }
+        // The signed build number must be the build actually inside the IPA — otherwise a validly
+        // signed manifest could be paired with a different (e.g. older) build's payload.
+        let infoPlist = (try? Data(contentsOf: appURL.appendingPathComponent("Info.plist")))
+            .flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] }
+        let bundleBuild = (infoPlist?["CFBundleVersion"] as? String).flatMap { Int($0) }
+        guard bundleBuild == signed.build else {
+            try? FileManager.default.removeItem(at: work)
+            rejectUpdate("IPA CFBundleVersion \(bundleBuild.map { "\($0)" } ?? "missing") != signed build \(signed.build)")
+            throw UpdateError.integrity("The downloaded update's build number didn't match its signed manifest, so it was deleted and NOT installed.")
+        }
         // Strip the inert TunnelProv.appex (paid-only NE) → simple single-app sign.
         try? FileManager.default.removeItem(at: appURL.appendingPathComponent("PlugIns"))
 
@@ -234,6 +305,10 @@ final class WanderUpdater: ObservableObject {
             // retrying. Point the user at the full explanation in Settings → Install update.
             promptUserToInstall("Update can't install — wrong Apple ID. Open Settings → Install update to fix it.")
             status = UpdateError.appleIDMismatch.errorDescription ?? ""
+        } catch UpdateError.integrity(let reason) {
+            // A payload that failed verification is NOT offered as "tap to install" — rejectUpdate()
+            // already withdrew it. Just record why.
+            status = reason
         } catch {
             // Any other failure (transient network/tunnel/Apple hiccup, unavailable resource):
             // surface the prompt so the update is one tap away rather than silently lost.
@@ -246,6 +321,15 @@ final class WanderUpdater: ObservableObject {
     private func promptUserToInstall(_ reason: String) {
         needsUserAction = true
         status = reason
+    }
+
+    /// An update failed an integrity check: log it and withdraw the offer for this launch, so the
+    /// app doesn't keep prompting the user to install something that can't be verified. The next
+    /// launch's `check()` starts fresh (e.g. once a matching manifest is pushed).
+    private func rejectUpdate(_ reason: String) {
+        LogManager.shared.addErrorLog("[updater] REJECTED update: \(reason)")
+        available = nil
+        needsUserAction = false
     }
 
     /// True when a proxy VPN (e.g. Shadowrocket) is active — it installs a scoped system proxy while
@@ -292,10 +376,13 @@ final class WanderUpdater: ObservableObject {
 
     enum UpdateError: LocalizedError {
         case step(String)
+        /// The manifest signature, payload size/hash, or bundle build number didn't verify.
+        case integrity(String)
         case appleIDMismatch
         var errorDescription: String? {
             switch self {
             case .step(let s): return s
+            case .integrity(let s): return s
             case .appleIDMismatch:
                 return "This update can't install because the Apple ID signed into Wander isn't the one "
                     + "used to install the app. The signing team is part of the app's identity, so the "
@@ -306,5 +393,94 @@ final class WanderUpdater: ObservableObject {
                     + "After that, updates will install normally."
             }
         }
+    }
+}
+
+// MARK: - OTA integrity (signature + payload digest)
+
+/// Verifies `update.json` and the IPA it names. Deliberately NOT actor-isolated (no UI state) so
+/// the hashing can run off the main thread. The signer is tools/sign-ota-manifest.py — keep
+/// `canonicalMessage` byte-identical to its `canonical_message`.
+enum OTAIntegrity {
+    /// Ed25519 public key (base64 of the raw 32 bytes) for OTA manifests. The private half is
+    /// ~/.config/wander-secrets/wander-ota-signing.key on the publishing Mac — never in git/GitHub.
+    /// Rotation: publish one last update signed with the OLD key whose build embeds the NEW public
+    /// key. If the private key is LOST, installed apps can only move to a new key by a manual
+    /// reinstall (they will refuse every OTA signed with anything else).
+    static let otaSigningPublicKeyB64 = "yXb2MqKkDs7yu0SSFyBLwOxw+iRut8HEA5FMOIR1FRI="
+
+    /// Domain/version tag: the first line of every signed message.
+    static let signatureDomain = "wander-ota-v1"
+
+    /// What a verified manifest vouches for.
+    struct SignedPayload: Sendable {
+        let build: Int
+        let sha256Hex: String
+        let size: Int
+        let url: URL
+    }
+
+    struct FileDigest: Sendable {
+        let sha256Hex: String
+        let size: Int
+    }
+
+    enum Failure: LocalizedError {
+        case unsigned
+        case malformed(String)
+        case badSignature
+        var errorDescription: String? {
+            switch self {
+            case .unsigned: return "manifest is not signed (missing sha256/size/sig)"
+            case .malformed(let why): return "manifest is malformed: \(why)"
+            case .badSignature: return "manifest signature is invalid"
+            }
+        }
+    }
+
+    /// The exact bytes that are signed: UTF-8, fields joined by "\n", NO trailing newline.
+    /// build and size are plain base-10 integers; sha256 is 64 lowercase hex chars.
+    static func canonicalMessage(build: Int, version: String, sha256Hex: String, size: Int, payloadURL: String) -> Data {
+        let fields = [signatureDomain, String(build), version, sha256Hex, String(size), payloadURL]
+        return Data(fields.joined(separator: "\n").utf8)
+    }
+
+    /// Throws unless the manifest is complete, well-formed, names an https payload, and its
+    /// signature verifies against `otaSigningPublicKeyB64`.
+    static func verify(_ m: WanderUpdater.Manifest) throws -> SignedPayload {
+        guard let sha = m.sha256, let size = m.size, let sigB64 = m.sig else { throw Failure.unsigned }
+        guard sha.count == 64, sha.allSatisfy({ "0123456789abcdef".contains($0) }) else {
+            throw Failure.malformed("sha256 must be 64 lowercase hex characters")
+        }
+        guard m.build > 0, size > 0 else { throw Failure.malformed("build and size must be positive") }
+        // A newline inside a field would make the "\n"-joined message ambiguous.
+        guard !m.version.contains(where: \.isNewline), !m.payloadURL.contains(where: \.isNewline) else {
+            throw Failure.malformed("version/payloadURL contain a newline")
+        }
+        guard let url = URL(string: m.payloadURL), url.scheme?.lowercased() == "https", url.host != nil else {
+            throw Failure.malformed("payloadURL must be an https URL")
+        }
+        guard let keyData = Data(base64Encoded: otaSigningPublicKeyB64),
+              let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: keyData),
+              let signature = Data(base64Encoded: sigB64),
+              publicKey.isValidSignature(signature, for: canonicalMessage(build: m.build, version: m.version,
+                                                                          sha256Hex: sha, size: size,
+                                                                          payloadURL: m.payloadURL))
+        else { throw Failure.badSignature }
+        return SignedPayload(build: m.build, sha256Hex: sha, size: size, url: url)
+    }
+
+    /// Streaming SHA-256 + byte count of a file (1 MB chunks — no need to hold the IPA in memory).
+    static func fileDigest(at url: URL) throws -> FileDigest {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        var total = 0
+        while let chunk = try autoreleasepool(invoking: { try handle.read(upToCount: 1 << 20) }), !chunk.isEmpty {
+            hasher.update(data: chunk)
+            total += chunk.count
+        }
+        let hex = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        return FileDigest(sha256Hex: hex, size: total)
     }
 }

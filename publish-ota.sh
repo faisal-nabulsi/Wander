@@ -20,6 +20,22 @@ export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 NOTES="${1:-New update}"
 PBX="Wander.xcodeproj/project.pbxproj"
 PAYLOAD_URL="https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa"
+UPDATER_SWIFT="Wander/Services/WanderUpdater.swift"
+
+# 0) PREFLIGHT — the OTA signing key. Builds since 2026-10-12 REFUSE any update.json that isn't
+#    Ed25519-signed by this key (tools/sign-ota-manifest.py), so check it BEFORE bumping the build
+#    number or uploading anything. Key: $WANDER_OTA_KEY, default
+#    ~/.config/wander-secrets/wander-ota-signing.key. It must match the public key compiled into
+#    the app (OTAIntegrity.otaSigningPublicKeyB64) or every installed build would reject the update.
+#    Needs a python3 with the `cryptography` package (override with WANDER_PYTHON=/path/to/python3).
+PY=""
+for cand in "${WANDER_PYTHON:-}" python3 /usr/local/bin/python3 /opt/homebrew/bin/python3 /usr/bin/python3; do
+  [ -n "$cand" ] || continue
+  if command -v "$cand" >/dev/null 2>&1 && "$cand" -c 'import cryptography' >/dev/null 2>&1; then PY="$cand"; break; fi
+done
+[ -n "$PY" ] || { echo "FATAL: no python3 with the 'cryptography' package found (needed to sign update.json)."; echo "  pip3 install cryptography   — or set WANDER_PYTHON=/path/to/python3"; exit 1; }
+"$PY" tools/sign-ota-manifest.py --check-key --expect-pubkey-from "$UPDATER_SWIFT" \
+  || { echo "FATAL: OTA signing key check failed — nothing was bumped, built or uploaded."; exit 1; }
 
 # 1) bump the build number (CURRENT_PROJECT_VERSION, both Debug+Release configs)
 CUR=$(grep -oE "CURRENT_PROJECT_VERSION = [0-9]+" "$PBX" | head -1 | grep -oE "[0-9]+$")
@@ -40,6 +56,15 @@ fi
 mkdir -p Payload && cp -R "build/Wander.xcarchive/Products/Applications/Wander.app" Payload/
 zip -qr Wander.ipa Payload && rm -rf Payload
 
+# 2b) sign the manifest over THIS exact IPA (sha256 + size + build + version + payloadURL) BEFORE
+#     uploading, so a signing failure aborts with nothing published. Written to a temp file and only
+#     copied over update.json after the upload succeeds. `notes` is display-only and NOT signed.
+SIGNED_MANIFEST=$(mktemp -t wander-ota-manifest)
+trap 'rm -f "$SIGNED_MANIFEST"' EXIT
+"$PY" tools/sign-ota-manifest.py --ipa Wander.ipa --build "$BUILD" --version "$VERSION" \
+  --payload-url "$PAYLOAD_URL" --notes "$NOTES" --expect-pubkey-from "$UPDATER_SWIFT" \
+  --out "$SIGNED_MANIFEST"
+
 # 3) publish the payload: replace the Wander.ipa asset on the GitHub release. This is
 #    the ONLY place the payload lives (update.json, apps.json and wander-installer's
 #    sideload.rs all read releases/latest/download/Wander.ipa), so the upload must
@@ -51,22 +76,13 @@ gh release upload "$LATEST_TAG" Wander.ipa --repo faisal-nabulsi/Wander --clobbe
 echo "GitHub release ($LATEST_TAG) Wander.ipa updated to build $BUILD."
 
 # 4) write the manifest (the app fetches this from raw.githubusercontent .../main/update.json).
-#    Written via json.dump — NOT a heredoc — so notes containing double-quotes, newlines or unicode
-#    can never produce invalid JSON. A malformed update.json makes the app's strict JSON decode
-#    throw and the OTA check silently no-ops for EVERYONE (this bit build 92: notes had quotes).
-BUILD="$BUILD" VERSION="$VERSION" NOTES="$NOTES" PAYLOAD_URL="$PAYLOAD_URL" python3 - <<'PY'
-import json, os
-d = {
-    "build": int(os.environ["BUILD"]),
-    "version": os.environ["VERSION"],
-    "payloadURL": os.environ["PAYLOAD_URL"],
-    "notes": os.environ["NOTES"],
-}
-with open("update.json", "w") as f:
-    json.dump(d, f, indent=2, ensure_ascii=False)
-    f.write("\n")
-print(f"update.json -> build {d['build']}")
-PY
+#    It's the SIGNED manifest from step 2b (json.dump inside the signer — NOT a heredoc — so notes
+#    containing double-quotes, newlines or unicode can never produce invalid JSON; a malformed
+#    update.json makes the OTA check silently no-op for EVERYONE, as it did on build 92).
+#    Never hand-edit build/version/payloadURL/sha256/size afterwards: the signature covers them and
+#    the app ignores a manifest that doesn't verify. (Editing `notes` alone is safe — not signed.)
+cat "$SIGNED_MANIFEST" > update.json
+echo "update.json -> build $BUILD (signed)"
 
 # 4b) Keep the SideStore source apps.json in LOCKSTEP. SideStore installs/refreshes whatever
 #     apps.json declares; if it drifts from update.json (as it did — stale July build), new
@@ -143,5 +159,7 @@ fi
 
 echo
 echo "== Payload uploaded + manifests written (build $BUILD). Ship it by pushing this repo: =="
+echo "   (Push now: until the new signed update.json is live, the OLD manifest's hash no longer matches"
+echo "    the re-uploaded IPA, so any update attempted in that gap is refused — safe, but push promptly.)"
 APPS_JSON=""; [ -f apps.json ] && APPS_JSON=" apps.json"
 echo "  cd ~/Developer/wander-ios && git add update.json$APPS_JSON Wander.xcodeproj/project.pbxproj && git commit -m \"OTA build $BUILD: $NOTES\" && git push"

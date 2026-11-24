@@ -27,8 +27,9 @@
 //     iOS can't auto-start it — the notification reminds them to reopen. We do NOT claim it works
 //     from a force-quit.
 //
-//  This is ADDITIVE and reuses the existing simulate + stop paths; it never touches
-//  trial/license/injection.
+//  This is ADDITIVE and reuses the existing simulate + stop paths. It IS metered: a window is a
+//  held teleport, so it passes the same license/trial gate as the map's Simulate and draws on the
+//  same teleport allowance (see `start(_:)`).
 //
 
 import Foundation
@@ -55,6 +56,21 @@ final class ScheduleManager: ObservableObject {
 
     /// Guards against stopping a simulation we didn't start (e.g. a manual teleport running).
     private var didStartActiveSpoof = false
+
+    /// Set when a window could not start because this install is unlicensed and today's free
+    /// teleport is spent. MainTabView raises the paywall and clears it — the same hand-off as
+    /// `PauseController.needsPaywall` — and waits until the app is in front to do it, since a
+    /// window usually opens while Wander is backgrounded.
+    @Published var needsPaywall = false
+
+    /// The window we last refused, so a refusal is logged and raises the paywall ONCE per window
+    /// rather than on every 4 s tick. Cleared when that window ends.
+    private var refusedScheduleID: UUID?
+
+    /// The occurrence key (`windowOccurrenceKey`) of the window currently running, and the last one
+    /// billed to the trial. Persisted so a relaunch mid-window doesn't bill the same window twice.
+    private var activeWindowKey: String?
+    private static let chargedWindowKey = "wander.schedule.chargedWindow"
 
     private var stopObserver: NSObjectProtocol?
     private var changeObserver: NSObjectProtocol?
@@ -140,11 +156,12 @@ final class ScheduleManager: ObservableObject {
 
     private func onTick() {
         evaluate()
-        // While a window is active, keep resending so the spoof holds across iOS re-checks.
+        // While a window is active, keep resending so the spoof holds across iOS re-checks. The
+        // charge rides along so a window whose FIRST write failed is billed by the first that lands.
         if let id = activeScheduleID,
            didStartActiveSpoof,
            let schedule = store.schedules.first(where: { $0.id == id }) {
-            resend(schedule.coordinate)
+            resend(schedule.coordinate) { [weak self] in self?.chargeWindowIfNeeded() }
         }
     }
 
@@ -161,6 +178,8 @@ final class ScheduleManager: ObservableObject {
     private func evaluate() {
         let now = Date()
         let target = activeSchedule(at: now)
+        // A refusal lasts as long as the window it refused; the next window gets a fresh decision.
+        if target?.id != refusedScheduleID { refusedScheduleID = nil }
 
         if let target {
             if activeScheduleID != target.id {
@@ -183,6 +202,27 @@ final class ScheduleManager: ObservableObject {
             // notification still fires as the backstop.
             return
         }
+        // THE SAME METER AS THE MAP. A window holds one static point for its whole duration — a
+        // teleport, held — so it takes the map's gate (`MapSelectionView.simulate`:
+        // `!isLicensed && !canUse(.teleport) ⇒ paywall`) and is charged one teleport on its first
+        // accepted write, as the map is. Without this the Schedule screen was an unmetered door into
+        // the engine: one daily-repeating schedule spoofed every day with no license and no trial.
+        // A window already billed (a relaunch, or a restart after an external stop) re-enters free.
+        let windowKey = Self.windowOccurrenceKey(schedule, at: Date())
+        let alreadyBilled = UserDefaults.standard.string(forKey: Self.chargedWindowKey) == windowKey
+        guard License.shared.isLicensed || alreadyBilled || TrialManager.shared.canUse(.teleport) else {
+            // Not started, and retried on every tick — so buying Pro (or the UTC day rolling over)
+            // starts the window within seconds without the user having to re-arm anything.
+            if refusedScheduleID != schedule.id {
+                refusedScheduleID = schedule.id
+                LogManager.shared.addWarningLog(
+                    "Schedule '\(schedule.name)' not started: today's free teleport is used up — Wander Pro needed.")
+                needsPaywall = true
+            }
+            return
+        }
+        refusedScheduleID = nil
+        activeWindowKey = windowKey
         activeScheduleID = schedule.id
         didStartActiveSpoof = true
         BackgroundAudioManager.shared.start(owner: .schedule)
@@ -193,16 +233,27 @@ final class ScheduleManager: ObservableObject {
         // and spoof silently forever without ever having moved the device. No-ops synchronously
         // unless the user opted into Wander's own tunnel.
         TunnelStartGate.then {
-            self.resend(schedule.coordinate, path: path)
+            self.resend(schedule.coordinate, path: path) { self.chargeWindowIfNeeded() }
             SimulationSession.shared.started()
         }
         LogManager.shared.addInfoLog("Schedule '\(schedule.name)' started (auto-spoof).")
+    }
+
+    /// Bill the running window's teleport to the trial — once per window occurrence, on a write the
+    /// device accepted (the map charges on success too). Licensed users are never charged.
+    private func chargeWindowIfNeeded() {
+        guard !License.shared.isLicensed,
+              let key = activeWindowKey,
+              UserDefaults.standard.string(forKey: Self.chargedWindowKey) != key else { return }
+        UserDefaults.standard.set(key, forKey: Self.chargedWindowKey)
+        TrialManager.shared.chargeTeleport()
     }
 
     /// Stop the currently active window and revert to real GPS.
     private func stopActive() {
         let wasStarted = didStartActiveSpoof
         activeScheduleID = nil
+        activeWindowKey = nil
         didStartActiveSpoof = false
         if wasStarted {
             // `.automation`: the window closed on a timer, and the NEXT window (tomorrow, or the
@@ -216,14 +267,17 @@ final class ScheduleManager: ObservableObject {
     /// A global stop/panic happened elsewhere — forget our active window so we don't revive it.
     private func handleExternalStop() {
         activeScheduleID = nil
+        activeWindowKey = nil
         didStartActiveSpoof = false
         // Don't stop the keep-alive here if schedules remain armed for future windows.
         updateKeepAlive()
     }
 
     /// Send one location update on the shared command queue (same path as ItineraryRunner /
-    /// MapSelectionView), honoring the user's jitter preference.
-    private func resend(_ coordinate: CLLocationCoordinate2D, path: String? = nil) {
+    /// MapSelectionView), honoring the user's jitter preference. `onAccepted` runs on the main
+    /// actor only when the device accepted the write.
+    private func resend(_ coordinate: CLLocationCoordinate2D, path: String? = nil,
+                        onAccepted: (@MainActor () -> Void)? = nil) {
         guard let path = path ?? pairingFilePath() else { return }
         // "Hold perfectly still" disables jitter; "Approximate location" shifts by a stable
         // per-session offset. Both no-op when their toggles are off.
@@ -233,9 +287,11 @@ final class ScheduleManager: ObservableObject {
             : coordinate
         let target = CoarseLocation.apply(jittered)
         LocationSimulationCommandQueue.submit {
-            _ = simulate_location_logged(DeviceConnectionContext.targetIPAddress,
-                                         target.latitude, target.longitude, path,
-                                         source: .schedule)
+            let code = simulate_location_logged(DeviceConnectionContext.targetIPAddress,
+                                                target.latitude, target.longitude, path,
+                                                source: .schedule)
+            guard code == 0, let onAccepted else { return }
+            Task { @MainActor in onAccepted() }
         }
     }
 
@@ -346,6 +402,21 @@ final class ScheduleManager: ObservableObject {
             guard schedule.runsOn(weekday: weekday) else { return false }
             return minutes >= start && minutes < end
         }
+    }
+
+    /// Identifies ONE occurrence of a schedule's window: the schedule plus the local day the window
+    /// OPENED on (an overnight window's early-morning half belongs to the previous day — the same
+    /// rule `isInWindow` uses). Lets a window be billed once however many times it (re)starts.
+    static func windowOccurrenceKey(_ schedule: Schedule, at date: Date) -> String {
+        let cal = Calendar.current
+        let minutes = cal.component(.hour, from: date) * 60 + cal.component(.minute, from: date)
+        var day = date
+        if schedule.crossesMidnight, minutes < schedule.endMinutes,
+           let previous = cal.date(byAdding: .day, value: -1, to: date) {
+            day = previous
+        }
+        let c = cal.dateComponents([.year, .month, .day], from: day)
+        return "\(schedule.id.uuidString)|\(c.year ?? 0)-\(c.month ?? 0)-\(c.day ?? 0)"
     }
 
     private func pairingFilePath() -> String? {

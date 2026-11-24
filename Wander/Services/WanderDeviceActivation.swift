@@ -14,10 +14,19 @@
 //  list. EFFECTIVE PRO on this device = (account plan is pro) AND (this device is registered).
 //
 //  FAIL-SAFE (critical): if the activate call FAILS (offline / timeout / transport error) we
-//  KEEP the last cached {pro, registered} — we NEVER lock out a paying user because their Wi-Fi
-//  dropped. The ONLY response that withholds Pro on this device is an explicit
+//  KEEP the last cached verdict — we NEVER lock out a paying user because their Wi-Fi dropped.
+//  The ONLY response that withholds Pro on this device is an explicit
 //  `atLimit == true && registered == false` (a genuine "you're over 5 devices, this one isn't
 //  one of them"). A Pro user already registered — or under the cap — is never blocked.
+//
+//  THE VERDICT IS PERSISTED (Keychain, per account uid). It used to be memory-only for `atLimit`,
+//  so every relaunch started at "not at limit" and a 6th device that simply blocked the Worker's
+//  host stayed Pro forever: the denial existed only until the next launch. Now the last answer the
+//  Worker gave for THIS account on THIS device is what applies while the Worker can't be reached —
+//  a denial stays a denial, a registration stays a registration. With NO stored answer (the Worker
+//  has never replied for this account here) we still allow, and re-ask on every launch and every
+//  foreground until it does. The verdict survives sign-out and reinstall on purpose: either would
+//  otherwise be a one-tap way to forget a denial.
 //
 //  This mirrors EXACTLY how the app already reaches the Worker for the AI/trial flows
 //  (WanderAIRoutine): base URL, Firebase idToken fetched from WanderProAccount + sent in the
@@ -89,15 +98,24 @@ final class WanderDeviceActivation: ObservableObject {
 
     private enum Key {
         /// Cached "this device is registered" flag — kept in the Keychain so it survives relaunch
-        /// AND offline launches, exactly like WanderProAccount's cached isPro.
+        /// AND offline launches, exactly like WanderProAccount's cached isPro. Superseded by the
+        /// per-account verdict below whenever one exists; still written so an older build reads
+        /// something sensible.
         static let registered = "wander.device.registered"
+        /// The last successful server verdict for one account: "<registered 0/1>|<atLimit 0/1>",
+        /// stored under this prefix + the account uid. One item per account, so signing into a
+        /// second (even free) account can't overwrite the first account's denial.
+        static let verdictPrefix = "wander.device.capVerdict."
     }
 
     private init() {
         // Reflect the cached registration immediately so an offline launch keeps Pro without a
-        // round-trip. We only ever cache a POSITIVE registration; absence means "unknown", which
-        // the fail-safe treats as "don't withhold" (see License.deviceUnlockAllowed).
+        // round-trip. Absence means "unknown", which the fail-safe treats as "don't withhold".
         registered = WanderKeychain.string(Key.registered) == "1"
+        // Then the persisted verdict for the signed-in account, if the Worker has ever answered for
+        // it — including `atLimit`, which used to reset to false on every launch. Deliberately no
+        // `License.shared.refresh()` here: this init can run inside License's own init.
+        applyStoredVerdict()
     }
 
     // MARK: - The single, computed device gate used by License
@@ -105,11 +123,54 @@ final class WanderDeviceActivation: ObservableObject {
     /// Whether the device cap ALLOWS account-Pro to unlock on THIS device.
     ///
     /// FAIL-SAFE: this returns `false` ONLY when we have a definitive "over the limit and this
-    /// device is not one of the 5" signal (`atLimit && !registered`). In every other state —
-    /// registered, under the cap, or simply UNKNOWN because we're offline / the call failed —
-    /// it returns `true`, so a paying user is never locked out by a network hiccup.
+    /// device is not one of the 5" signal (`atLimit && !registered`) — from this session's reply or,
+    /// when the Worker can't be reached, from the last reply persisted for this account. In every
+    /// other state — registered, under the cap, or UNKNOWN because the Worker has never answered for
+    /// this account here — it returns `true`, so a paying user is never locked out by a network
+    /// hiccup or a Worker outage.
     var allowsAccountPro: Bool {
         !(atLimit && !registered)
+    }
+
+    // MARK: - Persisted verdict
+
+    /// The persisted verdict for the signed-in account, or nil when there is no account or the
+    /// Worker has never answered for it on this device.
+    private static func storedVerdict() -> (registered: Bool, atLimit: Bool)? {
+        guard let uid = WanderProAccount.persistedUID,
+              let raw = WanderKeychain.string(Key.verdictPrefix + uid) else { return nil }
+        let parts = raw.split(separator: "|")
+        guard parts.count == 2 else { return nil }
+        return (parts[0] == "1", parts[1] == "1")
+    }
+
+    /// Persist the current in-memory verdict for the signed-in account. No account ⇒ nothing to
+    /// bind it to, so nothing is written (sign-out takes this path).
+    private func persistVerdict() {
+        guard let uid = WanderProAccount.persistedUID else { return }
+        WanderKeychain.set(Key.verdictPrefix + uid, "\(registered ? 1 : 0)|\(atLimit ? 1 : 0)")
+    }
+
+    /// Load the persisted verdict for the signed-in account into the published state. Returns
+    /// whether anything changed, so callers outside init can ask License to recompute.
+    @discardableResult
+    private func applyStoredVerdict() -> Bool {
+        guard let verdict = Self.storedVerdict() else { return false }
+        let changed = verdict.registered != registered || verdict.atLimit != atLimit
+        if registered != verdict.registered { registered = verdict.registered }
+        if atLimit != verdict.atLimit { atLimit = verdict.atLimit }
+        return changed
+    }
+
+    /// Foreground hook (WanderApp, next to WanderProAccount's). While the account is Pro and this
+    /// device has NO verdict for it yet — the fail-open window — or the verdict is a denial, ask the
+    /// Worker again: the first is how the fail-open window closes as soon as the Worker is reachable,
+    /// the second picks up a slot freed on another device without a relaunch. A confirmed
+    /// registration needs nothing here; every launch re-registers anyway.
+    func handleForeground() {
+        guard !isWorking, WanderProAccount.shared.isPro else { return }
+        guard Self.storedVerdict() == nil || !allowsAccountPro else { return }
+        Task { await activate() }
     }
 
     // MARK: - The friendly device name sent to the server
@@ -142,13 +203,20 @@ final class WanderDeviceActivation: ObservableObject {
     ///
     /// Non-throwing: every failure path leaves the cache intact and returns quietly.
     func activate() async {
+        // Start from the last verdict for whichever account is signed in NOW — after a sign-in (or a
+        // sign-out/sign-in of the same account) this is what applies if the call below fails.
+        if applyStoredVerdict() { License.shared.refresh() }
+
         // Offline → don't burn a doomed round-trip and, crucially, don't clear the cache. The
-        // cached `registered` keeps this device Pro through airplane mode exactly like the cached
+        // cached verdict keeps this device Pro through airplane mode exactly like the cached
         // account isPro does.
         guard NetworkReachability.shared.isOnline else { return }
 
         // Not signed in → the account can't be Pro anyway; nothing to activate. Leave cache as-is.
         guard let token = await WanderProAccount.shared.currentIdToken() else { return }
+        // The account this request speaks for. A reply that lands after the user switched accounts
+        // must not be filed as the new account's verdict.
+        let requestUID = WanderProAccount.persistedUID
 
         var body: [String: Any] = [
             "idToken": token,
@@ -169,9 +237,11 @@ final class WanderDeviceActivation: ObservableObject {
         }
 
         guard let obj = outcome.json, (obj["ok"] as? Bool) == true else {
-            // Transport error, non-200, or unreadable body → FAIL-SAFE: keep the cached state.
+            // Transport error, non-200, or unreadable body → FAIL-SAFE: keep the cached verdict
+            // (or, with none stored, keep allowing — handleForeground asks again next time).
             return
         }
+        guard WanderProAccount.persistedUID == requestUID else { return }
 
         applyActivateResponse(obj)
     }
@@ -228,9 +298,14 @@ final class WanderDeviceActivation: ObservableObject {
     /// Clear per-device registration state on sign-out so a different account starting fresh
     /// doesn't inherit a stale "registered" flag. (Effective Pro already drops because the account
     /// is no longer Pro; this just keeps the device state tidy.)
+    ///
+    /// In-memory only for the verdict: the persisted one stays filed under its account (sign-out has
+    /// already cleared the uid, so `persistVerdict` writes nothing) and is restored if that account
+    /// signs in again. Deleting it here would make sign-out → block the Worker → sign back in a
+    /// way to erase a denial.
     func reset() {
-        setRegistered(false)
         atLimit = false
+        setRegistered(false)
         devices = []
     }
 
@@ -259,11 +334,12 @@ final class WanderDeviceActivation: ObservableObject {
         setRegistered(isRegistered)
     }
 
-    /// Publish + cache the registration flag, and ask License to recompute effective Pro. We cache
-    /// only the boolean so an offline launch reflects the last known registration.
+    /// Publish + cache the registration flag (and, with it, the whole verdict for the signed-in
+    /// account), and ask License to recompute effective Pro.
     private func setRegistered(_ value: Bool) {
         WanderKeychain.set(Key.registered, value ? "1" : "0")
         if registered != value { registered = value }
+        persistVerdict()
         License.shared.refresh()
     }
 

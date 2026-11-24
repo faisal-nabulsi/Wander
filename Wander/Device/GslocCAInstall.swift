@@ -91,7 +91,13 @@ final class GslocCAInstall: ObservableObject {
             let payload = Payload(rootDER)
             let params = NWParameters.tcp
             params.allowLocalEndpointReuse = true
-            // Loopback only — no reason for anyone else on the network to fetch our root.
+            // Loopback only — no reason for anyone else on the network to fetch our root. A bare
+            // NWListener(using:) binds EVERY interface (Wi-Fi included); pinning the local endpoint to
+            // 127.0.0.1 is the NWListener equivalent of GslocProxyServer's INADDR_LOOPBACK bind. Port
+            // .any keeps the OS-assigned port, read back from `l.port` below. The host here must stay
+            // identical to the one in `downloadURL` (IPv4 127.0.0.1, not "localhost", which may resolve
+            // to ::1 and miss an IPv4-only listener).
+            params.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: .any)
             let l = try NWListener(using: params)
             l.newConnectionHandler = { conn in Self.serve(conn, payload) }
             l.stateUpdateHandler = { [weak self] state in
@@ -100,6 +106,7 @@ final class GslocCAInstall: ObservableObject {
                     switch state {
                     case .ready:
                         if let port = l.port {
+                            // Same host as params.requiredLocalEndpoint above.
                             self.downloadURL = URL(string: "http://127.0.0.1:\(port.rawValue)/WanderCA.cer")
                         }
                     case .failed(let e):

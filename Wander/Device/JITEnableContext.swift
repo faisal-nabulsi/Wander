@@ -82,10 +82,37 @@ final class JITEnableContext {
         }
     }
 
-    private init() {
-        let logURL = FileManager.default
+    /// The FFI logger's file. It sits in Documents, which `UIFileSharingEnabled` exposes in Files,
+    /// Finder and device backups — so nothing secret may be written to it (see `init`).
+    private static var ideviceLogURL: URL {
+        FileManager.default
             .urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("idevice_log.txt")
+    }
+
+    private static let debugLogPurgedKey = "wander.ideviceLog.debugPurged.v1"
+
+    /// ONE-TIME PURGE of the log older builds wrote at Debug level. At Debug the idevice layer dumps
+    /// parsed plists — the pairing file, escrow bag and keys (see `LogManager.addLog`) — and that file
+    /// was browsable in Files/Finder and rode along in every backup. Lowering the level only stops new
+    /// dumps; the old ones have to be deleted. MUST run before `idevice_init_logger` opens the file
+    /// for append, so it's called at launch from `AppBootstrapper.configure()` and again at the top
+    /// of `init` (idempotent — the flag makes every call after the first a single defaults read).
+    /// The flag is only set once the file is really gone, so a failed delete retries next launch.
+    static func purgeLegacyDebugLogIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: debugLogPurgedKey) else { return }
+        let url = ideviceLogURL
+        let fm = FileManager.default
+        if fm.fileExists(atPath: url.path) {
+            do { try fm.removeItem(at: url) } catch { return }
+        }
+        defaults.set(true, forKey: debugLogPurgedKey)
+    }
+
+    private init() {
+        Self.purgeLegacyDebugLogIfNeeded()
+        let logURL = Self.ideviceLogURL
 
         // Rotate at launch: the FFI logger only ever APPENDS to this file, so over weeks of use it
         // would grow unbounded and eat a power user's storage. Above a 5 MB cap, drop it so a fresh,
@@ -95,9 +122,12 @@ final class JITEnableContext {
             try? FileManager.default.removeItem(at: logURL)
         }
 
+        // File level INFO, not Debug: Debug is where the idevice layer prints the pairing record and
+        // keys, and this file is user-visible (Documents + UIFileSharingEnabled). The Console view
+        // reads this file, so it loses the byte-dump noise and nothing it actually shows.
         var path = Array(logURL.path.utf8CString)
         path.withUnsafeMutableBufferPointer { buffer in
-            _ = idevice_init_logger(Info, Debug, buffer.baseAddress)
+            _ = idevice_init_logger(Info, Info, buffer.baseAddress)
         }
     }
 
