@@ -55,9 +55,10 @@ enum WanderAnisette {
     }
 
     /// A client_info string Apple's GrandSlam edge accepts, used when a server gives us nothing
-    /// usable. Same value upstream (nab138/isideload, branch `apple-codesign-quick`) pins.
+    /// usable. Spelled `Mac OS X`: since about 2026-11-19 the edge answers HTTP 503 to any
+    /// client info containing `<macOS;` (SideStore#1745, nab138/iloader#1203).
     static let knownGoodClientInfo =
-        "<Mac15,7> <macOS;27.0;26A5378j> <com.apple.AuthKit/1 (com.apple.akd/1.0)>"
+        "<MacBookAir10,1> <Mac OS X;27.3;26C5035r> <com.apple.AuthKit/1 (com.apple.akd/1.0)>"
 
     /// Around 2026-09-10 Apple's GrandSlam edge began answering POSTs to /grandslam/GsService2
     /// with a 190-byte HTML 503 — BEFORE any credential check — whenever X-MMe-Client-Info names
@@ -71,14 +72,21 @@ enum WanderAnisette {
     /// consistent with the machineID/OTP issued alongside it. A string that is already clean is
     /// passed through untouched, so this keeps working if a server later serves a different
     /// (non-blocked) description.
+    ///
+    /// Around 2026-11-19 the edge also began answering 503 whenever the OS token is spelled
+    /// `<macOS;` (the public servers hand out `<MacBookPro13,2> <macOS;13.1;22C65> ...`). The same
+    /// string spelled `<Mac OS X;`, as Apple's own frameworks still send it, passes. So that token
+    /// is respelled too, keeping the device and OS version the server declared.
     static func sanitizedClientInfo(_ raw: String?) -> String {
         guard let raw, !raw.isEmpty else { return knownGoodClientInfo }
-        guard raw.contains("com.apple.dt.Xcode") else { return raw }
-        guard let open = raw.range(of: "(com.apple.dt.Xcode"),
-              let close = raw[open.upperBound...].firstIndex(of: ")") else {
+        var info = raw.replacingOccurrences(of: "<macOS;", with: "<Mac OS X;")
+        guard info.contains("com.apple.dt.Xcode") else { return info }
+        guard let open = info.range(of: "(com.apple.dt.Xcode"),
+              let close = info[open.upperBound...].firstIndex(of: ")") else {
             return knownGoodClientInfo   // unrecognised shape -> known-good constant
         }
-        return raw.replacingCharacters(in: open.lowerBound...close, with: "(com.apple.akd/1.0)")
+        info.replaceSubrange(open.lowerBound...close, with: "(com.apple.akd/1.0)")
+        return info
     }
 
     /// Fetch anisette, trying each candidate server until one succeeds. This is what makes sign-in
