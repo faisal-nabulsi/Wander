@@ -92,7 +92,7 @@ enum LocationJitter {
 /// Stateful "breathing" jitter for a STATIONARY / parked held location. A real GPS receiver
 /// sitting still doesn't report a mathematically-perfect frozen point, nor does it teleport a
 /// fresh random metre every fix — its reported position slowly wanders a metre or two and drifts
-/// back toward the true spot. Detectors (Life360, dating apps) can key on both extremes: a dead
+/// back toward the true spot. Detectors (location-sharing apps, dating apps) can key on both extremes: a dead
 /// point looks parked-but-too-perfect, and flat per-tick scatter looks like micro-teleports.
 ///
 /// This models an Ornstein–Uhlenbeck / mean-reverting random walk. We keep a current offset in

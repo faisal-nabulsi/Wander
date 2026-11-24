@@ -518,7 +518,7 @@ final class PauseController: ObservableObject {
 
     /// gs-loc (PoGo) mode holds differently and more weakly, and it must not be oversold: the
     /// rewriter is reactive, iOS re-queries on its own schedule, and a strong real GPS fix overrides
-    /// network location entirely. Nobody should be steered here for Find My or Life360 anyway.
+    /// network location entirely. Nobody should be steered here for Find My or other location-sharing apps anyway.
     var gslocCaveat: String? {
         guard GslocMode.enabled else { return nil }
         return L("pause.caveat.gsloc",

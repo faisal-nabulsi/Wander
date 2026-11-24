@@ -500,7 +500,7 @@ struct SettingsView: View {
                     .wanderFeedback(.selection, on: smoothLongJumps)
                     if smoothLongJumps {
                         toggleFootnote(L("settings.location.smooth_jumps.footer",
-                                         fallback: "A big teleport glides to the new spot over a few seconds instead of jumping instantly, so apps that flag an impossible jump (dating apps, Life360) see a fast but continuous move. Short jumps stay instant."))
+                                         fallback: "A big teleport glides to the new spot over a few seconds instead of jumping instantly, so apps that flag an impossible jump (dating and location-sharing apps) see a fast but continuous move. Short jumps stay instant."))
                     }
 
                     Toggle(isOn: $approximateLocation) {
@@ -534,7 +534,7 @@ struct SettingsView: View {
                     if frozenHold { jitterEnabled = false; frozenHold = false }
                 }
 
-                // Life360 / Find My — one preset that bundles the anti-detection settings so a
+                // Location-sharing mode — one preset that bundles the anti-detection settings so a
                 // shared location stays believable (never frozen, no impossible teleport jump).
                 Section {
                     Toggle(isOn: Binding(
@@ -545,7 +545,7 @@ struct SettingsView: View {
                             if on && jitterRadius < 1.5 { jitterRadius = 1.5 }
                         }
                     )) {
-                        Label(L("settings.sharing.mode", fallback: "Life360 / Find My mode"),
+                        Label(L("settings.sharing.mode", fallback: "Location-sharing mode"),
                               systemImage: Wander.Icon.sharing)
                             .font(.wanderLabel)
                             .wanderSymbolAccent(on: jitterEnabled && smoothLongJumps)
@@ -554,7 +554,7 @@ struct SettingsView: View {
                     Text(localized: "settings.sharing.header", fallback: "Location-sharing apps")
                 } footer: {
                     Text(localized: "settings.sharing.footer",
-                         fallback: "Anti-detection for Life360, Find My and iMessage: your spot drifts naturally (never a frozen fake) and a teleport glides smoothly instead of an impossible jump, so your shared location stays believable. Turns on Natural drift + Smooth long jumps together.")
+                         fallback: "Anti-detection for Find My, iMessage, and other location-sharing apps: your spot drifts naturally (never a frozen fake) and a teleport glides smoothly instead of an impossible jump, so your shared location stays believable. Turns on Natural drift + Smooth long jumps together.")
                 }
 
                 Section {

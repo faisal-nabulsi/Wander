@@ -4,7 +4,7 @@
 //
 //  Captures the device's REAL GPS track (lat/lng + timestamp per fix) into a named
 //  route so it can be replayed later at its real pace — the "record a believable
-//  commute, replay it while you're elsewhere" (Life360) use case.
+//  commute, replay it while you're elsewhere" (location-sharing) use case.
 //
 //  IMPORTANT: this records the REAL location provider, never the spoofed one. While a
 //  simulation/spoof is active the OS location IS the spoof, so the UI must DISABLE

@@ -181,7 +181,7 @@
 
 /* Location — smooth long jumps (anti impossible-jump) */
 "settings.location.smooth_jumps" = "Smooth long jumps";
-"settings.location.smooth_jumps.footer" = "A big teleport glides to the new spot over a few seconds instead of jumping instantly, so apps that flag an impossible jump (dating apps, Life360) see a fast but continuous move. Short jumps stay instant.";
+"settings.location.smooth_jumps.footer" = "A big teleport glides to the new spot over a few seconds instead of jumping instantly, so apps that flag an impossible jump (dating and location-sharing apps) see a fast but continuous move. Short jumps stay instant.";
 
 /* Route — reverse + weather-aware pace */
 "route.reverse" = "Reverse";

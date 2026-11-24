@@ -22,7 +22,7 @@ import CoreLocation
 /// Three facts, each earning its place: the STATE, HOW LONG (so a session left running overnight is
 /// obvious at a glance), and the DRIFT — so the user can see the point is breathing rather than
 /// dead. That last one is not decoration: `BreathingJitter` exists because "a dead point looks
-/// parked-but-too-perfect" to Life360-class detectors, and the chip is the only place a user can
+/// parked-but-too-perfect" to location-sharing-app detectors, and the chip is the only place a user can
 /// confirm it is actually working.
 ///
 /// Tappable, and it goes to Stop. The one thing somebody needs in a hurry from a frozen state is
@@ -124,7 +124,7 @@ struct PauseButton: View {
         // iPhone 16 Pro the caption fell below the panel's fold — the panel is a fixed-height
         // ScrollView, so the one line that explains what Pause does was invisible until you
         // scrolled, which nobody would. Title and subtitle inside one control can't be separated by
-        // a fold. It also matches the "Find My / Life360 mode" row directly above it, which is the
+        // a fold. It also matches the "Location-sharing mode" row directly above it, which is the
         // same shape of thing: a labelled state, not an action on the pin.
         Button {
             pause.isFrozen ? pause.unfreeze() : pause.pause()

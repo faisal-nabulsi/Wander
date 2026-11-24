@@ -83,7 +83,7 @@ enum MapStyleMode: String, CaseIterable, Identifiable {
 /// A spoofer's map is a PLANNING surface, and what you're planning changes which
 /// pins are signal and which are clutter. Someone picking a Pokémon GO spot needs
 /// parks, beaches and museums (that's where stops and spawns cluster); someone
-/// staging a plausible evening for Find My or Life360 needs cafés, gyms and shops
+/// staging a plausible evening for Find My or another location-sharing app needs cafés, gyms and shops
 /// (that's where a person plausibly is). Drawing all of both means neither user can
 /// read the map, and while a route polyline or a joystick track is on screen the
 /// POIs simply cover the line the user is trying to follow.

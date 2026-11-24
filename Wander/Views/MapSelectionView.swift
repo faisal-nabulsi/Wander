@@ -60,7 +60,7 @@ private enum RouteSimulationDefaults {
 /// Tuning for "Smooth long jumps" (anti impossible-jump). A teleport farther than
 /// `jumpThresholdMeters` from the current spoofed position is played back as a
 /// fast, continuous glide instead of an instant hop, so apps that flag an
-/// instantaneous impossible jump (dating apps, Life360) see a fast-but-continuous
+/// instantaneous impossible jump (dating apps, location-sharing apps) see a fast-but-continuous
 /// move. The glide targets `targetGlideSeconds` but is capped at
 /// `maxGlideSeconds` so very long jumps still complete promptly.
 private enum JumpSmoothingDefaults {
@@ -855,7 +855,7 @@ struct LocationSimulationView: View {
     /// "Smooth long jumps": when on, a teleport farther than the threshold from
     /// the current spoofed position eases over a few seconds instead of hopping.
     @AppStorage("smoothLongJumps") private var smoothLongJumps = false
-    // Backing keys for the on-map "Find My / Life360 mode" toggle (same keys Settings uses), so the
+    // Backing keys for the on-map "Location-sharing mode" toggle (same keys Settings uses), so the
     // anti-detection preset for location-sharing apps lives where you actually spoof, not just Settings.
     @AppStorage("jitterEnabled") private var jitterEnabled = true
     @AppStorage("jitterRadius") private var jitterRadius = 1.5
@@ -1525,7 +1525,7 @@ struct LocationSimulationView: View {
 
                                 sharingModeToggle
 
-                                // Pause sits directly under the Find My / Life360 toggle because
+                                // Pause sits directly under the Location-sharing mode toggle because
                                 // that is exactly its audience: "freeze me at home while I go out"
                                 // is the headline use, and this is the one control on the panel that
                                 // needs NO pin — it is about where you already are. Outside the
@@ -1962,8 +1962,8 @@ struct LocationSimulationView: View {
     /// get the paywall. On success it drops the pin at the resolved place and simulates, reusing
     /// the exact teleport path the map already uses. Every failure is a friendly alert.
     @ViewBuilder
-    /// On-map "Find My / Life360 mode" toggle. This is the REGULAR (dev-tunnel) spoof most apps use —
-    /// Find My, Life360, iMessage, dating apps — and this preset bundles the anti-detection settings
+    /// On-map "Location-sharing mode" toggle. This is the REGULAR (dev-tunnel) spoof most apps use —
+    /// Find My, iMessage, other location-sharing apps, dating apps — and this preset bundles the anti-detection settings
     /// (natural drift + smooth long jumps) so a shared location looks real. (Anti-cheat games like
     /// Pokémon GO use gs-loc/Shadowrocket instead — that lives in the PoGo tab.)
     private var sharingModeToggle: some View {
@@ -1978,7 +1978,7 @@ struct LocationSimulationView: View {
             HStack(spacing: MapModeChrome.groupSpacing) {
                 Image(systemName: "person.2.wave.2").foregroundStyle(Wander.brand)
                 VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
-                    Text(L("map.sharingmode.title", fallback: "Find My / Life360 mode"))
+                    Text(L("map.sharingmode.title", fallback: "Location-sharing mode"))
                         .font(.wanderDetail.weight(.semibold))
                     Text(L("map.sharingmode.sub", fallback: "Natural drift + smooth jumps so shared location looks real."))
                         .wanderMicro()

@@ -83,7 +83,7 @@ struct GslocQuickControlsCard: View {
             controlRow(icon: "arrow.left.arrow.right",
                        tint: Wander.brand,
                        title: "Connect LocalDevVPN (default tunnel)",
-                       subtitle: "Your everyday tunnel — for Find My, Life360, and everything that ISN'T a game (and to install app updates). Runs a shortcut, connects, returns here. Set both shortcuts up once in Shortcuts & automations.") {
+                       subtitle: "Your everyday tunnel — for Find My, other location-sharing apps, and everything else that ISN'T a game (and to install app updates). Runs a shortcut, connects, returns here. Set both shortcuts up once in Shortcuts & automations.") {
                 ShortcutRunner.run(name: ShortcutRunner.vpnConnectName, successHost: "vpnconnected")
             }
             controlRow(icon: "arrow.uturn.backward",
@@ -172,7 +172,7 @@ struct AutomationsView: View {
                            steps: ["New shortcut, name it EXACTLY: Wander Connect VPN",
                                    "Set VPN → On → pick LocalDevVPN",
                                    "Open App → Wander"])
-                    Text("The two “Connect …” buttons in Quick Controls invoke these BY NAME, so the names must match exactly. Shadowrocket is ONLY for Pokémon GO + other anti-cheat games (Monster Hunter Now) — nothing else; LocalDevVPN is your default tunnel for Find My, Life360, everything else, and app updates. iOS runs one VPN at a time, so turning one on drops the other.")
+                    Text("The two “Connect …” buttons in Quick Controls invoke these BY NAME, so the names must match exactly. Shadowrocket is ONLY for Pokémon GO + other anti-cheat games (Monster Hunter Now) — nothing else; LocalDevVPN is your default tunnel for Find My, other location-sharing apps, everything else, and app updates. iOS runs one VPN at a time, so turning one on drops the other.")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Section {
