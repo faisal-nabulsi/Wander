@@ -6,34 +6,41 @@ IPA, re-signs it with the user's Apple ID, and installs it (the app relaunches).
 
 ## To release a new version
 
-1. **Bump the build number** in Xcode before building: raise `CURRENT_PROJECT_VERSION`
-   (CFBundleVersion) — e.g. `1` → `2`. The installed copy must report the new number or it
-   will keep offering the update.
+```
+./publish-ota.sh "What's new in this build"
+```
 
-2. **Build the unsigned IPA** the usual way (the app is signed on-device by each user, so ship
-   it unsigned):
-   ```
-   # your normal build → ~/Desktop/Wander.ipa
-   ```
+then push this repo (the script prints the exact command). The script bumps the build number,
+builds the unsigned IPA, **signs** the manifest, uploads the IPA to the GitHub release, and writes
+`update.json` + `apps.json`. Push promptly: between the upload and the push, the old manifest's
+hash no longer matches the re-uploaded IPA, so updates attempted in that gap are refused (safe).
 
-3. **Upload** `Wander.ipa` to a GitHub Release (e.g. tag `v1.1`).
+## Signed manifests (since 2026-10-12)
 
-4. **Edit `update.json`** in the repo root and push it:
-   ```json
-   {
-     "build": 2,
-     "version": "1.1",
-     "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/download/v1.1/Wander.ipa",
-     "notes": "What's new in 1.1…"
-   }
-   ```
+The app only installs an update whose manifest is Ed25519-signed with the OTA key, and only if the
+downloaded IPA matches the signed SHA-256, byte size and build number. An unsigned or tampered
+`update.json` is ignored, as if there were no update. Write access to GitHub alone can no longer
+push code to users.
 
-That's it. Within a launch or two, every user on an older build sees **Settings › Software
-Update → Download & install**, or auto-notices it. Requirements to install mirror self-refresh:
-the user must be **signed in to their Apple ID** and **connected to the tunnel**.
+- **Private key:** `~/.config/wander-secrets/wander-ota-signing.key` (override with
+  `WANDER_OTA_KEY`). It's base64 of the raw 32-byte Ed25519 key. Keep it off GitHub and **back it
+  up**. If it's lost, installed apps refuse every future OTA until users reinstall manually.
+- **Public key:** `OTAIntegrity.otaSigningPublicKeyB64` in `Wander/Services/WanderUpdater.swift`.
+  `publish-ota.sh` refuses to run when the private key is missing or doesn't match this constant.
+- **Signer:** `tools/sign-ota-manifest.py` (needs Python `cryptography`; the script finds a
+  `python3` that has it, or set `WANDER_PYTHON`). It adds `sha256`, `size` and `sig` to the manifest.
+- **Signed message** (UTF-8, `\n`-separated, no trailing newline):
+  `wander-ota-v1`, build, version, sha256 (lowercase hex), size, payloadURL. The payloadURL must be
+  `https://`.
+- **`notes` is NOT signed.** It's display-only, so you can fix a typo in `notes` without re-signing.
+  Never hand-edit `build`, `version`, `payloadURL`, `sha256` or `size`. The signature covers them.
+- **Rotating the key:** ship one more update signed with the OLD key whose build embeds the NEW
+  public key. After that, sign with the new key.
 
 ## Notes
 - `payloadURL` must be the **unsigned** IPA (AltSign re-signs it per device).
 - Updates are **pull** (iOS can't force-install); the app checks on launch and offers it.
 - Same bundle id (`com.stik.stikdebug`) → it upgrades in place, keeping the user's data,
   license, and trial state (those live in the Keychain).
+- Builds from before the signing change don't verify anything. They install whatever the manifest
+  names until they update to a signed-manifest build.

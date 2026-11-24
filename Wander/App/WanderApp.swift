@@ -133,6 +133,9 @@ struct WanderApp: App {
             // Re-check the account's Pro entitlement (throttled to once per 6 hours) and apply the
             // 7-day offline grace to a cached Pro.
             WanderProAccount.shared.handleForeground()
+            // Re-ask the Worker for this device's 5-device-cap verdict while it has none yet for the
+            // account (the fail-open window) or the verdict is a denial. No-op otherwise.
+            WanderDeviceActivation.shared.handleForeground()
             // Anonymous usage count; debounced to once per 30 minutes inside UsageStats.
             UsageStats.recordSession()
             if shouldAttemptTunnelReconnect {

@@ -116,6 +116,14 @@ final class WanderProAccount: ObservableObject {
 
     var isSignedIn: Bool { refreshToken != nil }
 
+    /// The signed-in account's uid as persisted, readable WITHOUT touching `shared`.
+    /// WanderDeviceActivation binds its cached device-cap verdict to it, and that class's init can
+    /// run inside License's init chain, where touching `shared` here could re-enter a `static let`.
+    static var persistedUID: String? {
+        guard let value = WanderKeychain.string(Key.uid), !value.isEmpty else { return nil }
+        return value
+    }
+
     // MARK: - Sign in / Sign up (Identity Toolkit REST)
 
     /// POST accounts:signInWithPassword — verifies an existing account. On success we persist

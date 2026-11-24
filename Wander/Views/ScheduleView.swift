@@ -17,8 +17,10 @@ import CoreLocation
 struct ScheduleView: View {
     @StateObject private var store = ScheduleStore()
     @ObservedObject private var manager = ScheduleManager.shared
+    @ObservedObject private var license = License.shared
 
     @State private var showAdd = false
+    @State private var showPaywall = false
     @State private var nextFire: Date?
 
     // Refresh the "next fire" line every minute while on screen.
@@ -36,6 +38,7 @@ struct ScheduleView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
+                        guard gateOrPaywall() else { return }
                         showAdd = true
                     } label: {
                         Image(systemName: Wander.Icon.add)
@@ -48,6 +51,9 @@ struct ScheduleView: View {
                     store.add(schedule)
                     recomputeNextFire()
                 }
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView(onClose: { showPaywall = false })
             }
             .onAppear {
                 store.reload()
@@ -93,10 +99,16 @@ struct ScheduleView: View {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            if !hasPairing {
-                Text(localized: "schedule.needs_pairing",
-                     fallback: "Import a pairing file in Settings so schedules can auto-start spoofing.")
-                    .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 4) {
+                if !hasPairing {
+                    Text(localized: "schedule.needs_pairing",
+                         fallback: "Import a pairing file in Settings so schedules can auto-start spoofing.")
+                        .foregroundStyle(.orange)
+                }
+                if !license.isLicensed {
+                    Text(localized: "schedule.uses_trial",
+                         fallback: "On the free plan each scheduled window uses your daily free teleport. Wander Pro removes the limit.")
+                }
             }
         }
     }
@@ -151,6 +163,8 @@ struct ScheduleView: View {
             Toggle("", isOn: Binding(
                 get: { schedule.isArmed },
                 set: { armed in
+                    // Arming is gated like adding; disarming never is.
+                    if armed { guard gateOrPaywall() else { return } }
                     store.setArmed(armed, id: schedule.id)
                     recomputeNextFire()
                 }
@@ -178,6 +192,15 @@ struct ScheduleView: View {
 
     private func recomputeNextFire() {
         nextFire = manager.nextFireDate()
+    }
+
+    /// A window is a held teleport (see `ScheduleManager.start`), so creating or arming one takes
+    /// the map's teleport gate: unlicensed with no allowance left ⇒ paywall. This is only the early
+    /// warning — the window itself is gated again when it opens, which is the check that matters.
+    private func gateOrPaywall() -> Bool {
+        if license.isLicensed || TrialManager.shared.canUse(.teleport) { return true }
+        showPaywall = true
+        return false
     }
 }
 

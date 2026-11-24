@@ -16,6 +16,9 @@ enum AppBootstrapper {
         // cannot identify itself. Carrying them forward would arm a feature whose whole new safety
         // property is that it only arms on proof. See ShortcutRunner.
         ShortcutRunner.migrateCellularModeFlags()
+        // Delete the old Debug-level idevice log (it held pairing-record material) BEFORE anything
+        // can touch JITEnableContext and reopen it for append. One-time; see the function.
+        JITEnableContext.purgeLegacyDebugLogIfNeeded()
         startConfiguredKeepAliveServices()
         applyDocumentPickerCopyWorkaround()
     }

@@ -146,6 +146,9 @@ struct MainTabView: View {
     /// chip sits on top of every tab, and the acquisition sheet is raised by a deep link or a
     /// Home-screen quick action, neither of which has a screen of its own.
     @ObservedObject private var pause = PauseController.shared
+    /// Observed only for `needsPaywall`: a schedule window refused for lack of allowance usually
+    /// opens while Wander is backgrounded, and this screen is where the paywall can be shown.
+    @ObservedObject private var scheduleManager = ScheduleManager.shared
     @ObservedObject private var updater = WanderUpdater.shared
     @ObservedObject private var tunnel = WanderTunnel.shared
     @State private var bannerVisible = false
@@ -265,6 +268,9 @@ struct MainTabView: View {
                 // we're already on screen and comes through the notification below instead.)
                 runPendingQuickAction()
                 WanderQuickActions.refresh()
+                // A schedule window refused before this screen existed (launched inside a window)
+                // changed the flag before there was anything here to observe it.
+                surfaceSchedulePaywallIfNeeded()
             }
             .onReceive(NotificationCenter.default.publisher(for: WanderQuickActions.requested)) { note in
                 if let url = note.userInfo?["url"] as? URL {
@@ -332,6 +338,12 @@ struct MainTabView: View {
                 pause.needsPaywall = false
                 showLinkPaywall = true
             }
+            // A schedule window that couldn't start (unlicensed, no teleport left) asks for the same
+            // paywall — but only once the app is in front. Raised while backgrounded, the flag stays
+            // set and the `.active` branch below picks it up.
+            .onChange(of: scheduleManager.needsPaywall) { _, _ in
+                surfaceSchedulePaywallIfNeeded()
+            }
             .fullScreenCover(isPresented: Binding(get: { gate.locked && !license.isLicensed }, set: { _ in })) {
                 PaywallView()
             }
@@ -349,6 +361,10 @@ struct MainTabView: View {
                     // published property already redraws the banner without being asked.
                     gate.refresh()
                     License.shared.refresh()   // re-check so an expired subscription re-locks
+                    if scheduleManager.needsPaywall {
+                        scheduleManager.needsPaywall = false
+                        showLinkPaywall = true
+                    }
                     if session.isActive {
                         flashBanner()
                         // NOTE (build 128): a foreground `tunnelHealth.attemptReconnectNow()` used to fire
@@ -1301,6 +1317,14 @@ struct MainTabView: View {
         }
     }
 
+    /// Raise the paywall a refused schedule window asked for, but only while the app is in front —
+    /// see `ScheduleManager.needsPaywall`. The `.active` scene-phase branch covers the return trip.
+    private func surfaceSchedulePaywallIfNeeded() {
+        guard scheduleManager.needsPaywall, scenePhase == .active else { return }
+        scheduleManager.needsPaywall = false
+        showLinkPaywall = true
+    }
+
     /// Run a Home-screen quick action by replaying the wander:// link it carries through the normal
     /// handler — quick actions are links, not a second command set.
     private func runPendingQuickAction() {
@@ -1481,6 +1505,17 @@ struct MainTabView: View {
             return
         }
 
+        // The map's teleport gate (`MapSelectionView.simulate`: `!isLicensed && !canUse(.teleport) ⇒
+        // paywall`), charged on success below exactly as the map charges. Every URL door lands here —
+        // `teleport` directly, `simulate-location`/`location` after their confirmation, and the
+        // Home-screen quick actions — and none of them checked or charged, so a free user out of
+        // allowance could teleport without limit from a Shortcut or a QR code. `teleport` still runs
+        // without a confirmation; it just pays like everything else.
+        guard License.shared.isLicensed || TrialManager.shared.canUse(.teleport) else {
+            showLinkPaywall = true
+            return
+        }
+
         // Bring Wander's own tunnel up before the write. A link/Shortcut teleport is one of the
         // paths that never did, so one arriving after the tunnel auto-disconnected injected into
         // nothing and still reported success upstream. No-ops synchronously unless the user opted
@@ -1508,6 +1543,7 @@ struct MainTabView: View {
                                                             longitude: coordinate.longitude)
                         SimulationSession.shared.started()
                         SimulationSession.shared.noteTeleport(to: target)
+                        if !License.shared.isLicensed { TrialManager.shared.chargeTeleport() }
                         LogManager.shared.addInfoLog(
                             String(format: "Simulated location from URL: %.6f, %.6f", coordinate.latitude, coordinate.longitude)
                         )
