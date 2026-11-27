@@ -1,6 +1,9 @@
 {
-  "build": 159,
+  "build": 160,
   "version": "1.0",
   "payloadURL": "https://github.com/faisal-nabulsi/Wander/releases/latest/download/Wander.ipa",
-  "notes": "Fixes Apple ID sign-in inside the app."
+  "notes": "Clearer wording across the app and signed updates",
+  "sha256": "69bf463aadb4c8ab88de18443c40afc0ce800780af9ddd8a54fe0dc23e5dd88f",
+  "size": 22200948,
+  "sig": "uKODzhkbZc3vj69yi8zsH7yMG3RjeJIYrBCtIJozRcelfen5/Fzayu6sZwghsZVkdXrxUBoz+iTVDE8c26/YDA=="
 }
