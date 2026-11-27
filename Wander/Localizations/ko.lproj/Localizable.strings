@@ -136,13 +136,13 @@
 /* Paywall */
 "paywall.title" = "Wander Pro";
 "paywall.headline_trial" = "무료 체험을 모두 사용했습니다. Wander Pro로 텔레포트, 조이스틱, 경로를 무제한으로 이용하세요.";
-"paywall.headline_locked" = "Wander now requires Wander Pro to change your location. Get Pro at wanderspoofer.com, then sign in to unlock.";
+"paywall.headline_locked" = "이제 위치를 변경하려면 Wander Pro가 필요합니다. wanderspoofer.com에서 Pro를 받은 뒤 로그인해 잠금을 해제하세요.";
 "paywall.choose_plan" = "요금제 선택";
 "paywall.plan.lifetime" = "평생";
-"paywall.plan.lifetime_note" = "One payment, no renewal. Pro for the life of the product.";
+"paywall.plan.lifetime_note" = "한 번 결제, 갱신 없음. 제품이 제공되는 동안 Pro를 이용할 수 있습니다.";
 "paywall.plan.yearly" = "연간";
 "paywall.plan.monthly" = "월간";
-"paywall.buy_hint" = "Buy Wander Pro at wanderspoofer.com, then sign in below — your Pro unlocks on iPhone, Android, and desktop, and survives reinstalls.";
+"paywall.buy_hint" = "wanderspoofer.com에서 Wander Pro를 구매한 뒤 아래에서 로그인하세요. Pro는 iPhone, Android, 데스크톱에서 잠금 해제되며 재설치 후에도 유지됩니다.";
 "paywall.get_pro" = "Wander Pro 받기";
 "paywall.already_bought" = "이미 구매하셨나요? 로그인해 잠금 해제";
 "paywall.teleports_today" = "오늘 텔레포트";
@@ -151,8 +151,8 @@
 
 /* Toasts / banners */
 "toast.stopped_real_gps" = "중지됨 — 실제 GPS로 복원되었습니다";
-"banner.spoofing_active" = "Location change active — keep Wander open";
-"panic.accessibility" = "Stop simulating";
+"banner.spoofing_active" = "위치 변경 중 — Wander를 열어 두세요";
+"panic.accessibility" = "시뮬레이션 중지";
 
 /* Language picker option */
 "language.system" = "시스템 기본값";
@@ -161,7 +161,7 @@
 "locationinfo.tz_advisory" = "기기의 시간대가 여전히 %@(으)로 설정되어 있습니다. 일부 앱은 이를 GPS와 비교하므로 설정 › 일반 › 날짜 및 시간에서 맞춰 주는 것이 좋습니다.";
 "locationinfo.tz_advisory.dismiss" = "시간대 팁 닫기";
 "locationinfo.ip_tip.title" = "IP와 시간대 맞추기";
-"locationinfo.ip_tip.body" = "Apps can also estimate your location from your IP address.";
+"locationinfo.ip_tip.body" = "앱은 IP 주소로도 위치를 추정할 수 있습니다.";
 "locationinfo.ip_tip.link" = "IP 일치 방식 알아보기";
 
 /* Flight Planner (free) — English fallback pending translation */
@@ -193,20 +193,20 @@
 "settings.location.coarse.footer" = "Privacy: reports a spot within about 3–5 km of your target so you share a neighborhood, not the exact place. The offset stays the same for the whole session.";
 
 /* Error 12 help + Long-distance stabilizer (added 2026-07) */
-"error12.title" = "Location not detected?";
-"error12.intro" = "If a game says it can't detect your location, these steps fix the most common causes: a dropped connection, a coarse real location, or Location Services being off.";
+"error12.title" = "위치가 감지되지 않나요?";
+"error12.intro" = "게임에서 위치를 감지할 수 없다고 나오면, 다음 단계로 가장 흔한 원인을 해결할 수 있습니다: 끊어진 연결, 부정확한 실제 위치, 또는 꺼져 있는 위치 서비스.";
 "error12.step.location_on.title" = "위치 서비스 켜기";
-"error12.step.location_on.detail" = "iPhone Settings → Privacy & Security → Location Services → ON, and set the game → While Using the App. Location Services must be on for the injected location to reach the game.";
+"error12.step.location_on.detail" = "iPhone 설정 → 개인정보 보호 및 보안 → 위치 서비스 → 켜기, 그리고 게임 → 앱을 사용하는 동안으로 설정하세요. 주입된 위치가 게임에 전달되려면 위치 서비스가 켜져 있어야 합니다.";
 "error12.step.refresh.title" = "순간이동 후에는 위치를 새로 고치세요";
 "error12.step.refresh.detail" = "위치 서비스를 약 3초간 껐다가 다시 켜세요(설정 → 개인정보 보호 및 보안 → 위치 서비스). 이렇게 하면 iOS가 새 위치에서 신호를 새로 받아옵니다.";
-"error12.step.cooldown.title" = "Wait before interacting again";
-"error12.step.cooldown.detail" = "A suggested wait helps space out in-game actions after a location change. It is only a suggestion and can't prevent warnings or bans.";
+"error12.step.cooldown.title" = "다시 상호작용하기 전에 기다리세요";
+"error12.step.cooldown.detail" = "권장 대기 시간은 위치 변경 후 게임 내 행동 사이에 간격을 두는 데 도움이 됩니다. 이는 권장 사항일 뿐이며 경고나 계정 정지를 막을 수 없습니다.";
 "error12.step.smooth.title" = "부드럽게 이동하고, 빠른 연속 순간이동은 피하세요";
-"error12.step.smooth.detail" = "If a location error appears while moving, stop, wait a few seconds for the fix to settle, then continue. Avoid a flurry of tiny location changes.";
+"error12.step.smooth.detail" = "이동 중에 위치 오류가 뜨면 멈추고, 위치가 안정될 때까지 몇 초 기다린 뒤 계속하세요. 작은 위치 변경을 연달아 하지 마세요.";
 "error12.step.keep_running.title" = "Wander를 계속 실행해 두세요";
 "error12.step.keep_running.detail" = "플레이하는 동안 터널을 연결한 채로 앱을 열어 두세요. 터널이 끊기면 게임이 즉시 위치를 잃습니다.";
-"error12.cooldown.header" = "Suggested wait by distance";
-"error12.cooldown.disclaimer" = "Community estimates, not official values. They can't prevent warnings or bans.";
+"error12.cooldown.header" = "거리별 권장 대기 시간";
+"error12.cooldown.disclaimer" = "커뮤니티 추정치이며, 공식 값이 아닙니다. 경고나 계정 정지를 막을 수 없습니다.";
 "error12.footer.discord" = "여전히 막혔나요? Discord의 #bug-reports 채널로 알려주세요.";
 "stabilizer.title" = "장거리 안정기 (베타)";
 "stabilizer.intro" = "실험적 기능. 먼 거리 순간이동이 되돌아가지 않고 안정적으로 유지되도록 돕습니다.";
@@ -216,7 +216,7 @@
 "stabilizer.warning.beta" = "베타이자 실험적 기능입니다. 모든 기기나 iOS 버전에서 효과가 있는 것은 아닙니다.";
 "stabilizer.warning.dns" = "설치되어 있는 동안에는 모든 DNS가 Wander 서버를 거칩니다. Apple 서비스(iCloud, 지도, App Store, 나의 찾기)에 영향을 줄 수 있습니다.";
 "stabilizer.warning.off" = "다 사용했으면 꺼주세요.";
-"stabilizer.warning.error12" = "This does not fix location-not-detected errors. For that, see Settings → Help → Location not detected.";
+"stabilizer.warning.error12" = "이 기능은 위치가 감지되지 않는 오류를 해결하지 않습니다. 해당 문제는 설정 → 도움말 → 위치가 감지되지 않음을 참고하세요.";
 "stabilizer.signin.needed" = "이 기능을 설정하려면 Wander 계정에 로그인하세요.";
 "stabilizer.signin.button" = "로그인";
 "stabilizer.install.fetching" = "프로파일 준비 중…";

@@ -136,13 +136,13 @@
 /* Paywall */
 "paywall.title" = "Wander Pro";
 "paywall.headline_trial" = "Vous avez épuisé votre essai gratuit. Débloquez Wander Pro pour des téléportations, un joystick et des itinéraires illimités.";
-"paywall.headline_locked" = "Wander now requires Wander Pro to change your location. Get Pro at wanderspoofer.com, then sign in to unlock.";
+"paywall.headline_locked" = "Wander nécessite désormais Wander Pro pour modifier votre position. Obtenez Pro sur wanderspoofer.com, puis connectez-vous pour débloquer.";
 "paywall.choose_plan" = "Choisissez une formule";
 "paywall.plan.lifetime" = "À vie";
-"paywall.plan.lifetime_note" = "One payment, no renewal. Pro for the life of the product.";
+"paywall.plan.lifetime_note" = "Un seul paiement, sans renouvellement. Pro pendant toute la durée de vie du produit.";
 "paywall.plan.yearly" = "Annuel";
 "paywall.plan.monthly" = "Mensuel";
-"paywall.buy_hint" = "Buy Wander Pro at wanderspoofer.com, then sign in below — your Pro unlocks on iPhone, Android, and desktop, and survives reinstalls.";
+"paywall.buy_hint" = "Achetez Wander Pro sur wanderspoofer.com, puis connectez-vous ci-dessous — votre Pro se débloque sur iPhone, Android et ordinateur, et survit aux réinstallations.";
 "paywall.get_pro" = "Obtenir Wander Pro";
 "paywall.already_bought" = "Déjà acheté ? Connectez-vous pour débloquer";
 "paywall.teleports_today" = "Téléportations aujourd'hui";
@@ -151,8 +151,8 @@
 
 /* Toasts / banners */
 "toast.stopped_real_gps" = "Arrêté — GPS réel rétabli";
-"banner.spoofing_active" = "Location change active — keep Wander open";
-"panic.accessibility" = "Stop simulating";
+"banner.spoofing_active" = "Changement de position actif — gardez Wander ouvert";
+"panic.accessibility" = "Arrêter la simulation";
 
 /* Language picker option */
 "language.system" = "Réglage du système";
@@ -161,7 +161,7 @@
 "locationinfo.tz_advisory" = "Le fuseau horaire de votre appareil affiche toujours %@. Certaines apps le comparent à votre GPS — pensez à le faire correspondre dans Réglages › Général › Date et heure.";
 "locationinfo.tz_advisory.dismiss" = "Ignorer le conseil sur le fuseau horaire";
 "locationinfo.ip_tip.title" = "Faites correspondre votre IP et votre fuseau horaire";
-"locationinfo.ip_tip.body" = "Apps can also estimate your location from your IP address.";
+"locationinfo.ip_tip.body" = "Les apps peuvent aussi estimer votre position à partir de votre adresse IP.";
 "locationinfo.ip_tip.link" = "Comment fonctionne la correspondance d'IP";
 
 /* Flight Planner (free) — English fallback pending translation */
@@ -193,20 +193,20 @@
 "settings.location.coarse.footer" = "Privacy: reports a spot within about 3–5 km of your target so you share a neighborhood, not the exact place. The offset stays the same for the whole session.";
 
 /* Error 12 help + Long-distance stabilizer (added 2026-07) */
-"error12.title" = "Location not detected?";
-"error12.intro" = "If a game says it can't detect your location, these steps fix the most common causes: a dropped connection, a coarse real location, or Location Services being off.";
+"error12.title" = "Position non détectée ?";
+"error12.intro" = "Si un jeu indique qu'il ne peut pas détecter votre position, ces étapes corrigent les causes les plus courantes : une connexion interrompue, une position réelle imprécise ou le Service de localisation désactivé.";
 "error12.step.location_on.title" = "Activez la Localisation";
-"error12.step.location_on.detail" = "iPhone Settings → Privacy & Security → Location Services → ON, and set the game → While Using the App. Location Services must be on for the injected location to reach the game.";
+"error12.step.location_on.detail" = "Réglages de l'iPhone → Confidentialité et sécurité → Service de localisation → Activé, et réglez le jeu → Lorsque l'app est active. La localisation doit être activée pour que la position injectée parvienne au jeu.";
 "error12.step.refresh.title" = "Après un téléport, actualisez la position";
 "error12.step.refresh.detail" = "Désactivez la localisation pendant ~3 secondes, puis réactivez-la (Réglages → Confidentialité et sécurité → Service de localisation). Cela force iOS à obtenir une nouvelle position à votre nouvel emplacement.";
-"error12.step.cooldown.title" = "Wait before interacting again";
-"error12.step.cooldown.detail" = "A suggested wait helps space out in-game actions after a location change. It is only a suggestion and can't prevent warnings or bans.";
+"error12.step.cooldown.title" = "Attendez avant d'interagir à nouveau";
+"error12.step.cooldown.detail" = "Une attente suggérée permet d'espacer les actions dans le jeu après un changement de position. Ce n'est qu'une suggestion, et elle ne peut pas empêcher les avertissements ni les bannissements.";
 "error12.step.smooth.title" = "Déplacez-vous en douceur ; pas de téléports rapides";
-"error12.step.smooth.detail" = "If a location error appears while moving, stop, wait a few seconds for the fix to settle, then continue. Avoid a flurry of tiny location changes.";
+"error12.step.smooth.detail" = "Si une erreur de position apparaît en mouvement, arrêtez-vous, attendez quelques secondes que la position se stabilise, puis continuez. Évitez une rafale de minuscules changements de position.";
 "error12.step.keep_running.title" = "Gardez Wander en marche";
 "error12.step.keep_running.detail" = "Gardez l'app ouverte avec le tunnel connecté pendant que vous jouez : si le tunnel se coupe, le jeu perd aussitôt la position.";
-"error12.cooldown.header" = "Suggested wait by distance";
-"error12.cooldown.disclaimer" = "Community estimates, not official values. They can't prevent warnings or bans.";
+"error12.cooldown.header" = "Attente suggérée selon la distance";
+"error12.cooldown.disclaimer" = "Estimations de la communauté, pas des valeurs officielles. Elles ne peuvent pas empêcher les avertissements ni les bannissements.";
 "error12.footer.discord" = "Toujours bloqué ? Dites-le-nous sur le canal Discord #bug-reports.";
 "stabilizer.title" = "Stabilisateur longue distance (bêta)";
 "stabilizer.intro" = "Expérimental. Aide un téléport LOINTAIN à rester stable au lieu de revenir en arrière.";
@@ -216,7 +216,7 @@
 "stabilizer.warning.beta" = "Bêta et expérimental — peut ne pas aider sur tous les appareils ou toutes les versions d'iOS.";
 "stabilizer.warning.dns" = "Une fois installé, TOUT votre DNS passe par le serveur de Wander. Cela peut affecter les services Apple (iCloud, Plans, App Store, Localiser).";
 "stabilizer.warning.off" = "Désactivez-le quand vous avez terminé.";
-"stabilizer.warning.error12" = "This does not fix location-not-detected errors. For that, see Settings → Help → Location not detected.";
+"stabilizer.warning.error12" = "Cela ne corrige pas les erreurs de position non détectée. Pour cela, consultez Réglages → Aide → Position non détectée.";
 "stabilizer.signin.needed" = "Connectez-vous à votre compte Wander pour configurer cela.";
 "stabilizer.signin.button" = "Se connecter";
 "stabilizer.install.fetching" = "Préparation du profil…";

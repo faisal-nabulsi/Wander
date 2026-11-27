@@ -136,13 +136,13 @@
 /* Paywall */
 "paywall.title" = "Wander Pro";
 "paywall.headline_trial" = "Бесплатный период закончился. Откройте Wander Pro для безлимитных телепортов, джойстика и маршрутов.";
-"paywall.headline_locked" = "Wander now requires Wander Pro to change your location. Get Pro at wanderspoofer.com, then sign in to unlock.";
+"paywall.headline_locked" = "Теперь для изменения местоположения нужен Wander Pro. Получите Pro на wanderspoofer.com, затем войдите, чтобы разблокировать.";
 "paywall.choose_plan" = "Выберите тариф";
 "paywall.plan.lifetime" = "Навсегда";
-"paywall.plan.lifetime_note" = "One payment, no renewal. Pro for the life of the product.";
+"paywall.plan.lifetime_note" = "Один платёж, без продления. Pro на весь срок существования продукта.";
 "paywall.plan.yearly" = "Годовой";
 "paywall.plan.monthly" = "Месячный";
-"paywall.buy_hint" = "Buy Wander Pro at wanderspoofer.com, then sign in below — your Pro unlocks on iPhone, Android, and desktop, and survives reinstalls.";
+"paywall.buy_hint" = "Купите Wander Pro на wanderspoofer.com, затем войдите ниже — ваш Pro откроется на iPhone, Android и компьютере и сохранится после переустановки.";
 "paywall.get_pro" = "Получить Wander Pro";
 "paywall.already_bought" = "Уже купили? Войдите, чтобы разблокировать";
 "paywall.teleports_today" = "Телепорты сегодня";
@@ -151,8 +151,8 @@
 
 /* Toasts / banners */
 "toast.stopped_real_gps" = "Остановлено — восстановлен реальный GPS";
-"banner.spoofing_active" = "Location change active — keep Wander open";
-"panic.accessibility" = "Stop simulating";
+"banner.spoofing_active" = "Изменение местоположения активно — не закрывайте Wander";
+"panic.accessibility" = "Остановить симуляцию";
 
 /* Language picker option */
 "language.system" = "Системный по умолчанию";
@@ -161,7 +161,7 @@
 "locationinfo.tz_advisory" = "Часовой пояс вашего устройства по-прежнему показывает %@. Некоторые приложения сверяют его с GPS — стоит привести его в соответствие в Настройках › Основные › Дата и время.";
 "locationinfo.tz_advisory.dismiss" = "Скрыть совет о часовом поясе";
 "locationinfo.ip_tip.title" = "Согласуйте IP и часовой пояс";
-"locationinfo.ip_tip.body" = "Apps can also estimate your location from your IP address.";
+"locationinfo.ip_tip.body" = "Приложения также могут приблизительно определять ваше местоположение по IP-адресу.";
 "locationinfo.ip_tip.link" = "Как работает согласование IP";
 
 /* Flight Planner (free) — English fallback pending translation */
@@ -193,20 +193,20 @@
 "settings.location.coarse.footer" = "Privacy: reports a spot within about 3–5 km of your target so you share a neighborhood, not the exact place. The offset stays the same for the whole session.";
 
 /* Error 12 help + Long-distance stabilizer (added 2026-07) */
-"error12.title" = "Location not detected?";
-"error12.intro" = "If a game says it can't detect your location, these steps fix the most common causes: a dropped connection, a coarse real location, or Location Services being off.";
+"error12.title" = "Не удаётся определить местоположение?";
+"error12.intro" = "Если игра сообщает, что не может определить ваше местоположение, эти шаги устраняют самые частые причины: обрыв соединения, неточное реальное местоположение или выключенные Службы геолокации.";
 "error12.step.location_on.title" = "Включите Службы геолокации";
-"error12.step.location_on.detail" = "iPhone Settings → Privacy & Security → Location Services → ON, and set the game → While Using the App. Location Services must be on for the injected location to reach the game.";
+"error12.step.location_on.detail" = "Настройки iPhone → Конфиденциальность и безопасность → Службы геолокации → Вкл., и задайте для игры → При использовании приложения. Службы геолокации должны быть включены, чтобы внедрённое местоположение доходило до игры.";
 "error12.step.refresh.title" = "После телепортации обновите местоположение";
 "error12.step.refresh.detail" = "Выключите Службы геолокации примерно на 3 секунды, затем снова включите (Настройки → Конфиденциальность и безопасность → Службы геолокации). Это заставит iOS получить свежее местоположение в новой точке.";
-"error12.step.cooldown.title" = "Wait before interacting again";
-"error12.step.cooldown.detail" = "A suggested wait helps space out in-game actions after a location change. It is only a suggestion and can't prevent warnings or bans.";
+"error12.step.cooldown.title" = "Подождите, прежде чем снова взаимодействовать";
+"error12.step.cooldown.detail" = "Рекомендуемое время ожидания помогает распределить действия в игре после изменения местоположения. Это лишь рекомендация, которая не может предотвратить предупреждения или блокировки.";
 "error12.step.smooth.title" = "Двигайтесь плавно; не телепортируйтесь часто";
-"error12.step.smooth.detail" = "If a location error appears while moving, stop, wait a few seconds for the fix to settle, then continue. Avoid a flurry of tiny location changes.";
+"error12.step.smooth.detail" = "Если при движении появляется ошибка местоположения, остановитесь, подождите несколько секунд, пока местоположение устоится, затем продолжайте. Избегайте череды мелких изменений местоположения.";
 "error12.step.keep_running.title" = "Держите Wander запущенным";
 "error12.step.keep_running.detail" = "Держите приложение открытым, а туннель подключённым во время игры — если туннель обрывается, игра мгновенно теряет местоположение.";
-"error12.cooldown.header" = "Suggested wait by distance";
-"error12.cooldown.disclaimer" = "Community estimates, not official values. They can't prevent warnings or bans.";
+"error12.cooldown.header" = "Рекомендуемое ожидание по расстоянию";
+"error12.cooldown.disclaimer" = "Оценки сообщества, а не официальные значения. Они не могут предотвратить предупреждения или блокировки.";
 "error12.footer.discord" = "Всё ещё не получается? Напишите нам в канал #bug-reports в Discord.";
 "stabilizer.title" = "Стабилизатор дальних телепортаций (бета)";
 "stabilizer.intro" = "Экспериментально. Помогает ДАЛЬНЕЙ телепортации оставаться на месте, а не откатываться назад.";
@@ -216,7 +216,7 @@
 "stabilizer.warning.beta" = "Бета и эксперимент — может помочь не на каждом устройстве или версии iOS.";
 "stabilizer.warning.dns" = "Пока профиль установлен, ВЕСЬ ваш DNS идёт через сервер Wander. Это может повлиять на сервисы Apple (iCloud, Карты, App Store, Локатор).";
 "stabilizer.warning.off" = "Выключайте его, когда закончите.";
-"stabilizer.warning.error12" = "This does not fix location-not-detected errors. For that, see Settings → Help → Location not detected.";
+"stabilizer.warning.error12" = "Это не устраняет ошибки определения местоположения. Для них смотрите Настройки → Помощь → Не удаётся определить местоположение.";
 "stabilizer.signin.needed" = "Войдите в свою учётную запись Wander, чтобы настроить это.";
 "stabilizer.signin.button" = "Войти";
 "stabilizer.install.fetching" = "Подготовка профиля…";
