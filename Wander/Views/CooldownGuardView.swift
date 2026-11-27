@@ -36,7 +36,7 @@ struct CooldownGuardView: View {
             HStack(spacing: 8) {
                 Image(systemName: "hourglass")
                     .font(.caption)
-                Text(L("cooldown.chip", fallback: "Safe to catch/spin in")
+                Text(L("cooldown.chip", fallback: "Suggested wait:")
                      + " " + timeString(remaining))
                     .font(.caption.weight(.semibold))
                     .monospacedDigit()
@@ -56,7 +56,7 @@ struct CooldownGuardView: View {
             .allowsHitTesting(false)
             .accessibilityLabel(
                 L("cooldown.chip.a11y",
-                  fallback: "Soft-ban cooldown — wait before catching or spinning")
+                  fallback: "Suggested wait after a jump")
                 + " " + timeString(remaining)
             )
             .transition(.move(edge: .top).combined(with: .opacity))
@@ -241,7 +241,7 @@ struct CooldownJournalView: View {
             logSection
             historySection
         }
-        .navigationTitle(L("cooldown.journal.title", fallback: "Cooldown journal"))
+        .navigationTitle(L("cooldown.journal.title", fallback: "Suggested wait journal"))
         .navigationBarTitleDisplayMode(.inline)
         // Belt and braces: the journal normally absorbs teleports through its observer, but if this
         // screen is opened first on a fresh install the observer may not have existed yet. Idempotent
@@ -275,7 +275,7 @@ struct CooldownJournalView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(remaining > 0
                          ? L("cooldown.journal.waiting", fallback: "Wait ") + timeString(remaining)
-                         : L("cooldown.journal.clear.state", fallback: "Clear — safe to catch and spin"))
+                         : L("cooldown.journal.clear.state", fallback: "Suggested wait is over"))
                         .font(.headline)
                         .monospacedDigit()
                     Text(journal.active.name)
@@ -328,7 +328,7 @@ struct CooldownJournalView: View {
             Text(L("cooldown.journal.log", fallback: "I just did this"))
         } footer: {
             Text(L("cooldown.journal.log.note",
-                   fallback: "Wander can't see inside the game, so these are the actions only you know about. Logging one while a cooldown is running restarts the timer, because that's what the community rules say the game does. It only changes the timer shown here — Wander never stops you teleporting."))
+                   fallback: "Wander can't see inside the game, so these are the actions only you know about. Logging one while a suggested wait is running restarts the timer, because that's what the community rules say the game does. It only changes the timer shown here — Wander never stops you teleporting."))
         }
         // Only ever raised for the destructive case (a cooldown is already running), so it doesn't
         // stand between the user and the ordinary "logged it, moving on" tap.
@@ -347,7 +347,7 @@ struct CooldownJournalView: View {
             Button(L("common.cancel", fallback: "Cancel"), role: .cancel) { pendingInteraction = nil }
         } message: {
             Text(String(format: L("cooldown.journal.restart.note",
-                                  fallback: "A cooldown is still running (%@). On the community rules, acting now restarts it from the beginning — so logging this will restart the displayed timer. Nothing else changes: Wander still won't stop you teleporting."),
+                                  fallback: "A suggested wait is still running (%@). On the community rules, acting now restarts it from the beginning — so logging this will restart the displayed timer. Nothing else changes: Wander still won't stop you teleporting."),
                         timeString(journal.displayedRemaining())))
         }
     }
@@ -458,7 +458,7 @@ private struct CooldownEntryRow: View {
         switch entry.kind {
         case .teleport:
             guard entry.cooldownSeconds > 0 else {
-                return L("cooldown.journal.nocost", fallback: "No cooldown")
+                return L("cooldown.journal.nocost", fallback: "No suggested wait")
             }
             return CooldownPreview.shortCost(entry.cooldownSeconds)
                 + " " + L("cooldown.preview.noun", fallback: "cooldown")
@@ -531,7 +531,7 @@ struct CooldownRulebookView: View {
                 Text(L("cooldown.rulebook.where", fallback: "Where these rules come from"))
             }
         }
-        .navigationTitle(L("cooldown.rulebook.title", fallback: "What starts the cooldown"))
+        .navigationTitle(L("cooldown.rulebook.title", fallback: "What starts the suggested wait"))
         .navigationBarTitleDisplayMode(.inline)
     }
 

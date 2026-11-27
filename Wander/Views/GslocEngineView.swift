@@ -45,7 +45,7 @@ struct GslocEngineView: View {
 
                 Section("Before you start") {
                     step("Trust Wander's certificate (the previous screen) — the badge must read trusted.")
-                    step("Arm a target: turn on PoGo mode and teleport somewhere, so the engine has coordinates to write.")
+                    step("Arm a target: turn on Games mode and teleport somewhere, so the engine has coordinates to write.")
                     step("Start the engine above.")
                     step("Settings → Wi-Fi → ⓘ → Configure Proxy → Manual, 127.0.0.1, port \(String(GslocProxyServer.port)), Save.")
                     step("Open Apple Maps and let it re-locate.")

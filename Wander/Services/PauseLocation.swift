@@ -522,7 +522,7 @@ final class PauseController: ObservableObject {
     var gslocCaveat: String? {
         guard GslocMode.enabled else { return nil }
         return L("pause.caveat.gsloc",
-                 fallback: "You're in PoGo (gs-loc) mode, which only steers network location — a strong GPS signal overrides it. Freezing is reliable indoors, not outdoors.")
+                 fallback: "You're in Games mode (Wi-Fi positioning), which only steers network location — a strong GPS signal overrides it. Freezing is reliable indoors, not outdoors.")
     }
 
     // MARK: - Helpers

@@ -181,7 +181,7 @@ final class SpoofLossReporter: ObservableObject {
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }
             let content = UNMutableNotificationContent()
-            content.title = L("notif.stop_failed.title", fallback: "Your device is still spoofed")
+            content.title = L("notif.stop_failed.title", fallback: "Your device is still using a simulated location")
             content.body = L("notif.stop_failed.body",
                              fallback: "Wander stopped, but your device refused the stop and is still reporting the simulated location. Open Wander and tap Cellular Mode to clear it.")
             content.sound = .default
@@ -237,7 +237,7 @@ final class SpoofLossReporter: ObservableObject {
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }
             let content = UNMutableNotificationContent()
-            content.title = L("notif.spoof_lost.title", fallback: "Your spoof stopped")
+            content.title = L("notif.spoof_lost.title", fallback: "Your simulated location stopped")
             // DELIBERATELY DIFFERENT COPY PER TRANSPORT. Telling a cellular user to reconnect the
             // tunnel is telling them to do the one thing that cannot work.
             content.body = onCellular

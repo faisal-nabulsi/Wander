@@ -283,9 +283,9 @@ final class SimulationSession: ObservableObject {
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }
             let content = UNMutableNotificationContent()
-            content.title = L("notif.cooldown_cleared.title", fallback: "Cooldown cleared")
+            content.title = L("notif.cooldown_cleared.title", fallback: "Suggested wait over")
             content.body = L("notif.cooldown_cleared.body",
-                             fallback: "Safe to catch & spin in Pokémon GO now.")
+                             fallback: "Suggested wait is over. It is only a suggestion and can't prevent warnings or bans.")
             content.sound = .default
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
             let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)

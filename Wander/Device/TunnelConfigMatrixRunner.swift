@@ -194,7 +194,7 @@ final class TunnelConfigMatrixRunner: ObservableObject {
     /// Why this mode cannot run right now, or nil when it can. Checked before anything is touched.
     func refusalReason(for mode: Mode) -> String? {
         if SimulationSession.shared.isActive {
-            return "A location simulation is running. The DVT session is connection-scoped, so reconnecting the tunnel would kill your spoof mid-run. Stop the simulation first."
+            return "A location simulation is running. The DVT session is connection-scoped, so reconnecting the tunnel would end your simulation mid-run. Stop the simulation first."
         }
         if GslocMode.enabled, mode != .directOnly {
             return "gs-loc (PoGo) mode is on, and it needs Shadowrocket to hold iOS's single VPN slot. Running the matrix would take that slot away. Turn gs-loc off first, or run the direct rows only."

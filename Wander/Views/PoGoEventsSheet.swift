@@ -68,7 +68,7 @@ struct PoGoEventsSheet: View {
 
                 content
             }
-            .navigationTitle(L("pogo.hub.title", fallback: "PoGo Hub"))
+            .navigationTitle(L("pogo.hub.title", fallback: "Games hub"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

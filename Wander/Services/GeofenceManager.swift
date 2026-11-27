@@ -46,7 +46,7 @@ enum GeofenceAction: String, Codable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .stopSpoofing: return L("geofence.action.stop", fallback: "Stop spoofing (real GPS)")
+        case .stopSpoofing: return L("geofence.action.stop", fallback: "Stop simulating (real GPS)")
         }
     }
 }

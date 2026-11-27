@@ -2,7 +2,7 @@
 //  WanderDeviceActivation.swift
 //  Wander
 //
-//  DEVICE CAP (max 5 devices per Pro account, ENFORCED SERVER-SIDE). This is the iOS half of
+//  DEVICE CAP (max 3 devices per Pro account, ENFORCED SERVER-SIDE). This is the iOS half of
 //  the shared contract used by iOS + Android. Firestore stays client-read-only; ONLY Wander's
 //  Worker (with an admin token) writes the `devices` map on `licenses/{uid}`, so the cap can't
 //  be bypassed by a patched client.
@@ -10,13 +10,13 @@
 //  Flow: on sign-in and on app launch WHILE ONLINE, POST /account/activate with this install's
 //  stable deviceId (WanderDevice.id — a Keychain UUID that survives reinstall), the platform
 //  ("ios"), and a friendly device name (the hardware model). The Worker replies with whether
-//  THIS device is registered, whether the account is at the 5-device limit, and the full device
+//  THIS device is registered, whether the account is at the 3-device limit, and the full device
 //  list. EFFECTIVE PRO on this device = (account plan is pro) AND (this device is registered).
 //
 //  FAIL-SAFE (critical): if the activate call FAILS (offline / timeout / transport error) we
 //  KEEP the last cached verdict — we NEVER lock out a paying user because their Wi-Fi dropped.
 //  The ONLY response that withholds Pro on this device is an explicit
-//  `atLimit == true && registered == false` (a genuine "you're over 5 devices, this one isn't
+//  `atLimit == true && registered == false` (a genuine "you're over 3 devices, this one isn't
 //  one of them"). A Pro user already registered — or under the cap — is never blocked.
 //
 //  THE VERDICT IS PERSISTED (Keychain, per account uid). It used to be memory-only for `atLimit`,
@@ -77,20 +77,20 @@ final class WanderDeviceActivation: ObservableObject {
 
     /// Same Worker base the AI/trial/pricing flows use.
     private static let baseURL = "https://wander-payments.wanderlocation.workers.dev"
-    private static let deviceLimit = 5
+    private static let deviceLimit = 3
 
     /// Whether THIS device is registered against the account's device map. This is the value
     /// License folds into effective Pro. It starts from the cache so offline launches keep Pro.
     @Published private(set) var registered: Bool = false
 
-    /// True only when the server said the account is already at its 5-device cap. Combined with
+    /// True only when the server said the account is already at its 3-device cap. Combined with
     /// `!registered`, this is the SOLE condition that withholds Pro on this device.
     @Published private(set) var atLimit: Bool = false
 
     /// The full device list from the last successful activate/remove (for the Manage Devices UI).
     @Published private(set) var devices: [WanderDeviceInfo] = []
 
-    /// The account's device cap (echoed by the server; defaults to the contract's 5).
+    /// The account's device cap (echoed by the server; defaults to the contract's 3).
     @Published private(set) var limit: Int = WanderDeviceActivation.deviceLimit
 
     /// Set true while an activate/remove request is in flight (drives the Manage Devices spinner).
@@ -123,7 +123,7 @@ final class WanderDeviceActivation: ObservableObject {
     /// Whether the device cap ALLOWS account-Pro to unlock on THIS device.
     ///
     /// FAIL-SAFE: this returns `false` ONLY when we have a definitive "over the limit and this
-    /// device is not one of the 5" signal (`atLimit && !registered`) — from this session's reply or,
+    /// device is not one of the 3" signal (`atLimit && !registered`) — from this session's reply or,
     /// when the Worker can't be reached, from the last reply persisted for this account. In every
     /// other state — registered, under the cap, or UNKNOWN because the Worker has never answered for
     /// this account here — it returns `true`, so a paying user is never locked out by a network

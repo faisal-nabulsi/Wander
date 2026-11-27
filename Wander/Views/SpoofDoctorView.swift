@@ -54,10 +54,10 @@ struct SpoofDoctorView: View {
 
     private var intro: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Spoof Doctor", systemImage: "stethoscope")
+            Label("Location Doctor", systemImage: "stethoscope")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Wander.brand)
-            Text("Two quick checks: first that your proxy is intercepting at all, then that the location is actually spoofed. You'll get the exact thing to fix.")
+            Text("Two quick checks: first that your proxy is intercepting at all, then that the location is actually simulated. You'll get the exact thing to fix.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -114,7 +114,7 @@ struct SpoofDoctorView: View {
                 tint: .green,
                 icon: "checkmark.seal.fill",
                 title: "Everything's working",
-                message: "Your proxy is intercepting and iOS is reporting your spoofed spot (within \(meters(d))). Pokémon GO reads the same fix.",
+                message: "Your proxy is intercepting and iOS is reporting your simulated spot (within \(meters(d))). The game reads the same fix.",
                 actions: []
             )
 
@@ -125,7 +125,7 @@ struct SpoofDoctorView: View {
                 causeCard(
                     tint: .orange,
                     icon: "lock.trianglebadge.exclamationmark",
-                    title: "Spoof isn't landing yet",
+                    title: "Location isn't landing yet",
                     message: "Your proxy is intercepting, but iOS still reports a spot \(meters(d)) from your target. Two things cause this — check both:",
                     actions: []
                 )

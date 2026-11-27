@@ -47,23 +47,23 @@ struct LocationErrorHelpView: View {
             ErrorCase(
                 icon: "wifi.slash",
                 title: L("error12.taxonomy.err11.title",
-                         fallback: "\"Failed to detect location (11)\" — no location at all"),
+                         fallback: "No location at all"),
                 detail: L("error12.taxonomy.err11.detail",
-                          fallback: "Error 11 means the game is getting NO location stream — the tunnel/connection dropped, so nothing is reaching Pokémon GO. Fix: make sure Wander is open with the tunnel connected, reconnect it, then reopen Pokémon GO.")
+                          fallback: "The game is getting no location stream, usually because the tunnel or connection dropped. Make sure Wander is open with the tunnel connected, reconnect it, then reopen the game.")
             ),
             ErrorCase(
                 icon: "waveform.path.ecg",
                 title: L("error12.taxonomy.err12.title",
-                         fallback: "\"Failed to detect location (12)\" — a bad or jumpy stream"),
+                         fallback: "A bad or jumpy location"),
                 detail: L("error12.taxonomy.err12.detail",
-                          fallback: "Error 12 means the location IS arriving but looks inconsistent to the game. Wander already smooths this on its side (a single writer for your movement). Remaining user-side fixes: set Pokémon GO's Location to Always + Precise; try the airplane-mode trick (Airplane Mode ON, connect the tunnel, then Wi-Fi back on) for a clean fix right after a teleport. If the location keeps snapping back, turn Location Services off for a full ~10 seconds — not a quick flick — and wait until Maps shows a location again after you turn it back on. Only if that still snaps back is it worth rebooting.")
+                          fallback: "The location is arriving but looks inconsistent to the game. Set the game's Location to Always + Precise; try the airplane-mode method (Airplane Mode ON, connect the tunnel, then Wi-Fi back on) for a clean fix right after a location change. If the location keeps snapping back, turn Location Services off for a full ~10 seconds, not a quick flick, and wait until Maps shows a location again after you turn it back on. Only if that still snaps back is it worth rebooting.")
             ),
             ErrorCase(
                 icon: "person.badge.key",
                 title: L("error12.taxonomy.auth.title",
                          fallback: "\"Unable to authenticate\" — a login problem, not a GPS one"),
                 detail: L("error12.taxonomy.auth.detail",
-                          fallback: "This one isn't about location. Log into Pokémon GO BEFORE connecting the tunnel: sign in while you're still on your real GPS, then connect the tunnel and teleport.")
+                          fallback: "This one isn't about location. Log into the game BEFORE connecting the tunnel: sign in while you're still on your real GPS, then connect the tunnel and teleport.")
             ),
         ]
     }
@@ -73,23 +73,23 @@ struct LocationErrorHelpView: View {
             BanRung(
                 icon: "hourglass",
                 title: L("error12.ban.softban.title",
-                         fallback: "Soft ban / cooldown"),
+                         fallback: "Suggested wait"),
                 detail: L("error12.ban.softban.detail",
-                          fallback: "Pokémon flee, PokéStops give you nothing, for anywhere from a few minutes to about an hour. This is not a real ban — just wait it out. Respect the cooldown after teleporting (see the cooldown table above).")
+                          fallback: "A game may temporarily limit some in-game actions. Waiting is usually all you can do, and a suggested wait can't prevent it.")
             ),
             BanRung(
                 icon: "1.circle",
                 title: L("error12.ban.strike1.title",
-                         fallback: "Strike 1 — shadowban / \"research quest\" warning"),
+                         fallback: "Warnings"),
                 detail: L("error12.ban.strike1.detail",
-                          fallback: "About 7–14 days of degraded catches — no rares show up for you. Play legit and lightly for the duration; it lifts on its own.")
+                          fallback: "A game may show a warning or reduce rewards for a while. Play normally until it passes.")
             ),
             BanRung(
                 icon: "exclamationmark.2",
                 title: L("error12.ban.strike23.title",
-                         fallback: "Strikes 2 & 3 — suspension, then permanent ban"),
+                         fallback: "Suspensions and permanent bans"),
                 detail: L("error12.ban.strike23.detail",
-                          fallback: "Further strikes escalate to temporary suspensions and finally a permanent ban. Slow down: real cooldowns, no rapid long-distance hops.")
+                          fallback: "Repeated problems can lead to temporary suspensions or a permanent ban. Wander can't prevent or reverse these.")
             ),
         ]
     }
@@ -102,7 +102,7 @@ struct LocationErrorHelpView: View {
                 title: L("error12.step.location_on.title",
                          fallback: "Turn Location Services ON"),
                 detail: L("error12.step.location_on.detail",
-                          fallback: "iPhone Settings → Privacy & Security → Location Services → ON, and set Pokémon GO → While Using the App. Location Services must be on for the injected location to reach the game.")
+                          fallback: "iPhone Settings → Privacy & Security → Location Services → ON, and set the game → While Using the App. Location Services must be on for the injected location to reach the game.")
             ),
             Step(
                 number: 2,
@@ -116,9 +116,9 @@ struct LocationErrorHelpView: View {
                 number: 3,
                 icon: "hourglass",
                 title: L("error12.step.cooldown.title",
-                         fallback: "Respect the cooldown after INTERACTING"),
+                         fallback: "Wait before interacting again"),
                 detail: L("error12.step.cooldown.detail",
-                          fallback: "The cooldown timer is started by actions — catching a Pokémon, spinning a stop, feeding a berry, battling, dropping in a gym — not by teleporting itself. So you can teleport freely, but wait out the cooldown before your next interaction.")
+                          fallback: "A suggested wait helps space out in-game actions after a location change. It is only a suggestion and can't prevent warnings or bans.")
             ),
             Step(
                 number: 4,
@@ -126,7 +126,7 @@ struct LocationErrorHelpView: View {
                 title: L("error12.step.smooth.title",
                          fallback: "Move smoothly; don't rapid-teleport"),
                 detail: L("error12.step.smooth.detail",
-                          fallback: "If Error 12 pops while moving, stop, wait a few seconds for the fix to settle, then continue. Avoid a flurry of tiny teleports.")
+                          fallback: "If a location error appears while moving, stop, wait a few seconds for the fix to settle, then continue. Avoid a flurry of tiny location changes.")
             ),
             Step(
                 number: 5,
@@ -187,7 +187,7 @@ struct LocationErrorHelpView: View {
                 }
                 .padding()
             }
-            .navigationTitle(L("error12.title", fallback: "Location not detected? (Error 12)"))
+            .navigationTitle(L("error12.title", fallback: "Location not detected?"))
             .navigationBarTitleDisplayMode(.inline)
             .scrollContentBackground(.hidden)
             .background(Color.blue.opacity(0.07).ignoresSafeArea())
@@ -210,7 +210,7 @@ struct LocationErrorHelpView: View {
                 .font(.largeTitle)
                 .foregroundStyle(Wander.brand)
             Text(L("error12.intro",
-                   fallback: "Pokémon GO's 'Failed to detect location (12)' means the game didn't get a clean GPS fix. Wander already smooths your movement so it won't fight the game — these steps fix the rest."))
+                   fallback: "If a game says it can't detect your location, these steps fix the most common causes: a dropped connection, a coarse real location, or Location Services being off."))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -250,7 +250,7 @@ struct LocationErrorHelpView: View {
 
     private var cooldownCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(L("error12.cooldown.header", fallback: "Interaction cooldown by distance"),
+            Label(L("error12.cooldown.header", fallback: "Suggested wait by distance"),
                   systemImage: "clock.arrow.circlepath")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
@@ -274,7 +274,7 @@ struct LocationErrorHelpView: View {
             }
 
             Text(L("error12.cooldown.disclaimer",
-                   fallback: "Community estimates, not official Niantic values."))
+                   fallback: "Community estimates, not official values. They can't prevent warnings or bans."))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -310,13 +310,13 @@ struct LocationErrorHelpView: View {
 
     private var banLadderCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(L("error12.ban.header", fallback: "The ban ladder, in plain language"),
+            Label(L("error12.ban.header", fallback: "About warnings and bans"),
                   systemImage: "stairs")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
 
             Text(L("error12.ban.intro",
-                   fallback: "If you rush, Niantic responds in steps. Knowing the ladder keeps you calm — most of what people call a \"ban\" is just a cooldown."))
+                   fallback: "Games set their own rules and can warn, limit or suspend accounts. Wander can't see inside a game and can't prevent any of this."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -331,7 +331,7 @@ struct LocationErrorHelpView: View {
             }
 
             Text(L("error12.ban.caveat",
-                   fallback: "A sudden wave of fleeing Pokémon can be a Niantic-side bug, not necessarily a ban on you."))
+                   fallback: "Odd in-game behavior is not always caused by your account. Games have bugs too."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

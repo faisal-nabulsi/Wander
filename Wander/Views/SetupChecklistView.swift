@@ -222,7 +222,7 @@ struct SetupChecklistView: View {
                     }
 
                     if checker.allReady {
-                        Label("You're all set — go spoof your location.", systemImage: "checkmark.seal.fill")
+                        Label("You're all set — go set your location.", systemImage: "checkmark.seal.fill")
                             .font(.subheadline).foregroundStyle(.green)
                     }
 
@@ -309,7 +309,7 @@ struct SetupChecklistView: View {
             Image(systemName: "checklist")
                 .font(.largeTitle)
                 .foregroundStyle(Wander.brand)
-            Text("Before you spoof")
+            Text("Before you start")
                 .font(.title2.weight(.semibold))
             Text("Wander needs these in place for location simulation to work.")
                 .font(.footnote).foregroundStyle(.secondary)
@@ -414,12 +414,12 @@ struct SetupChecklistView: View {
     /// LocalDevVPN, DDI, Developer Mode) don't apply, since gs-loc spoofs through Shadowrocket.
     private var gslocNotice: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(L("setup.gsloc.title", fallback: "PoGo (gs-loc) mode is on"),
+            Label(L("setup.gsloc.title", fallback: "Games mode (Wi-Fi positioning) is on"),
                   systemImage: "antenna.radiowaves.left.and.right")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Wander.brand)
             Text(L("setup.gsloc.body",
-                   fallback: "This checklist is for the LocalDevVPN dev tunnel, which gs-loc mode doesn't use — it spoofs through Shadowrocket instead. You don't need the pairing file, tunnel, or Developer Mode here. Set it up in Settings → Experimental → “Set up gs-loc mode,” or turn PoGo mode off there to go back to normal spoofing."))
+                   fallback: "This checklist is for the LocalDevVPN dev tunnel, which gs-loc mode doesn't use — it works through Shadowrocket instead. You don't need the pairing file, tunnel, or Developer Mode here. Set it up in Settings → Experimental → “Set up gs-loc mode,” or turn Games mode off there to go back to normal simulating."))
                 .font(.footnote).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

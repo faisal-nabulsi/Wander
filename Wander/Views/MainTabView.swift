@@ -607,7 +607,7 @@ struct MainTabView: View {
             // app session (see SimulationSession.didShowCellularTip); reappears next launch.
             return Alert(
                 title: Text(L("tip.cellular.title", fallback: "Heads up: you're on cellular")),
-                message: Text(L("tip.cellular.body", fallback: "On cellular your real area can still leak — even with a VPN. For the most believable spoof, connect to Wi-Fi or turn on Airplane Mode.")),
+                message: Text(L("tip.cellular.body", fallback: "On cellular your real area can still leak — even with a VPN. To avoid this, connect to Wi-Fi or turn on Airplane Mode.")),
                 dismissButton: .cancel(Text(L("action.ok", fallback: "Got it"))) {
                     session.showCellularTip = false
                     syncActiveAlert()
@@ -620,11 +620,11 @@ struct MainTabView: View {
             let coord = pendingResume?.coordinate
             let body = coord.map {
                 String(format: L("resume.body",
-                                 fallback: "Wander stopped without a clean Stop last time — a reboot or the app closing clears the spoof. Resume at %.4f, %.4f?"),
+                                 fallback: "Wander stopped without a clean Stop last time — a reboot or the app closing clears the simulated location. Resume at %.4f, %.4f?"),
                         $0.latitude, $0.longitude)
             } ?? ""
             return Alert(
-                title: Text(L("resume.title", fallback: "Resume your spoof?")),
+                title: Text(L("resume.title", fallback: "Resume your simulated location?")),
                 message: Text(body),
                 primaryButton: .default(Text(L("resume.action", fallback: "Resume"))) {
                     if let coord { session.resume(to: coord) }
@@ -749,7 +749,7 @@ struct MainTabView: View {
                 .overlay(Circle().strokeBorder(.white.opacity(0.85), lineWidth: 2))
                 .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
         }
-        .accessibilityLabel(L("panic.accessibility", fallback: "Panic — stop all spoofing"))
+        .accessibilityLabel(L("panic.accessibility", fallback: "Panic — stop all simulating"))
         .padding(.trailing, 18)
         .padding(.bottom, panicBottomInset)
     }
@@ -833,7 +833,7 @@ struct MainTabView: View {
             HStack(spacing: 8) {
                 Image(systemName: "location.fill")
                     .font(.caption)
-                Text(localized: "banner.spoofing_active", fallback: "Spoofing active — keep Wander open")
+                Text(localized: "banner.spoofing_active", fallback: "Location change active — keep Wander open")
                     .font(.caption.weight(.medium))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -2259,7 +2259,7 @@ enum WanderQuickActions {
         // only ever moves you back to your real GPS.
         items.append(UIApplicationShortcutItem(
             type: staticStopItemType,
-            localizedTitle: L("quickaction.stop", fallback: "Stop spoofing (real GPS)"),
+            localizedTitle: L("quickaction.stop", fallback: "Stop simulating (real GPS)"),
             localizedSubtitle: nil,
             icon: UIApplicationShortcutIcon(systemImageName: "stop.fill"),
             userInfo: [userInfoURLKey: "wander://panic" as NSString]

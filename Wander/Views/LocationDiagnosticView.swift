@@ -148,7 +148,7 @@ struct LocationDiagnosticView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("Start a spoof FIRST (teleport, then also try joystick), then read these. This is the exact location iOS hands every app — including Pokémon GO. Read-only; it changes nothing.")
+                    Text("Start a simulated location FIRST (teleport, then also try joystick), then read these. This is the exact location iOS hands every app — including the game. Read-only; it changes nothing.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
 
@@ -203,7 +203,7 @@ struct LocationDiagnosticView: View {
                         }
                     }
 
-                    Section("What Pokémon GO receives") {
+                    Section("What the game receives") {
                         row("Latitude", String(format: "%.6f", r.lat))
                         row("Longitude", String(format: "%.6f", r.lng))
                         row("Altitude", String(format: "%.2f m", r.altitude), flagged: r.altitude == 0)
@@ -233,11 +233,11 @@ struct LocationDiagnosticView: View {
                             Label(copied ? "Copied — paste it to Faisal" : "Copy all fields", systemImage: copied ? "checkmark.circle.fill" : "doc.on.doc")
                         }
                     } footer: {
-                        Text("Updates: \(diag.updates) · Auth: \(authString) · Accuracy: \(accuracyString)\nA ⚠️ marks a sentinel/degenerate value — a candidate spoof-detection tell. \"Private type\" flags if it isn't 1 (real-GPS value); \"Cached .location sim\" flags if the cached property disagrees with the live feed. Read once on a static teleport, once while moving, and once under any gs-loc/Wi-Fi test — copy each.")
+                        Text("Updates: \(diag.updates) · Auth: \(authString) · Accuracy: \(accuracyString)\nA ⚠️ marks a sentinel or unusual value. \"Private type\" flags if it isn't 1 (real-GPS value); \"Cached .location sim\" flags if the cached property disagrees with the live feed. Read once on a static teleport, once while moving, and once under any gs-loc/Wi-Fi test — copy each.")
                     }
                 } else {
                     Section {
-                        Label("Waiting for a fix… make sure a spoof is active and Location Services is ON for Wander.", systemImage: "location.magnifyingglass")
+                        Label("Waiting for a fix… make sure a simulation is active and Location Services is ON for Wander.", systemImage: "location.magnifyingglass")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }

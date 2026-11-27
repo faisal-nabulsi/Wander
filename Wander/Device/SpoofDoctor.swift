@@ -2,7 +2,7 @@
 //  SpoofDoctor.swift
 //  Wander
 //
-//  "Spoof Doctor" — automates the manual triage of a failing gs-loc setup into a two-rung ladder that
+//  "Location Doctor" — automates the manual triage of a failing gs-loc setup into a two-rung ladder that
 //  reports the EXACT fix instead of a generic "it's not working". The two rungs isolate the two independent
 //  failure planes:
 //

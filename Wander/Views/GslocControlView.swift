@@ -30,8 +30,8 @@ struct GslocQuickControlsCard: View {
             // manual step; everything else here is a real one-tap in-app action.
             controlRow(icon: "bolt.fill",
                        tint: .green,
-                       title: "Connect Shadowrocket (PoGo / games)",
-                       subtitle: "The proxy for Pokémon GO + other anti-cheat games (Monster Hunter Now, etc.) — nothing else. Runs a shortcut, connects, and bounces back here to check your spoof.") {
+                       title: "Connect Shadowrocket (games)",
+                       subtitle: "The proxy for the game + other games (Monster Hunter Now, etc.) — nothing else. Runs a shortcut, connects, and bounces back here to check your location.") {
                 autoVerifyArmed = true
                 ShortcutRunner.run(name: ShortcutRunner.shadowrocketConnectName, successHost: "vpnconnected")
             }
@@ -70,8 +70,8 @@ struct GslocQuickControlsCard: View {
             // this lands on the game's location screen instead of the system-wide list.
             controlRow(icon: "gamecontroller.fill",
                        tint: Wander.brand,
-                       title: "Pokémon GO location — Always + Precise",
-                       subtitle: "Opens the game's own location screen. Set Always and turn Precise Location ON — a coarse fix fights the spoofed one and is a common Error 12 cause.") {
+                       title: "The game's location — Always + Precise",
+                       subtitle: "Opens the game's own location screen. Set Always and turn Precise Location ON — a coarse fix fights the simulated one and is a common cause of location problems in games.") {
                 AppLocationSettings.openLocationScreen(forBundleID: AppLocationSettings.BundleID.pokemonGo)
             }
             controlRow(icon: "arrow.triangle.2.circlepath",
@@ -83,13 +83,13 @@ struct GslocQuickControlsCard: View {
             controlRow(icon: "arrow.left.arrow.right",
                        tint: Wander.brand,
                        title: "Connect LocalDevVPN (default tunnel)",
-                       subtitle: "Your everyday tunnel — for Find My, other location-sharing apps, and everything else that ISN'T a game (and to install app updates). Runs a shortcut, connects, returns here. Set both shortcuts up once in Shortcuts & automations.") {
+                       subtitle: "Your everyday tunnel — for Find My and everything that ISN'T a game (and to install app updates). Runs a shortcut, connects, returns here. Set both shortcuts up once in Shortcuts & automations.") {
                 ShortcutRunner.run(name: ShortcutRunner.vpnConnectName, successHost: "vpnconnected")
             }
             controlRow(icon: "arrow.uturn.backward",
                        tint: .secondary,
                        title: "Reset to real location",
-                       subtitle: "Stop spoofing — pass your real location through.") {
+                       subtitle: "Stop simulating — pass your real location through.") {
                 GslocMode.reset()
             }
             Button { showAutomations = true } label: {
@@ -134,7 +134,7 @@ struct AutomationsView: View {
     private let shortcuts: [Shortcut] = [
         .init(name: "Teleport", file: "wander-reteleport.shortcut", blurb: "Type a lat/lng, teleport there."),
         .init(name: "Teleport to preset", file: "wander-teleport-presets.shortcut", blurb: "Pick a saved spot from a menu."),
-        .init(name: "Reset to real", file: "wander-reset.shortcut", blurb: "Stop spoofing."),
+        .init(name: "Reset to real", file: "wander-reset.shortcut", blurb: "Stop simulating."),
         .init(name: "Open Location Services", file: "wander-open-location-services.shortcut", blurb: "Jump to the LS toggle pane."),
         .init(name: "Connect proxy", file: "wander-connect.shortcut", blurb: "Connect Shadowrocket + routing."),
     ]
@@ -164,7 +164,7 @@ struct AutomationsView: View {
                     }
                 }
                 Section("Switch VPN (build these two once)") {
-                    recipe(title: "⭐ “Wander Connect Shadowrocket” (PoGo / games only)",
+                    recipe(title: "⭐ “Wander Connect Shadowrocket” (games only)",
                            steps: ["New shortcut, name it EXACTLY: Wander Connect Shadowrocket",
                                    "Set VPN → On → pick Shadowrocket",
                                    "Open App → Wander"])
@@ -172,7 +172,7 @@ struct AutomationsView: View {
                            steps: ["New shortcut, name it EXACTLY: Wander Connect VPN",
                                    "Set VPN → On → pick LocalDevVPN",
                                    "Open App → Wander"])
-                    Text("The two “Connect …” buttons in Quick Controls invoke these BY NAME, so the names must match exactly. Shadowrocket is ONLY for Pokémon GO + other anti-cheat games (Monster Hunter Now) — nothing else; LocalDevVPN is your default tunnel for Find My, other location-sharing apps, everything else, and app updates. iOS runs one VPN at a time, so turning one on drops the other.")
+                    Text("The two “Connect …” buttons in Quick Controls invoke these BY NAME, so the names must match exactly. Shadowrocket is ONLY for the game + other games (Monster Hunter Now) — nothing else; LocalDevVPN is your default tunnel for Find My, everything else, and app updates. iOS runs one VPN at a time, so turning one on drops the other.")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Section {
@@ -203,8 +203,8 @@ struct AutomationsView: View {
                 Section("Other automations") {
                     recipe(title: "Back Tap → Teleport",
                            steps: ["Settings › Accessibility › Touch › Back Tap", "Double Tap → run Wander: Teleport to preset"])
-                    recipe(title: "When Pokémon GO opens → Connect proxy",
-                           steps: ["New Automation → App → Pokémon GO → Is Opened", "Run: Wander: Connect proxy", "Run Immediately, uncheck Notify When Run"])
+                    recipe(title: "When the game opens → Connect proxy",
+                           steps: ["New Automation → App → the game → Is Opened", "Run: Wander: Connect proxy", "Run Immediately, uncheck Notify When Run"])
                     recipe(title: "NFC tag → Connect proxy",
                            steps: ["New Automation → NFC → scan a tag", "Run: Wander: Connect proxy"])
                 }

@@ -62,10 +62,10 @@ struct LocationWarning: Identifiable, Equatable {
         switch kind {
         case .locationAuthorization:
             return L("preflight.auth.body",
-                     fallback: "iOS needs a real fix to seed from — with location off, a teleport can read as an impossible jump and trigger Error 12. Turn Location Services on for Wander.")
+                     fallback: "iOS needs a real fix to seed from — with location off, a location change can read as an impossible jump and cause location problems in games. Turn Location Services on for Wander.")
         case .reducedAccuracy:
             return L("preflight.precise.body",
-                     fallback: "A coarse real fix fights the injected precise fix and can trip Error 12. Turn Precise Location on for Wander.")
+                     fallback: "A coarse real fix fights the injected precise fix and can cause location problems in games. Turn Precise Location on for Wander.")
         case .ipGpsMismatch(let realCity, let spoofedCity):
             let template = L("preflight.ipgps.body",
                              fallback: "Your network still looks like %@ while GPS says %@. Consider a VPN in that region so the two agree.")

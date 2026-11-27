@@ -287,7 +287,7 @@ enum GslocMode {
     private static let channelLock = NSLock()
     /// The channel that last answered, or nil if we haven't learned it yet this run. Guarded by
     /// `channelLock` because it's touched from URLSession completion handlers (arbitrary threads), the push
-    /// queue, and the Spoof Doctor on the main actor.
+    /// queue, and the Location Doctor on the main actor.
     ///
     /// IN-MEMORY ON PURPOSE — never persisted. A user who re-imports a newer proxy config must not stay
     /// pinned to the legacy channel forever, so the memory dies with the process, and `enabled`/`reset()`
@@ -301,7 +301,7 @@ enum GslocMode {
     }
 
     /// Record a channel that just answered, so the next push doesn't pay for a doomed first attempt. The
-    /// Spoof Doctor writes here too — one "Check my setup" run teaches the teleport path which one to use.
+    /// Location Doctor writes here too — one "Check my setup" run teaches the teleport path which one to use.
     static func rememberChannel(_ channel: GslocChannel) {
         channelLock.lock(); defer { channelLock.unlock() }
         learnedChannel = channel
@@ -623,7 +623,7 @@ enum GslocMode {
     /// Fire-and-forget from the caller's side — nothing here blocks the teleport, the fallback just lands a
     /// couple of seconds later. `completion` always runs on `q`, exactly once.
     ///
-    /// SUCCESS is now HTTP 200 **with a JSON body carrying `"ok": true`** — the same test the Spoof Doctor
+    /// SUCCESS is now HTTP 200 **with a JSON body carrying `"ok": true`** — the same test the Location Doctor
     /// applies (`SpoofDoctor.interpretProbe`), shared rather than re-implemented so the teleport path and
     /// the diagnostic can never disagree about what "answered" means. A bare 2xx was too weak.
     ///

@@ -6,7 +6,7 @@
 //  tunnel is Apple's on-device developer tunnel — NOT an IP-VPN — and it's what carries the injected
 //  location to the device. If it won't come up or keeps dropping, the game stops getting a fix. This
 //  screen walks the user through the common connection fixes: keep Wander foregrounded, connect on
-//  Wi-Fi (or the airplane-mode-first trick without Wi-Fi), free up memory, and a clean reconnect.
+//  Wi-Fi (or the airplane-mode-first method without Wi-Fi), free up memory, and a clean reconnect.
 //  Reachable from Settings → Help. Uses the shared material-card look and Wander.brand accent.
 //
 
@@ -47,7 +47,7 @@ struct TunnelConnectionHelpView: View {
                 number: 3,
                 icon: "airplane",
                 title: L("tunnel.step.airplane.title",
-                         fallback: "No Wi-Fi? Use the airplane-mode-first trick"),
+                         fallback: "No Wi-Fi? Use the airplane-mode-first method"),
                 detail: L("tunnel.step.airplane.detail",
                           fallback: "Turn Airplane Mode ON, then open LocalDevVPN and connect the tunnel, then turn Wi-Fi back on. This brings the tunnel up cleanly without a Wi-Fi network to start.")
             ),
@@ -57,7 +57,7 @@ struct TunnelConnectionHelpView: View {
                 title: L("tunnel.step.memory.title",
                          fallback: "Free up memory if it keeps dropping"),
                 detail: L("tunnel.step.memory.detail",
-                          fallback: "Low memory or too many apps in the background can make iOS drop the tunnel. Close some background apps (and Pokémon GO if it's a heavy session), then reconnect.")
+                          fallback: "Low memory or too many apps in the background can make iOS drop the tunnel. Close some background apps (and the game if it's a heavy session), then reconnect.")
             ),
             Step(
                 number: 5,

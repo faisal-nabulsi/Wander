@@ -191,7 +191,7 @@ struct SpoofTimelineView: View {
                 icon: "clock.arrow.circlepath",
                 message: timeline.isRecordingEnabled
                     ? L("timeline.empty.message",
-                        fallback: "Once you spoof a location, Wander keeps a private record of it here — where you appeared to be, how long you stayed, and how you got between places. Nothing leaves this device.")
+                        fallback: "Once you set a location, Wander keeps a private record of it here — where you appeared to be, how long you stayed, and how you got between places. Nothing leaves this device.")
                     : L("timeline.empty.off",
                         fallback: "Keeping a timeline is switched off, so nothing is being recorded. Turn it back on from the menu above.")
             )
@@ -300,7 +300,7 @@ struct SpoofTimelineView: View {
             .frame(height: 260)
             .listRowInsets(EdgeInsets())
             .accessibilityLabel(Text(localized: "timeline.map.a11y",
-                                     fallback: "Map of this day's spoofed path"))
+                                     fallback: "Map of this day's simulated path"))
         }
     }
 

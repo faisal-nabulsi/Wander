@@ -41,7 +41,7 @@ struct PreFlightCard: View {
                     Text(L("preflight.header", fallback: "Pre-flight checks"))
                 } footer: {
                     Text(L("preflight.footer",
-                           fallback: "Advisory only — these never block a teleport. They flag the most common causes of Error 12 (and the related transient Error 11, which flashes up then reverts on the same cross-check) and one detection vector."))
+                           fallback: "Advisory only — these never block a location change. They point out common causes of location problems in games."))
                 }
             }
         }
@@ -114,7 +114,7 @@ struct PreFlightCard: View {
             return String(format: template, city)
         }
         return L("preflight.ipgps.vpn_guidance_generic",
-                 fallback: "Open NordVPN and connect to a server in the spoofed city so your network location matches.")
+                 fallback: "Open NordVPN and connect to a server in the simulated city so your network location matches.")
     }
 
     private func openAppSettings() {

@@ -133,8 +133,8 @@ enum SpoofFixSource: String, Codable, CaseIterable, Hashable {
         case .schedule:  return L("timeline.src.schedule", fallback: "Schedule")
         case .shortcut:  return L("timeline.src.shortcut", fallback: "Shortcut")
         case .priming:   return L("timeline.src.priming", fallback: "Real-GPS priming")
-        case .gsloc:     return L("timeline.src.gsloc", fallback: "PoGo mode")
-        case .other:     return L("timeline.src.other", fallback: "Spoof")
+        case .gsloc:     return L("timeline.src.gsloc", fallback: "Games mode")
+        case .other:     return L("timeline.src.other", fallback: "Simulated")
         }
     }
 

@@ -121,7 +121,7 @@ final class WanderUpdater: ObservableObject {
         // the single iOS VPN slot, so LocalDevVPN can't be up for the install. Refuse early with clear
         // guidance instead of failing cryptically mid-update.
         if GslocMode.enabled || Self.proxyVPNActive() {
-            throw UpdateError.step("Turn off Shadowrocket / PoGo (gs-loc) mode before updating. Updates need a clean connection to Apple and LocalDevVPN — a proxy VPN blocks both. Disconnect Shadowrocket, turn off gs-loc mode in Settings → Experimental, turn off its certificate in Certificate Trust Settings, connect LocalDevVPN, then update.")
+            throw UpdateError.step("Turn off Shadowrocket / Games mode (Wi-Fi positioning) before updating. Updates need a clean connection to Apple and LocalDevVPN — a proxy VPN blocks both. Disconnect Shadowrocket, turn off gs-loc mode in Settings → Experimental, turn off its certificate in Certificate Trust Settings, connect LocalDevVPN, then update.")
         }
 
         // Fail fast with a SPECIFIC reason if Apple's servers are unreachable, instead of a cryptic

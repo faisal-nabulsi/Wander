@@ -102,7 +102,7 @@ struct ScheduleView: View {
             VStack(alignment: .leading, spacing: 4) {
                 if !hasPairing {
                     Text(localized: "schedule.needs_pairing",
-                         fallback: "Import a pairing file in Settings so schedules can auto-start spoofing.")
+                         fallback: "Import a pairing file in Settings so schedules can auto-start simulating.")
                         .foregroundStyle(.orange)
                 }
                 if !license.isLicensed {

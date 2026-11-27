@@ -311,11 +311,11 @@ struct SettingsView: View {
                             if !isOn { WanderTunnel.shared.cancelAutoDisconnect() }
                         }
                         toggleFootnote(L("settings.tunnel.auto_connect.footer",
-                                         fallback: "Wander brings its own tunnel up when you start spoofing, so connecting first stops being a manual step. It won't do this while gs-loc mode is on, or while another VPN is already carrying the loopback — iOS runs one VPN at a time, and Wander never takes the slot from Shadowrocket, LocalDevVPN or a real VPN."))
+                                         fallback: "Wander brings its own tunnel up when you start simulating, so connecting first stops being a manual step. It won't do this while gs-loc mode is on, or while another VPN is already carrying the loopback — iOS runs one VPN at a time, and Wander never takes the slot from Shadowrocket, LocalDevVPN or a real VPN."))
 
                         if useOwnTunnel {
                             Toggle(isOn: $autoDisconnectTunnel) {
-                                Label(L("settings.tunnel.auto_disconnect", fallback: "Disconnect when not spoofing"),
+                                Label(L("settings.tunnel.auto_disconnect", fallback: "Disconnect when not simulating"),
                                       systemImage: Wander.Icon.tunnelAutoDisconnect)
                                     .font(.wanderLabel)
                                     .wanderSymbolAccent(on: autoDisconnectTunnel)
@@ -347,7 +347,7 @@ struct SettingsView: View {
                             .opacity(autoDisconnectTunnel ? 1 : 0.4)
                             if autoDisconnectTunnel {
                                 toggleFootnote(L("settings.tunnel.auto_disconnect.footer",
-                                                 fallback: "After you stop simulating, Wander waits this long and then drops its tunnel, handing the VPN slot back. Starting a new spoof — or connecting the tunnel yourself — cancels the wait, so clearing a pin to pick another spot never costs you a reconnect."))
+                                                 fallback: "After you stop simulating, Wander waits this long and then drops its tunnel, handing the VPN slot back. Starting a new simulation — or connecting the tunnel yourself — cancels the wait, so clearing a pin to pick another spot never costs you a reconnect."))
                             }
                         }
                     } else {
@@ -403,7 +403,7 @@ struct SettingsView: View {
                             Image(systemName: Wander.Icon.heartbeat)
                                 .foregroundStyle(Wander.inactive)
                             Text(localized: "tunnel.stability.idle",
-                                 fallback: "Not spoofing — the heartbeat shows while a simulation is running.")
+                                 fallback: "Not simulating — the heartbeat shows while a simulation is running.")
                                 .wanderDetail()
                         }
                     }
@@ -468,9 +468,9 @@ struct SettingsView: View {
                     .wanderFeedback(.selection, on: realisticMotion)
                     toggleFootnote(realisticMotion
                         ? L("settings.motion.realistic.on.footer",
-                            fallback: "While you're moving (joystick or a route), your pace varies and your path curves slightly instead of a dead-straight line at a constant speed — the tell-tale sign of a spoofed track. Best-in-class anti-detection, no root needed.")
+                            fallback: "While you're moving (joystick or a route), your pace varies and your path curves slightly instead of a dead-straight line at a constant speed.")
                         : L("settings.motion.realistic.off.footer",
-                            fallback: "Off — movement is perfectly straight and constant-speed. Faster to aim, but easier for apps to flag as simulated."))
+                            fallback: "Off — movement is perfectly straight and constant-speed. Faster to aim."))
 
                     Toggle(isOn: $jitterEnabled) {
                         Label(L("settings.location.jitter", fallback: "Natural drift"), systemImage: Wander.Icon.drift)
@@ -500,7 +500,7 @@ struct SettingsView: View {
                     .wanderFeedback(.selection, on: smoothLongJumps)
                     if smoothLongJumps {
                         toggleFootnote(L("settings.location.smooth_jumps.footer",
-                                         fallback: "A big teleport glides to the new spot over a few seconds instead of jumping instantly, so apps that flag an impossible jump (dating and location-sharing apps) see a fast but continuous move. Short jumps stay instant."))
+                                         fallback: "A big teleport glides to the new spot over a few seconds instead of jumping instantly. Short jumps stay instant."))
                     }
 
                     Toggle(isOn: $approximateLocation) {
@@ -545,16 +545,16 @@ struct SettingsView: View {
                             if on && jitterRadius < 1.5 { jitterRadius = 1.5 }
                         }
                     )) {
-                        Label(L("settings.sharing.mode", fallback: "Location-sharing mode"),
+                        Label(L("settings.sharing.mode", fallback: "Natural drift + smooth jumps"),
                               systemImage: Wander.Icon.sharing)
                             .font(.wanderLabel)
                             .wanderSymbolAccent(on: jitterEnabled && smoothLongJumps)
                     }
                 } header: {
-                    Text(localized: "settings.sharing.header", fallback: "Location-sharing apps")
+                    Text(localized: "settings.sharing.header", fallback: "Smooth movement")
                 } footer: {
                     Text(localized: "settings.sharing.footer",
-                         fallback: "Anti-detection for Find My, iMessage, and other location-sharing apps: your spot drifts naturally (never a frozen fake) and a teleport glides smoothly instead of an impossible jump, so your shared location stays believable. Turns on Natural drift + Smooth long jumps together.")
+                         fallback: "Turns on Natural drift and Smooth long jumps together: a held spot moves slightly like real GPS, and long teleports glide instead of snapping.")
                 }
 
                 Section {
@@ -634,7 +634,7 @@ struct SettingsView: View {
                     Button {
                         showLocationHelp = true
                     } label: {
-                        Label(L("settings.help.error12", fallback: "Location not detected? (Error 12)"),
+                        Label(L("settings.help.error12", fallback: "Location not detected?"),
                               systemImage: Wander.Icon.help)
                             .font(.wanderLabel)
                     }
@@ -662,7 +662,7 @@ struct SettingsView: View {
 
                     Toggle(isOn: $gslocModeEnabled) {
                         Label(L("settings.experimental.gsloc",
-                                fallback: "PoGo / anti-cheat games mode (gs-loc)"),
+                                fallback: "Wi-Fi positioning (experimental)"),
                               systemImage: Wander.Icon.gsloc)
                             .font(.wanderLabel)
                             .wanderSymbolAccent(on: gslocModeEnabled)
@@ -698,7 +698,7 @@ struct SettingsView: View {
                     // .strings value (one sentence about beta features) wins over any fallback written
                     // here and the gs-loc paragraph never renders. Its own key, so it actually shows.
                     Text(localized: "settings.experimental.gsloc.truth",
-                         fallback: "What it does: routes teleports through a Wi-Fi-location proxy instead of the dev tunnel, so Pokémon GO sees a fix iOS never marked as simulated.\n\nWhat it can't do: hold more than ONE spot at a time. Each new spot only reaches your phone after you toggle Location Services off a full ~10 seconds and back on — no app or Shortcut is allowed to flip that switch — so joystick, routes and auto-walk are disabled in this mode. It also only holds indoors or on weak GPS; a strong real GPS fix overrides it.\n\nNeeds the proxy app plus a trusted MITM certificate, and it takes iOS's single VPN slot, so LocalDevVPN goes off and Shadowrocket on. Turn this off to go back to normal spoofing, which is what everything except anti-cheat games should use.")
+                         fallback: "What it does: routes teleports through a Wi-Fi-location proxy instead of the dev tunnel, so the location is set through Wi-Fi positioning instead of the developer tunnel. A game can still reject the location or act on your account.\n\nWhat it can't do: hold more than ONE spot at a time. Each new spot only reaches your phone after you toggle Location Services off a full ~10 seconds and back on — no app or Shortcut is allowed to flip that switch — so joystick, routes and auto-walk are disabled in this mode. It also only holds indoors or on weak GPS; a strong real GPS fix overrides it.\n\nNeeds the proxy app plus a trusted MITM certificate, and it takes iOS's single VPN slot, so LocalDevVPN goes off and Shadowrocket on. Turn this off to go back to normal simulating, which is what everything else should use.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -746,7 +746,7 @@ struct SettingsView: View {
                     Text(localized: "settings.experimental.header", fallback: "Experimental")
                 } footer: {
                     Text(localized: "settings.experimental.footer",
-                         fallback: "Opt-in beta features. Off by default — nothing installs or changes until you open one and choose to turn it on.\n\nPoGo mode (gs-loc): routes teleports to a Wi-Fi-location proxy (Shadowrocket) instead of the dev tunnel, so Pokémon GO sees a non-simulated fix. It replaces LocalDevVPN — iOS allows only ONE VPN at a time, so in this mode turn LocalDevVPN OFF and Shadowrocket ON. Turn this toggle off to go back to normal spoofing over LocalDevVPN. Requires the proxy + trusted MITM certificate; only holds indoors / with weak GPS.\n\nLoopback tunnel test: an experiment to see if Wander can run the tunnel WITHOUT LocalDevVPN. To test: turn OFF LocalDevVPN, enable this, reopen Wander, and try a teleport. If it works, the tunnel came up on its own (report back!). If teleport fails with a tunnel error, turn this off and reconnect LocalDevVPN — it just means iOS needs the external loopback.\n\nTunnel IP: only needed on iOS 26.4 or later, where Apple started dropping the tunnel's default address (10.7.0.1). If your tunnel stopped connecting after updating, open this, tap Detect, and set the same two IPs here and in LocalDevVPN. Leave it alone on iOS 26.3 and earlier.")
+                         fallback: "Opt-in beta features. Off by default — nothing installs or changes until you open one and choose to turn it on.\n\nWi-Fi positioning (experimental): routes location changes through a Wi-Fi-location proxy (Shadowrocket) instead of the dev tunnel, so the location is set through Wi-Fi positioning. It replaces LocalDevVPN — iOS allows only ONE VPN at a time, so in this mode turn LocalDevVPN OFF and Shadowrocket ON. Turn this toggle off to go back to normal mode over LocalDevVPN. Requires the proxy + trusted MITM certificate; only holds indoors / with weak GPS.\n\nLoopback tunnel test: an experiment to see if Wander can run the tunnel WITHOUT LocalDevVPN. To test: turn OFF LocalDevVPN, enable this, reopen Wander, and try a teleport. If it works, the tunnel came up on its own (report back!). If teleport fails with a tunnel error, turn this off and reconnect LocalDevVPN — it just means iOS needs the external loopback.\n\nTunnel IP: only needed on iOS 26.4 or later, where Apple started dropping the tunnel's default address (10.7.0.1). If your tunnel stopped connecting after updating, open this, tap Detect, and set the same two IPs here and in LocalDevVPN. Leave it alone on iOS 26.3 and earlier.")
                 }
 
                 Section {

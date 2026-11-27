@@ -153,13 +153,13 @@ enum GamePreset: String, CaseIterable, Identifiable {
     var mechanicNote: String {
         switch self {
         case .pokemonGo:
-            return "Soft-ban cooldown applies: after a big jump, wait out the timer before catching or spinning. Keep in-app speed under ~35 km/h so distance still counts."
+            return "Suggested wait applies: after a big jump, wait out the timer before catching or spinning. Keep in-app speed under ~35 km/h so distance still counts."
         case .monsterHunterNow:
-            return "Uses the same soft-ban cooldown as Pokémon GO (shown below). Its speed lock is stricter, though — stay under ~16 km/h or monsters hide and gathering fails."
+            return "Uses the same suggested wait as the game (shown below). Its speed lock is stricter, though — stay under ~16 km/h or monsters hide and gathering fails."
         case .pikminBloom:
-            return "Step-based, not teleport-based — there's no soft-ban cooldown. Steps come from the pedometer (not GPS), so pace a realistic walk (a Route at ~8 km/h) and avoid implausible daily step counts."
+            return "Step-based, not teleport-based — there's no suggested wait. Steps come from the pedometer (not GPS), so pace a realistic walk (a Route at ~8 km/h) and avoid implausible daily step counts."
         case .ingress:
-            return "No distance cooldown — instead there's a ~60 km/h speed lock (actions fail if you move faster) and a ~5-minute per-portal hack cooldown. Keep effective speed under ~60 km/h between actions."
+            return "No distance suggested wait — instead there's a ~60 km/h speed lock (actions fail if you move faster) and a ~5-minute per-portal hack suggested wait. Keep effective speed under ~60 km/h between actions."
         }
     }
 }
@@ -242,7 +242,7 @@ struct PoGoModeView: View {
     // the Pokémon GO tab, so surface the fix checklist one tap away.
     @State private var showLocationHelp = false
 
-    // Spoof Doctor diagnostic sheet (gs-loc mode only): the two-rung "check my setup" ladder.
+    // Location Doctor diagnostic sheet (gs-loc mode only): the two-rung "check my setup" ladder.
     @State private var showSpoofDoctor = false
 
     // Long-haul advisory: after a very big jump (>1500 km) many players stay logged OUT of the game
@@ -315,7 +315,7 @@ struct PoGoModeView: View {
 
                 Section {
                     Label {
-                        Text("This tab spoofs anti-cheat games (Pokémon GO, Monster Hunter Now…) through gs-loc / Shadowrocket. For Find My, other location-sharing apps, or anything else, use the Location tab — the regular tunnel is smoother, moves in real time, and works everywhere.")
+                        Text("Games mode adds a suggested-wait timer and game presets. It uses the normal connection unless you turn on experimental Wi-Fi positioning in Settings (needs a proxy app and a trusted certificate). A game can still reject the location or act on your account.")
                             .font(.footnote).foregroundStyle(.secondary)
                     } icon: {
                         Image(systemName: "gamecontroller").foregroundStyle(Wander.brand)
@@ -345,7 +345,7 @@ struct PoGoModeView: View {
                 if GslocMode.enabled {
                     GslocVerifyCard()
 
-                    // Full two-rung diagnostic (Spoof Doctor): first proves the proxy is intercepting at
+                    // Full two-rung diagnostic (Location Doctor): first proves the proxy is intercepting at
                     // all (plain-HTTP probe, no CA needed), then that the location is actually spoofed —
                     // and reports the exact fix. Broader than the verify card above, which only does rung 2.
                     Section {
@@ -355,7 +355,7 @@ struct PoGoModeView: View {
                             Label("Check my setup", systemImage: "stethoscope")
                         }
                     } footer: {
-                        Text("Not working? This runs both checks — proxy interception and the spoof itself — and tells you exactly what to fix.")
+                        Text("Not working? This runs both checks — proxy interception and the location itself — and tells you exactly what to fix.")
                     }
 
                     GslocQuickControlsCard()
@@ -371,26 +371,26 @@ struct PoGoModeView: View {
                     Section {
                         Toggle(isOn: $blockUntilCooldownEnds) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Block until cooldown ends")
-                                Text("Prevent teleporting while a cooldown is active, instead of just warning.")
+                                Text("Block until suggested wait ends")
+                                Text("Prevent teleporting while a suggested wait is active, instead of just warning.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                         }
                         .tint(Wander.brand)
                     } header: {
-                        Text("Cooldown safety")
+                        Text("Suggested wait safety")
                     } footer: {
                         // Explains the new per-row annotation, which is otherwise easy to miss —
                         // and states plainly that it only informs, so nobody expects it to stop them.
-                        Text("Spots below show what a jump there would cost (\"≈2h cooldown\") measured from where you are now. While a cooldown runs, spots you'd be jumping too soon are dimmed. It's a heads-up only — you can still tap any of them.")
+                        Text("Spots below show what a jump there would cost (\"≈2h suggested wait\") measured from where you are now. While a suggested wait runs, spots you'd be jumping too soon are dimmed. It's a heads-up only — you can still tap any of them.")
                     }
                 }
 
                 Section {
                     Toggle(isOn: $gameSpeedWarn) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Warn if I exceed the safe speed")
+                            Text("Warn if I exceed the suggested speed")
                             Text("A nudge on the Joystick if your speed goes over \(gamePreset.shortTitle)'s ~\(gamePreset.maxSafeSpeedKmh) km/h — never forced.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -466,7 +466,7 @@ struct PoGoModeView: View {
                     }
                 }
             }
-            .navigationTitle("\(gamePreset.shortTitle) Mode")
+            .navigationTitle("Games mode")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 // Error 12 troubleshooting — the fix checklist for "Failed to detect location (12)".
@@ -478,7 +478,7 @@ struct PoGoModeView: View {
                         Image(systemName: "questionmark.circle")
                     }
                     .accessibilityLabel(L("error12.open",
-                                          fallback: "Location not detected? (Error 12) — troubleshooting"))
+                                          fallback: "Location not detected?"))
                 }
 
                 // The events hub is LeekDuck/ScrapedDuck data — Pokémon GO ONLY. Hide the calendar
@@ -491,7 +491,7 @@ struct PoGoModeView: View {
                             Image(systemName: "calendar.badge.clock")
                         }
                         .accessibilityLabel(L("pogo.hub.open",
-                                              fallback: "PoGo Hub: raids, eggs, events, research & rocket"))
+                                              fallback: "Games hub: raids, eggs, events, research & rocket"))
                     }
                 }
             }
@@ -540,7 +540,7 @@ struct PoGoModeView: View {
                         .frame(width: 28)
                     VStack(alignment: .leading, spacing: 3) {
                         if remaining > 0 {
-                            Text("Cooldown \(timeString(remaining))")
+                            Text("Suggested wait \(timeString(remaining))")
                                 .font(.headline)
                                 .monospacedDigit()
                                 .foregroundStyle(.primary)
@@ -548,10 +548,10 @@ struct PoGoModeView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
-                            Text("Cooldown cleared")
+                            Text("Suggested wait over")
                                 .font(.headline)
                                 .foregroundStyle(.primary)
-                            Text("Safe to catch and spin")
+                            Text("Suggested wait is over")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -568,8 +568,8 @@ struct PoGoModeView: View {
                 // Name the account once there's more than one, so a countdown can never be read as
                 // belonging to whichever account the user happens to be playing.
                 Text(journal.accounts.count > 1
-                     ? "\(gamePreset.shortTitle) cooldown · \(journal.active.name)"
-                     : "\(gamePreset.shortTitle) cooldown")
+                     ? "\(gamePreset.shortTitle) suggested wait · \(journal.active.name)"
+                     : "\(gamePreset.shortTitle) suggested wait")
             }
         }
     }
@@ -599,7 +599,7 @@ struct PoGoModeView: View {
                     CooldownJournalView()
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
-                        Label(L("cooldown.journal.title", fallback: "Cooldown journal"),
+                        Label(L("cooldown.journal.title", fallback: "Suggested wait journal"),
                               systemImage: "list.bullet.rectangle")
                         Text(journalSubtitle)
                             .font(.caption)
@@ -610,7 +610,7 @@ struct PoGoModeView: View {
                 NavigationLink {
                     CooldownRulebookView()
                 } label: {
-                    Label(L("cooldown.rulebook.title", fallback: "What starts the cooldown"),
+                    Label(L("cooldown.rulebook.title", fallback: "What starts the suggested wait"),
                           systemImage: "book")
                 }
 
@@ -627,7 +627,7 @@ struct PoGoModeView: View {
                     }
                 }
             } header: {
-                Text(L("cooldown.suite.header", fallback: "Cooldown tools"))
+                Text(L("cooldown.suite.header", fallback: "Suggested wait tools"))
             } footer: {
                 Text(L("cooldown.suite.footer",
                        fallback: "Teleports are logged for you. Spins, catches and raids aren't — Wander can't see inside the game — so log those yourself in the journal to keep the timer honest."))
@@ -668,7 +668,7 @@ struct PoGoModeView: View {
                             .frame(width: 28)
                         Text(String(
                             format: L("advisory.longhaul.body",
-                                      fallback: "Big jump (%@ km) — many players stay logged OUT of the game for ~8 hours after a long teleport to avoid a strike. Community guidance, not a guarantee."),
+                                      fallback: "Big jump (%@ km). Many players wait several hours before using the game again. Community guidance only; it can't prevent warnings or bans."),
                             formattedKm(session.lastJumpKm)))
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -845,8 +845,8 @@ struct PoGoModeView: View {
         // which the session (having no origin to measure from) charges nothing for.
         if blockUntilCooldownEnds, session.cooldownActive, session.cooldownRemaining > 0 {
             present(
-                title: "Cooldown Active",
-                message: "Wait \(timeString(session.cooldownRemaining)) before teleporting again. Turn off \"Block until cooldown ends\" to override."
+                title: "Suggested wait active",
+                message: "Wait \(timeString(session.cooldownRemaining)) before teleporting again. Turn off \"Block until suggested wait ends\" to override."
             )
             return
         }
@@ -888,7 +888,7 @@ struct PoGoModeView: View {
             communityLinks = decoded.communityLinks ?? [:]
             loadError = nil
         } catch {
-            loadError = "Could not load PoGo data: \(error.localizedDescription)"
+            loadError = "Could not load games data: \(error.localizedDescription)"
         }
 
         if let cached = WanderHotspots.cachedDirectory() {

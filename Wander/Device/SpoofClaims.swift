@@ -91,11 +91,11 @@ enum SpoofClaims {
 
         SpoofClaim(
             id: "real-gps-flag-false",
-            statement: "With NO spoof running, isSimulatedBySoftware reads FALSE.",
+            statement: "With no simulation running, the simulated-by-software flag reads false.",
             stakes: "The control. If this fails, the instrument itself is broken and every other reading in this log is worthless — check this first.",
             setup: [
-                "Stop any spoof. No teleport, no route, no joystick.",
-                "PoGo mode (gs-loc) OFF. LocalDevVPN may be on or off.",
+                "Stop any simulation. No teleport, no route, no joystick.",
+                "Games mode (gs-loc) OFF. LocalDevVPN may be on or off.",
                 "Go outside or near a window so a real GPS fix exists.",
             ],
             evaluate: { r in
@@ -106,10 +106,10 @@ enum SpoofClaims {
 
         SpoofClaim(
             id: "dvt-flag-true",
-            statement: "A dev-tunnel (DVT) spoof sets isSimulatedBySoftware = TRUE.",
+            statement: "A dev-tunnel (DVT) simulation sets the simulated-by-software flag to true.",
             stakes: "This is the whole reason gs-loc exists. If DVT actually reads FALSE, the two-engine split is unnecessary and PoGo could use the tunnel — with smooth movement.",
             setup: [
-                "PoGo mode (gs-loc) OFF.",
+                "Games mode (gs-loc) OFF.",
                 "LocalDevVPN ON (or Wander's own tunnel).",
                 "Teleport anywhere and let it settle.",
             ],
@@ -122,11 +122,11 @@ enum SpoofClaims {
 
         SpoofClaim(
             id: "dvt-altitude-tell",
-            statement: "A DVT spoof reports altitude 0.0 and a NEGATIVE verticalAccuracy — values a real GNSS fix never produces.",
-            stakes: "A second, independent tell beyond the flag. DtSimulateLocation carries only lat/lng, so iOS backfills these. If any app checks them, DVT is detectable even if the flag were clean.",
+            statement: "A DVT simulation reports altitude 0.0 and a negative verticalAccuracy.",
+            stakes: "Recorded for reference. DtSimulateLocation carries only lat/lng, so iOS fills in these values.",
             setup: [
                 "Same as the DVT flag claim — gs-loc OFF, tunnel ON, teleport.",
-                "Capture while the spoof is actively holding.",
+                "Capture while the simulation is actively holding.",
             ],
             evaluate: { r in
                 guard requireEngine(r, gsloc: false), dvtPlausiblyActive(r) else { return .inconclusive }
@@ -136,8 +136,8 @@ enum SpoofClaims {
 
         SpoofClaim(
             id: "gsloc-flag-false",
-            statement: "A gs-loc spoof leaves isSimulatedBySoftware = FALSE.",
-            stakes: "The product's core differentiator and the reason PoGo works at all. If this ever flips, gs-loc stops being worth its setup cost and the PoGo path is dead.",
+            statement: "A gs-loc simulation leaves the simulated-by-software flag false.",
+            stakes: "Recorded for reference. If this changes, the gs-loc setup steps may need revisiting.",
             setup: [
                 "PoGo mode (gs-loc) ON, Shadowrocket connected, certificate trusted.",
                 "Teleport, then do the refresh (Location Services off ~10s, on).",
@@ -152,7 +152,7 @@ enum SpoofClaims {
 
         SpoofClaim(
             id: "gsloc-fields-natural",
-            statement: "A gs-loc spoof reports a NON-ZERO altitude and a POSITIVE verticalAccuracy — locationd fills every field naturally.",
+            statement: "A gs-loc simulation reports a non-zero altitude and a positive verticalAccuracy.",
             stakes: "This is why gs-loc has no wire-level tell: the fix is computed by locationd's own pipeline from poisoned inputs, so it looks like any other network fix. If these come back 0/-1, gs-loc has the same fingerprint as DVT and one of its two advantages is imaginary.",
             setup: [
                 "Same as the gs-loc flag claim.",
@@ -184,13 +184,13 @@ enum SpoofClaims {
 
         SpoofClaim(
             id: "coherence-vs-flag",
-            statement: "Pokémon GO rejects a spoof because of the FLAG, not because GPS disagrees with Apple's network location.",
-            stakes: "THE open question. Every past test changed both at once. If it is coherence rather than the flag, DVT movement works whenever gs-loc holds the network location steady — joystick and routes in PoGo.",
+            statement: "Whether a game reports a location error depends on the simulated-by-software flag.",
+            stakes: "Recorded for reference. Earlier tests changed both the flag and the network location at once.",
             setup: [
-                "1. gs-loc ON + Shadowrocket: teleport, refresh, confirm Maps shows the fake spot.",
+                "1. gs-loc ON + Shadowrocket: teleport, refresh, confirm Maps shows the simulated spot.",
                 "2. Shadowrocket OFF, LocalDevVPN ON. Do NOT re-teleport — the network fix stays cached.",
-                "3. PoGo mode OFF, then teleport with the tunnel to the SAME area.",
-                "4. Capture here, then open Pokémon GO and record whether it works.",
+                "3. Games mode OFF, then teleport with the tunnel to the SAME area.",
+                "4. Capture here, then open the game and record whether it works.",
             ],
             evaluate: { r in
                 // Only the human can score this one: the capture proves the FLAG state, but whether the

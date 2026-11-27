@@ -743,7 +743,7 @@ struct LocationInfoCard: View {
                 if showIPTip {
                     Text(L(
                         "locationinfo.ip_tip.body",
-                        fallback: "For the most believable location, your IP address and time zone should match your spoofed GPS. Some apps cross-check them. A VPN set to the destination region keeps them aligned."
+                        fallback: "Apps can also estimate your location from your IP address."
                     ))
                     .font(.caption2)
                     .foregroundStyle(.secondary)

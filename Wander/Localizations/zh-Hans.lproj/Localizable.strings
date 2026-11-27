@@ -136,13 +136,13 @@
 /* Paywall */
 "paywall.title" = "Wander Pro";
 "paywall.headline_trial" = "你的免费试用已用完。解锁 Wander Pro，畅享无限瞬移、摇杆和路线。";
-"paywall.headline_locked" = "现在需要 Wander Pro 才能伪造你的位置。请在 wanderspoofer.com 获取 Pro，然后登录解锁。";
+"paywall.headline_locked" = "Wander now requires Wander Pro to change your location. Get Pro at wanderspoofer.com, then sign in to unlock.";
 "paywall.choose_plan" = "选择方案";
 "paywall.plan.lifetime" = "终身";
-"paywall.plan.lifetime_note" = "一次性付费，永不过期";
+"paywall.plan.lifetime_note" = "One payment, no renewal. Pro for the life of the product.";
 "paywall.plan.yearly" = "按年";
 "paywall.plan.monthly" = "按月";
-"paywall.buy_hint" = "在 wanderspoofer.com 购买 Wander Pro，然后在下方登录 — 你的 Pro 会在 iPhone、Android 和桌面端解锁，并在重装后依然有效。";
+"paywall.buy_hint" = "Buy Wander Pro at wanderspoofer.com, then sign in below — your Pro unlocks on iPhone, Android, and desktop, and survives reinstalls.";
 "paywall.get_pro" = "获取 Wander Pro";
 "paywall.already_bought" = "已购买？登录解锁";
 "paywall.teleports_today" = "今日瞬移";
@@ -151,8 +151,8 @@
 
 /* Toasts / banners */
 "toast.stopped_real_gps" = "已停止 — 已恢复真实 GPS";
-"banner.spoofing_active" = "正在伪造 — 请保持 Wander 打开";
-"panic.accessibility" = "紧急停止 — 停止所有伪造";
+"banner.spoofing_active" = "Location change active — keep Wander open";
+"panic.accessibility" = "Panic — stop all simulating";
 
 /* Language picker option */
 "language.system" = "系统默认";
@@ -161,7 +161,7 @@
 "locationinfo.tz_advisory" = "你设备的时区仍显示为 %@。有些应用会将它与你的 GPS 进行比对 — 建议在“设置 › 通用 › 日期与时间”中将其保持一致。";
 "locationinfo.tz_advisory.dismiss" = "关闭时区提示";
 "locationinfo.ip_tip.title" = "匹配你的 IP 与时区";
-"locationinfo.ip_tip.body" = "为了让位置最为可信，你的 IP 地址和时区应与模拟的 GPS 保持一致。有些应用会交叉核对它们。将 VPN 设置到目标地区可让两者保持一致。";
+"locationinfo.ip_tip.body" = "Apps can also estimate your location from your IP address.";
 "locationinfo.ip_tip.link" = "IP 匹配的工作原理";
 
 /* Flight Planner (free) — English fallback pending translation */
@@ -193,20 +193,20 @@
 "settings.location.coarse.footer" = "Privacy: reports a spot within about 3–5 km of your target so you share a neighborhood, not the exact place. The offset stays the same for the whole session.";
 
 /* Error 12 help + Long-distance stabilizer (added 2026-07) */
-"error12.title" = "无法检测到位置？（错误 12）";
-"error12.intro" = "Pokémon GO 的“无法检测到位置 (12)”表示游戏没有获得干净的 GPS 定位。Wander 已经让你的移动更平滑，不会与游戏冲突——以下步骤解决其余问题。";
+"error12.title" = "Location not detected?";
+"error12.intro" = "If a game says it can't detect your location, these steps fix the most common causes: a dropped connection, a coarse real location, or Location Services being off.";
 "error12.step.location_on.title" = "开启定位服务";
-"error12.step.location_on.detail" = "iPhone 设置 → 隐私与安全性 → 定位服务 → 打开，并将 Pokémon GO 设为“使用 App 期间”。只有开启定位服务，注入的位置才能传到游戏中。";
+"error12.step.location_on.detail" = "iPhone Settings → Privacy & Security → Location Services → ON, and set the game → While Using the App. Location Services must be on for the injected location to reach the game.";
 "error12.step.refresh.title" = "传送后，刷新定位";
 "error12.step.refresh.detail" = "将定位服务关闭约 3 秒，然后重新打开（设置 → 隐私与安全性 → 定位服务）。这会强制 iOS 在你的新位置重新获取定位。";
-"error12.step.cooldown.title" = "遵守“互动”后的冷却时间";
-"error12.step.cooldown.detail" = "冷却计时由操作触发——抓宝可梦、转补给站、喂树果、对战、放入道馆——而不是传送本身。所以你可以自由传送，但在下一次互动前请等待冷却结束。";
+"error12.step.cooldown.title" = "Wait before interacting again";
+"error12.step.cooldown.detail" = "A suggested wait helps space out in-game actions after a location change. It is only a suggestion and can't prevent warnings or bans.";
 "error12.step.smooth.title" = "平滑移动，不要快速连续传送";
-"error12.step.smooth.detail" = "如果移动时弹出错误 12，先停下，等几秒让定位稳定，然后再继续。避免连续的小幅传送。";
+"error12.step.smooth.detail" = "If a location error appears while moving, stop, wait a few seconds for the fix to settle, then continue. Avoid a flurry of tiny location changes.";
 "error12.step.keep_running.title" = "保持 Wander 运行";
 "error12.step.keep_running.detail" = "游戏时让 App 保持打开、隧道保持连接——一旦隧道断开，游戏会立即丢失定位。";
-"error12.cooldown.header" = "按距离的互动冷却时间";
-"error12.cooldown.disclaimer" = "社区估算值，非 Niantic 官方数据。";
+"error12.cooldown.header" = "Suggested wait by distance";
+"error12.cooldown.disclaimer" = "Community estimates, not official values. They can't prevent warnings or bans.";
 "error12.footer.discord" = "还是卡住了？请在 Discord 的 #bug-reports 频道告诉我们。";
 "stabilizer.title" = "远距离稳定器（Beta）";
 "stabilizer.intro" = "实验性功能。帮助远距离传送保持稳定，而不是漂移回原处。";
@@ -216,7 +216,7 @@
 "stabilizer.warning.beta" = "Beta 且为实验性功能——不一定在所有设备或 iOS 版本上都有效。";
 "stabilizer.warning.dns" = "安装期间，你的所有 DNS 都会经过 Wander 的服务器。这可能影响 Apple 服务（iCloud、地图、App Store、查找）。";
 "stabilizer.warning.off" = "用完后请将其关闭。";
-"stabilizer.warning.error12" = "此功能不能解决“错误 12”。若要解决，请查看错误 12 帮助（设置 → 帮助 → 无法检测到位置）。";
+"stabilizer.warning.error12" = "This does not fix location-not-detected errors. For that, see Settings → Help → Location not detected.";
 "stabilizer.signin.needed" = "登录你的 Wander 账户以进行设置。";
 "stabilizer.signin.button" = "登录";
 "stabilizer.install.fetching" = "正在准备描述文件…";

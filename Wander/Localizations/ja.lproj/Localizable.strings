@@ -136,13 +136,13 @@
 /* Paywall */
 "paywall.title" = "Wander Pro";
 "paywall.headline_trial" = "無料トライアルを使い切りました。Wander Pro でテレポート・ジョイスティック・ルートを無制限に利用できます。";
-"paywall.headline_locked" = "位置情報の偽装には Wander Pro が必要になりました。wanderspoofer.com で Pro を入手し、サインインして解除してください。";
+"paywall.headline_locked" = "Wander now requires Wander Pro to change your location. Get Pro at wanderspoofer.com, then sign in to unlock.";
 "paywall.choose_plan" = "プランを選択";
 "paywall.plan.lifetime" = "買い切り";
-"paywall.plan.lifetime_note" = "一度きり、期限なし";
+"paywall.plan.lifetime_note" = "One payment, no renewal. Pro for the life of the product.";
 "paywall.plan.yearly" = "年額";
 "paywall.plan.monthly" = "月額";
-"paywall.buy_hint" = "wanderspoofer.com で Wander Pro を購入し、下からサインインしてください。Pro は iPhone・Android・デスクトップで解除され、再インストールしても維持されます。";
+"paywall.buy_hint" = "Buy Wander Pro at wanderspoofer.com, then sign in below — your Pro unlocks on iPhone, Android, and desktop, and survives reinstalls.";
 "paywall.get_pro" = "Wander Pro を入手";
 "paywall.already_bought" = "購入済みですか？ サインインして解除";
 "paywall.teleports_today" = "本日のテレポート";
@@ -151,8 +151,8 @@
 
 /* Toasts / banners */
 "toast.stopped_real_gps" = "停止しました — 実際の GPS に戻りました";
-"banner.spoofing_active" = "偽装中 — Wander を開いたままにしてください";
-"panic.accessibility" = "パニック — すべての偽装を停止";
+"banner.spoofing_active" = "Location change active — keep Wander open";
+"panic.accessibility" = "Panic — stop all simulating";
 
 /* Language picker option */
 "language.system" = "システムのデフォルト";
@@ -161,7 +161,7 @@
 "locationinfo.tz_advisory" = "デバイスのタイムゾーンは今も %@ になっています。一部のアプリは GPS と照合するため、設定 › 一般 › 日付と時刻 で合わせることをおすすめします。";
 "locationinfo.tz_advisory.dismiss" = "タイムゾーンのヒントを閉じる";
 "locationinfo.ip_tip.title" = "IP とタイムゾーンを合わせる";
-"locationinfo.ip_tip.body" = "位置情報をより自然に見せるには、IP アドレスとタイムゾーンを偽装した GPS に合わせるのが理想です。一部のアプリはこれらを相互に照合します。目的地の地域に設定した VPN を使うと、両方を一致させたままにできます。";
+"locationinfo.ip_tip.body" = "Apps can also estimate your location from your IP address.";
 "locationinfo.ip_tip.link" = "IP の一致の仕組み";
 
 /* Flight Planner (free) — English fallback pending translation */
@@ -193,20 +193,20 @@
 "settings.location.coarse.footer" = "Privacy: reports a spot within about 3–5 km of your target so you share a neighborhood, not the exact place. The offset stays the same for the whole session.";
 
 /* Error 12 help + Long-distance stabilizer (added 2026-07) */
-"error12.title" = "位置情報を検出できませんか？（エラー12）";
-"error12.intro" = "Pokémon GOの「位置情報を検出できませんでした（12）」は、ゲームがクリーンなGPSを取得できなかったことを意味します。Wanderはすでに動きを滑らかにしてゲームと干渉しないようにしています。以下の手順で残りを解決しましょう。";
+"error12.title" = "Location not detected?";
+"error12.intro" = "If a game says it can't detect your location, these steps fix the most common causes: a dropped connection, a coarse real location, or Location Services being off.";
 "error12.step.location_on.title" = "位置情報サービスをオンにする";
-"error12.step.location_on.detail" = "iPhoneの設定 → プライバシーとセキュリティ → 位置情報サービス → オン、さらにPokémon GO → このAppの使用中のみに設定します。挿入された位置情報をゲームに届けるには、位置情報サービスがオンである必要があります。";
+"error12.step.location_on.detail" = "iPhone Settings → Privacy & Security → Location Services → ON, and set the game → While Using the App. Location Services must be on for the injected location to reach the game.";
 "error12.step.refresh.title" = "テレポート後は位置情報を更新する";
 "error12.step.refresh.detail" = "位置情報サービスを約3秒オフにしてから、再度オンにします（設定 → プライバシーとセキュリティ → 位置情報サービス）。これでiOSが新しい場所で位置情報を取得し直します。";
-"error12.step.cooldown.title" = "「操作」後のクールダウンを守る";
-"error12.step.cooldown.detail" = "クールダウンのタイマーは、ポケモンを捕まえる、ポケストップを回す、きのみをあげる、バトルする、ジムに配置するといった操作で始まります。テレポート自体では始まりません。ですからテレポートは自由に行えますが、次の操作の前にクールダウンが終わるのを待ちましょう。";
+"error12.step.cooldown.title" = "Wait before interacting again";
+"error12.step.cooldown.detail" = "A suggested wait helps space out in-game actions after a location change. It is only a suggestion and can't prevent warnings or bans.";
 "error12.step.smooth.title" = "滑らかに移動し、連続テレポートを避ける";
-"error12.step.smooth.detail" = "移動中にエラー12が出たら、いったん止まり、位置情報が落ち着くまで数秒待ってから続けます。小刻みなテレポートの連発は避けてください。";
+"error12.step.smooth.detail" = "If a location error appears while moving, stop, wait a few seconds for the fix to settle, then continue. Avoid a flurry of tiny location changes.";
 "error12.step.keep_running.title" = "Wanderを起動したままにする";
 "error12.step.keep_running.detail" = "プレイ中はトンネルを接続したままアプリを開いておきます。トンネルが切れると、ゲームは即座に位置情報を失います。";
-"error12.cooldown.header" = "距離ごとの操作クールダウン";
-"error12.cooldown.disclaimer" = "コミュニティによる推定値で、Niantic公式の値ではありません。";
+"error12.cooldown.header" = "Suggested wait by distance";
+"error12.cooldown.disclaimer" = "Community estimates, not official values. They can't prevent warnings or bans.";
 "error12.footer.discord" = "まだ解決しませんか？ Discordの#bug-reportsチャンネルで教えてください。";
 "stabilizer.title" = "長距離スタビライザー（ベータ）";
 "stabilizer.intro" = "実験的機能。遠くへのテレポートが元に戻らず安定するよう補助します。";
@@ -216,7 +216,7 @@
 "stabilizer.warning.beta" = "ベータかつ実験的です。すべての端末やiOSバージョンで効果があるとは限りません。";
 "stabilizer.warning.dns" = "インストール中は、すべてのDNSがWanderのサーバーを経由します。Appleのサービス（iCloud、マップ、App Store、探す）に影響することがあります。";
 "stabilizer.warning.off" = "使い終わったらオフにしてください。";
-"stabilizer.warning.error12" = "これは「エラー12」を解決しません。それについてはエラー12のヘルプ（設定 → ヘルプ → 位置情報を検出できません）をご覧ください。";
+"stabilizer.warning.error12" = "This does not fix location-not-detected errors. For that, see Settings → Help → Location not detected.";
 "stabilizer.signin.needed" = "これを設定するには、Wanderアカウントにサインインしてください。";
 "stabilizer.signin.button" = "サインイン";
 "stabilizer.install.fetching" = "プロファイルを準備しています…";

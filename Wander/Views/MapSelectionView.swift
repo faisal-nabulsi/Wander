@@ -855,7 +855,7 @@ struct LocationSimulationView: View {
     /// "Smooth long jumps": when on, a teleport farther than the threshold from
     /// the current spoofed position eases over a few seconds instead of hopping.
     @AppStorage("smoothLongJumps") private var smoothLongJumps = false
-    // Backing keys for the on-map "Location-sharing mode" toggle (same keys Settings uses), so the
+    // Backing keys for the on-map "Natural drift + smooth jumps" toggle (same keys Settings uses), so the
     // anti-detection preset for location-sharing apps lives where you actually spoof, not just Settings.
     @AppStorage("jitterEnabled") private var jitterEnabled = true
     @AppStorage("jitterRadius") private var jitterRadius = 1.5
@@ -884,7 +884,7 @@ struct LocationSimulationView: View {
     ///
     /// It exists because `currentLocation` cannot be trusted for that label: while a
     /// simulation is live, CoreLocation reports the FAKE position to this app too —
-    /// that is exactly what the "Check my spoof" verify card reads. `request()` runs
+    /// that is exactly what the "Check my location" verify card reads. `request()` runs
     /// on every `onAppear`, so returning to this tab mid-spoof would quietly refresh
     /// the "real" coordinate to the spoof target, and "Near me" would re-anchor to
     /// the place it was already anchored to under a label claiming the opposite. In a
@@ -1132,7 +1132,7 @@ struct LocationSimulationView: View {
         if let spoofed = currentSpoofedCoordinate {
             return MapSearchAnchor(
                 coordinate: spoofed,
-                name: L("search.anchor.spoof", fallback: "your spoofed location")
+                name: L("search.anchor.spoof", fallback: "your simulated location")
             )
         }
         if let coordinate {
@@ -1962,8 +1962,8 @@ struct LocationSimulationView: View {
     /// get the paywall. On success it drops the pin at the resolved place and simulates, reusing
     /// the exact teleport path the map already uses. Every failure is a friendly alert.
     @ViewBuilder
-    /// On-map "Location-sharing mode" toggle. This is the REGULAR (dev-tunnel) spoof most apps use —
-    /// Find My, iMessage, other location-sharing apps, dating apps — and this preset bundles the anti-detection settings
+    /// On-map "Natural drift + smooth jumps" toggle. This is the REGULAR (dev-tunnel) spoof most apps use —
+    /// Find My, Life360, iMessage, dating apps — and this preset bundles the anti-detection settings
     /// (natural drift + smooth long jumps) so a shared location looks real. (Anti-cheat games like
     /// Pokémon GO use gs-loc/Shadowrocket instead — that lives in the PoGo tab.)
     private var sharingModeToggle: some View {
@@ -1978,9 +1978,9 @@ struct LocationSimulationView: View {
             HStack(spacing: MapModeChrome.groupSpacing) {
                 Image(systemName: "person.2.wave.2").foregroundStyle(Wander.brand)
                 VStack(alignment: .leading, spacing: MapModeChrome.groupSpacing) {
-                    Text(L("map.sharingmode.title", fallback: "Location-sharing mode"))
+                    Text(L("map.sharingmode.title", fallback: "Natural drift + smooth jumps"))
                         .font(.wanderDetail.weight(.semibold))
-                    Text(L("map.sharingmode.sub", fallback: "Natural drift + smooth jumps so shared location looks real."))
+                    Text(L("map.sharingmode.sub", fallback: "Natural drift and smooth long jumps together."))
                         .wanderMicro()
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -2323,7 +2323,7 @@ struct LocationSimulationView: View {
                 WanderPanelNote(
                     status: .caution,
                     text: L("map.gsloc_teleport_only",
-                            fallback: "PoGo mode: one spot at a time. A new spot only lands after you flush Location Services, so route playback can't work here — it works in every other app and mode."),
+                            fallback: "Games mode: one spot at a time. A new spot only lands after you flush Location Services, so route playback can't work here — it works in every other app and mode."),
                     icon: "hand.raised.fill"
                 )
             }

@@ -45,7 +45,7 @@
 "joystick.run" = "Run";
 "joystick.drive" = "Drive";
 /* Non-blocking advisory when movement starts during a live soft-ban cooldown (%@ = MM:SS). */
-"joystick.cooldown_note" = "Heads up — moving still counts as interacting; your soft-ban cooldown is still running (%@).";
+"joystick.cooldown_note" = "Heads up — moving still counts as interacting; your suggested wait is still running (%@).";
 
 /* Route screen */
 "route.title" = "Route";
@@ -151,10 +151,10 @@
 /* Paywall */
 "paywall.title" = "Wander Pro";
 "paywall.headline_trial" = "You've used up your free trial. Unlock Wander Pro for unlimited teleports, joystick, and routes.";
-"paywall.headline_locked" = "Wander now requires Wander Pro to spoof your location. Get Pro at wanderspoofer.com, then sign in to unlock.";
+"paywall.headline_locked" = "Wander now requires Wander Pro to change your location. Get Pro at wanderspoofer.com, then sign in to unlock.";
 "paywall.choose_plan" = "Choose a plan";
 "paywall.plan.lifetime" = "Lifetime";
-"paywall.plan.lifetime_note" = "one-time, never expires";
+"paywall.plan.lifetime_note" = "One payment, no renewal. Pro for the life of the product.";
 "paywall.plan.yearly" = "Yearly";
 "paywall.plan.monthly" = "Monthly";
 "paywall.buy_hint" = "Buy Wander Pro at wanderspoofer.com, then sign in below — your Pro unlocks on iPhone, Android, and desktop, and survives reinstalls.";
@@ -166,8 +166,8 @@
 
 /* Toasts / banners */
 "toast.stopped_real_gps" = "Stopped — real GPS restored";
-"banner.spoofing_active" = "Spoofing active — keep Wander open";
-"panic.accessibility" = "Panic — stop all spoofing";
+"banner.spoofing_active" = "Location change active — keep Wander open";
+"panic.accessibility" = "Panic — stop all simulating";
 
 /* Language picker option */
 "language.system" = "System default";
@@ -176,12 +176,12 @@
 "locationinfo.tz_advisory" = "Your device's time zone still reads %@. Some apps compare it to your GPS — consider matching it in Settings › General › Date & Time.";
 "locationinfo.tz_advisory.dismiss" = "Dismiss time zone tip";
 "locationinfo.ip_tip.title" = "Match your IP & time zone";
-"locationinfo.ip_tip.body" = "For the most believable location, your IP address and time zone should match your spoofed GPS. Some apps cross-check them. A VPN set to the destination region keeps them aligned.";
+"locationinfo.ip_tip.body" = "Apps can also estimate your location from your IP address.";
 "locationinfo.ip_tip.link" = "How IP matching works";
 
 /* Location — smooth long jumps (anti impossible-jump) */
 "settings.location.smooth_jumps" = "Smooth long jumps";
-"settings.location.smooth_jumps.footer" = "A big teleport glides to the new spot over a few seconds instead of jumping instantly, so apps that flag an impossible jump (dating and location-sharing apps) see a fast but continuous move. Short jumps stay instant.";
+"settings.location.smooth_jumps.footer" = "A big teleport glides to the new spot over a few seconds instead of jumping instantly. Short jumps stay instant.";
 
 /* Route — reverse + weather-aware pace */
 "route.reverse" = "Reverse";
@@ -191,15 +191,15 @@
 /* Geofence triggers — auto-stop spoofing when you really arrive/leave */
 "geofence.title" = "Geofences";
 "geofence.section.header" = "Geofence triggers";
-"geofence.settings.subtitle" = "Auto-stop spoofing when you really arrive";
+"geofence.settings.subtitle" = "Auto-stop simulating when you really arrive";
 "geofence.add" = "Add geofence";
 "geofence.section.your" = "Your geofences";
 "geofence.empty.title" = "No geofences yet";
-"geofence.empty.body" = "Add a geofence to auto-stop spoofing and return to real GPS when you actually arrive somewhere — like home.";
+"geofence.empty.body" = "Add a geofence to auto-stop simulating and return to real GPS when you actually arrive somewhere — like home.";
 "geofence.cap.footer" = "iOS monitors up to 20 geofences at once. %d of 20 active.";
 "geofence.trigger.arrival" = "On arrival";
 "geofence.trigger.departure" = "On departure";
-"geofence.action.stop" = "Stop spoofing (real GPS)";
+"geofence.action.stop" = "Stop simulating (real GPS)";
 "geofence.notification.body" = "Back on real GPS — you arrived at %@";
 "geofence.auth.always" = "Always allowed — geofences fire even when Wander is closed.";
 "geofence.auth.wheninuse" = "While-in-use only — geofences fire only while Wander is open and active.";
@@ -249,41 +249,41 @@
 "settings.location.coarse.footer" = "Privacy: reports a spot within about 3–5 km of your target so you share a neighborhood, not the exact place. The offset stays the same for the whole session.";
 
 /* Error 12 help + Long-distance stabilizer (added 2026-07) */
-"error12.title" = "Location not detected? (Error 12)";
-"error12.intro" = "Pokémon GO's 'Failed to detect location (12)' means the game didn't get a clean GPS fix. Wander already smooths your movement so it won't fight the game — these steps fix the rest.";
+"error12.title" = "Location not detected?";
+"error12.intro" = "If a game says it can't detect your location, these steps fix the most common causes: a dropped connection, a coarse real location, or Location Services being off.";
 "error12.step.location_on.title" = "Turn Location Services ON";
-"error12.step.location_on.detail" = "iPhone Settings → Privacy & Security → Location Services → ON, and set Pokémon GO → While Using the App. Location Services must be on for the injected location to reach the game.";
+"error12.step.location_on.detail" = "iPhone Settings → Privacy & Security → Location Services → ON, and set the game → While Using the App. Location Services must be on for the injected location to reach the game.";
 "error12.step.refresh.title" = "After you teleport, refresh the fix";
 "error12.step.refresh.detail" = "Toggle Location Services off, wait about 10 seconds, then back on (Settings → Privacy & Security → Location Services). The WAIT is what does the work — iOS holds a cached copy of your real location, and a quick flick usually isn't long enough to clear it. Then wait until Maps shows a location again before you check. Still snapping back after a couple of honest tries? Then reboot once — on iOS 26 most people don't need to.";
-"error12.step.cooldown.title" = "Respect the cooldown after INTERACTING";
-"error12.step.cooldown.detail" = "The cooldown timer is started by actions — catching a Pokémon, spinning a stop, feeding a berry, battling, dropping in a gym — not by teleporting itself. So you can teleport freely, but wait out the cooldown before your next interaction.";
+"error12.step.cooldown.title" = "Wait before interacting again";
+"error12.step.cooldown.detail" = "A suggested wait helps space out in-game actions after a location change. It is only a suggestion and can't prevent warnings or bans.";
 "error12.step.smooth.title" = "Move smoothly; don't rapid-teleport";
-"error12.step.smooth.detail" = "If Error 12 pops while moving, stop, wait a few seconds for the fix to settle, then continue. Avoid a flurry of tiny teleports.";
+"error12.step.smooth.detail" = "If a location error appears while moving, stop, wait a few seconds for the fix to settle, then continue. Avoid a flurry of tiny location changes.";
 "error12.step.keep_running.title" = "Keep Wander running";
 "error12.step.keep_running.detail" = "Keep the app open with the tunnel connected while you play — if the tunnel drops, the game instantly loses the fix.";
-"error12.cooldown.header" = "Interaction cooldown by distance";
-"error12.cooldown.disclaimer" = "Community estimates, not official Niantic values.";
+"error12.cooldown.header" = "Suggested wait by distance";
+"error12.cooldown.disclaimer" = "Community estimates, not official values. They can't prevent warnings or bans.";
 "error12.footer.discord" = "Still stuck? Tell us in the Discord #bug-reports channel.";
 
 /* Error 12 help — error taxonomy ("which error is it?") */
 "error12.taxonomy.header" = "Which error are you seeing?";
-"error12.taxonomy.err11.title" = "\"Failed to detect location (11)\" — no location at all";
-"error12.taxonomy.err11.detail" = "Error 11 means the game is getting NO location stream — the tunnel/connection dropped, so nothing is reaching Pokémon GO. Fix: make sure Wander is open with the tunnel connected, reconnect it, then reopen Pokémon GO.";
-"error12.taxonomy.err12.title" = "\"Failed to detect location (12)\" — a bad or jumpy stream";
-"error12.taxonomy.err12.detail" = "Error 12 means the location IS arriving but looks inconsistent to the game. Wander already smooths this on its side (a single writer for your movement). Remaining user-side fixes: set Pokémon GO's Location to Always + Precise; try the airplane-mode trick (Airplane Mode ON, connect the tunnel, then Wi-Fi back on) for a clean fix right after a teleport. If the location keeps snapping back, turn Location Services off for a full ~10 seconds — not a quick flick — and wait until Maps shows a location again after you turn it back on. Only if that still snaps back is it worth rebooting.";
+"error12.taxonomy.err11.title" = "No location at all";
+"error12.taxonomy.err11.detail" = "The game is getting no location stream, usually because the tunnel or connection dropped. Make sure Wander is open with the tunnel connected, reconnect it, then reopen the game.";
+"error12.taxonomy.err12.title" = "A bad or jumpy location";
+"error12.taxonomy.err12.detail" = "The location is arriving but looks inconsistent to the game. Set the game's Location to Always + Precise; try the airplane-mode method (Airplane Mode ON, connect the tunnel, then Wi-Fi back on) for a clean fix right after a location change. If the location keeps snapping back, turn Location Services off for a full ~10 seconds, not a quick flick, and wait until Maps shows a location again after you turn it back on. Only if that still snaps back is it worth rebooting.";
 "error12.taxonomy.auth.title" = "\"Unable to authenticate\" — a login problem, not a GPS one";
-"error12.taxonomy.auth.detail" = "This one isn't about location. Log into Pokémon GO BEFORE connecting the tunnel: sign in while you're still on your real GPS, then connect the tunnel and teleport.";
+"error12.taxonomy.auth.detail" = "This one isn't about location. Log into the game BEFORE connecting the tunnel: sign in while you're still on your real GPS, then connect the tunnel and teleport.";
 
 /* Error 12 help — plain-language ban ladder */
-"error12.ban.header" = "The ban ladder, in plain language";
-"error12.ban.intro" = "If you rush, Niantic responds in steps. Knowing the ladder keeps you calm — most of what people call a \"ban\" is just a cooldown.";
-"error12.ban.softban.title" = "Soft ban / cooldown";
-"error12.ban.softban.detail" = "Pokémon flee, PokéStops give you nothing, for anywhere from a few minutes to about an hour. This is not a real ban — just wait it out. Respect the cooldown after teleporting (see the cooldown table above).";
-"error12.ban.strike1.title" = "Strike 1 — shadowban / \"research quest\" warning";
-"error12.ban.strike1.detail" = "About 7–14 days of degraded catches — no rares show up for you. Play legit and lightly for the duration; it lifts on its own.";
-"error12.ban.strike23.title" = "Strikes 2 & 3 — suspension, then permanent ban";
-"error12.ban.strike23.detail" = "Further strikes escalate to temporary suspensions and finally a permanent ban. Slow down: real cooldowns, no rapid long-distance hops.";
-"error12.ban.caveat" = "A sudden wave of fleeing Pokémon can be a Niantic-side bug, not necessarily a ban on you.";
+"error12.ban.header" = "About warnings and bans";
+"error12.ban.intro" = "Games set their own rules and can warn, limit or suspend accounts. Wander can't see inside a game and can't prevent any of this.";
+"error12.ban.softban.title" = "Suggested wait";
+"error12.ban.softban.detail" = "A game may temporarily limit some in-game actions. Waiting is usually all you can do, and a suggested wait can't prevent it.";
+"error12.ban.strike1.title" = "Warnings";
+"error12.ban.strike1.detail" = "A game may show a warning or reduce rewards for a while. Play normally until it passes.";
+"error12.ban.strike23.title" = "Suspensions and permanent bans";
+"error12.ban.strike23.detail" = "Repeated problems can lead to temporary suspensions or a permanent ban. Wander can't prevent or reverse these.";
+"error12.ban.caveat" = "Odd in-game behavior is not always caused by your account. Games have bugs too.";
 "error12.ban.notvpn" = "Wander's tunnel is Apple's on-device developer tunnel — it is NOT an IP-VPN and does not change your IP address.";
 
 /* Error 12 help — link to the tunnel-connection help sheet */
@@ -297,10 +297,10 @@
 "tunnel.step.foreground.detail" = "The tunnel needs Wander open and on screen while it connects. If you swipe Wander away or lock the phone before it's up, the connection can fail. Open Wander first, then connect.";
 "tunnel.step.wifi.title" = "Connect on Wi-Fi";
 "tunnel.step.wifi.detail" = "The tunnel is most reliable over Wi-Fi. Join a Wi-Fi network, then open LocalDevVPN and connect. If it connects on Wi-Fi, you can usually stay connected after switching Wi-Fi off.";
-"tunnel.step.airplane.title" = "No Wi-Fi? Use the airplane-mode-first trick";
+"tunnel.step.airplane.title" = "No Wi-Fi? Use the airplane-mode-first method";
 "tunnel.step.airplane.detail" = "Turn Airplane Mode ON, then open LocalDevVPN and connect the tunnel, then turn Wi-Fi back on. This brings the tunnel up cleanly without a Wi-Fi network to start.";
 "tunnel.step.memory.title" = "Free up memory if it keeps dropping";
-"tunnel.step.memory.detail" = "Low memory or too many apps in the background can make iOS drop the tunnel. Close some background apps (and Pokémon GO if it's a heavy session), then reconnect.";
+"tunnel.step.memory.detail" = "Low memory or too many apps in the background can make iOS drop the tunnel. Close some background apps (and the game if it's a heavy session), then reconnect.";
 "tunnel.step.reconnect.title" = "Clean reconnect";
 "tunnel.step.reconnect.detail" = "If the tunnel is stuck, disconnect it in LocalDevVPN, make sure Wander is open, then connect again. If it still won't come up, reopen LocalDevVPN and Wander and try the steps above in order.";
 "tunnel.notvpn.header" = "What this tunnel is";
@@ -315,7 +315,7 @@
 "stabilizer.warning.beta" = "Beta & experimental — may not help on every device or iOS version.";
 "stabilizer.warning.dns" = "While installed, ALL your DNS goes through Wander's server. It can affect Apple services (iCloud, Maps, App Store, Find My).";
 "stabilizer.warning.off" = "Turn it OFF when you're done.";
-"stabilizer.warning.error12" = "This does NOT fix 'Error 12'. For that, see the Error 12 help (Settings → Help → Location not detected).";
+"stabilizer.warning.error12" = "This does not fix location-not-detected errors. For that, see Settings → Help → Location not detected.";
 "stabilizer.signin.needed" = "Sign in to your Wander account to set this up.";
 "stabilizer.signin.button" = "Sign in";
 "stabilizer.install.fetching" = "Preparing profile…";
@@ -334,41 +334,41 @@
 "settings.experimental.footer" = "Opt-in beta features. Off by default — nothing installs or changes until you open one and choose to turn it on.";
 
 /* Soft-ban cooldown chip (guidance only — we can't gate the game's in-app taps). */
-"cooldown.chip" = "Safe to catch/spin in";
-"cooldown.chip.a11y" = "Soft-ban cooldown — wait before catching or spinning";
+"cooldown.chip" = "Suggested wait:";
+"cooldown.chip.a11y" = "Suggested wait after a jump";
 
 /* Local notification fired when the soft-ban cooldown clears. */
-"notif.cooldown_cleared.title" = "Cooldown cleared";
-"notif.cooldown_cleared.body" = "Safe to catch & spin in Pokémon GO now.";
+"notif.cooldown_cleared.title" = "Suggested wait over";
+"notif.cooldown_cleared.body" = "Suggested wait is over. It is only a suggestion and can't prevent warnings or bans.";
 
 /* Long-haul advisory after a very big teleport (>1500 km). Community guidance, not a guarantee.
    %@ = jump distance in km. */
 "advisory.longhaul.header" = "Long-haul jump";
-"advisory.longhaul.body" = "Big jump (%@ km) — many players stay logged OUT of the game for ~8 hours after a long teleport to avoid a strike. Community guidance, not a guarantee.";
+"advisory.longhaul.body" = "Big jump (%@ km). Many players wait several hours before using the game again. Community guidance only; it can't prevent warnings or bans.";
 "advisory.longhaul.dismiss" = "Got it";
 
 /* Pre-flight coherence checks (PoGo tab). Advisory only — never block a teleport. */
 "preflight.header" = "Pre-flight checks";
 "preflight.ok" = "Pre-flight looks coherent";
-"preflight.footer" = "Advisory only — these never block a teleport. They flag the most common causes of Error 12 and one detection vector.";
+"preflight.footer" = "Advisory only — these never block a location change. They point out common causes of location problems in games.";
 "preflight.open_settings" = "Open Settings";
 "preflight.auth.title" = "Location Services is off for Wander";
-"preflight.auth.body" = "iOS needs a real fix to seed from — with location off, a teleport can read as an impossible jump and trigger Error 12. Turn Location Services on for Wander.";
+"preflight.auth.body" = "iOS needs a real fix to seed from — with location off, a location change can read as an impossible jump and cause location problems in games. Turn Location Services on for Wander.";
 "preflight.precise.title" = "Precise Location is off";
-"preflight.precise.body" = "A coarse real fix fights the injected precise fix and can trip Error 12. Turn Precise Location on for Wander.";
+"preflight.precise.body" = "A coarse real fix fights the injected precise fix and can cause location problems in games. Turn Precise Location on for Wander.";
 "preflight.ipgps.title" = "Your network still looks local";
 "preflight.ipgps.body" = "Your network still looks like %@ while GPS says %@. Consider a VPN in that region so the two agree.";
 "preflight.ipgps.your_area" = "your area";
 "preflight.ipgps.the_target" = "the target";
 "preflight.ipgps.vpn_button" = "Match your IP with NordVPN";
 "preflight.ipgps.vpn_guidance" = "Open NordVPN and connect to a server in %@ so your network location matches.";
-"preflight.ipgps.vpn_guidance_generic" = "Open NordVPN and connect to a server in the spoofed city so your network location matches.";
+"preflight.ipgps.vpn_guidance_generic" = "Open NordVPN and connect to a server in the simulated city so your network location matches.";
 
 /* Reboot-aware recovery: resume a spoof that ended without a clean Stop. */
-"resume.title" = "Resume your spoof?";
+"resume.title" = "Resume your simulated location?";
 "resume.action" = "Resume";
 "resume.dismiss" = "Not now";
-"resume.body" = "Wander stopped without a clean Stop last time — a reboot or the app closing clears the spoof. Resume at %.4f, %.4f?";
+"resume.body" = "Wander stopped without a clean Stop last time — a reboot or the app closing clears the simulated location. Resume at %.4f, %.4f?";
 
 /* Gentle snap-back recovery — shown only after a real detected bounce-back. */
 "snapback.title" = "Location snapped back";
@@ -390,12 +390,12 @@
 "tunnel.action.stop" = "Stop — return to real GPS";
 "tunnel.memory.banner" = "Low memory can drop the tunnel — close some background apps";
 "tunnel.stability.header" = "Tunnel stability";
-"tunnel.stability.idle" = "Not spoofing — the heartbeat shows while a simulation is running.";
+"tunnel.stability.idle" = "Not simulating — the heartbeat shows while a simulation is running.";
 "tunnel.stability.footer" = "Wander watches the connection it injects location through and, if it drops, tries to reconnect on its own — best-effort only, since iOS can close the tunnel when memory runs low or the app is backgrounded (nothing can prevent that). Low memory can drop it, so close background apps for a steadier spoof.";
 
 /* One-time-per-session coaching tip: spoofing started while on cellular. Advisory only. */
 "tip.cellular.title" = "Heads up: you're on cellular";
-"tip.cellular.body" = "On cellular your real area can still leak — even with a VPN. For the most believable spoof, connect to Wi-Fi or turn on Airplane Mode.";
+"tip.cellular.body" = "On cellular your real area can still leak — even with a VPN. To avoid this, connect to Wi-Fi or turn on Airplane Mode.";
 
 /* OTA update: the install re-sign needs a signed-in Apple ID; and the tappable update banner. */
 "update.needs_apple_id.title" = "Sign in to install";

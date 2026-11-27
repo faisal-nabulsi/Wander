@@ -279,7 +279,7 @@ final class LocationSinkABRunner: ObservableObject {
         step("Restoring — clearing both sinks…")
         let finalClear = await onLocationQueue { clear_simulated_location() }
         await offMain { LockdownLocationSink.teardown() }
-        say("RESTORE: DVT \(Self.clearWords(finalClear)); lockdown handle freed. No spoof left running.")
+        say("RESTORE: DVT \(Self.clearWords(finalClear)); lockdown handle freed. No simulation left running.")
         say("")
 
         // ── VERDICT ──────────────────────────────────────────────────────────────────────────────
@@ -509,7 +509,7 @@ final class LocationSinkABRunner: ObservableObject {
         var out = [String]()
         out.append("── DECISION RULE (read this against the two rows above) ──")
         out.append("DVT=TRUE, LOCKDOWN=FALSE (accessory still false) -> THE SINK MATTERS. Switching Wander's")
-        out.append("  injection to the lockdown service would clear Error 12 over a tunnel that HOLDS, which")
+        out.append("  injection to the lockdown service would clear the location error over a tunnel that HOLDS, which")
         out.append("  beats gs-loc outright.")
         out.append("BOTH TRUE -> the DVT-flag angle is closed on iOS 26; gs-loc remains the only path and the")
         out.append("  search is over.")
@@ -552,7 +552,7 @@ final class LocationSinkABRunner: ObservableObject {
         } else if a == "true" && b == "false" {
             out.append("HALF A WIN, NOT A WIN. isSimulatedBySoftware went false through the lockdown sink, but")
             out.append("isProducedByAccessory came back \(legB.isProducedByAccessory) — one readable flag was traded")
-            out.append("for another, and an anti-cheat that reads either one is unchanged.")
+            out.append("for another, and an app that reads either one is unchanged.")
         } else if a == b {
             out.append("BOTH SINKS AGREE — isSimulatedBySoftware=\(a) through each of them.")
             out.append(L("sinkab.verdict.bothsame",

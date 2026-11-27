@@ -504,7 +504,7 @@ struct StartTunnelIntent: AppIntent {
         // Starting ours would disconnect Shadowrocket and break PoGo mode outright. Refuse loudly.
         if GslocMode.enabled {
             return .result(value: L("intent.tunnel.gsloc",
-                                    fallback: "PoGo (gs-loc) mode is on, so Shadowrocket is holding iOS's single VPN slot. Wander won't take it. Turn gs-loc mode off first if you want Wander's own tunnel."))
+                                    fallback: "Games mode (Wi-Fi positioning) is on, so Shadowrocket is holding iOS's single VPN slot. Wander won't take it. Turn gs-loc mode off first if you want Wander's own tunnel."))
         }
 
         // ── 3. No Network Extension entitlement on this signature. ───────────────────────────────
@@ -576,7 +576,7 @@ struct PauseLocationIntent: AppIntent {
 }
 
 struct StopSpoofingIntent: AppIntent {
-    static var title: LocalizedStringResource = "Stop Location Spoofing"
+    static var title: LocalizedStringResource = "Stop Location Simulation"
     static var description = IntentDescription(
         "Reverts to your real GPS location.", categoryName: "Wander")
     static var openAppWhenRun: Bool = false
@@ -661,12 +661,12 @@ struct StikDebugShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: StopSpoofingIntent(),
             phrases: [
-                "Stop spoofing with \(.applicationName)",
+                "Stop simulating with \(.applicationName)",
                 "Stop faking my location with \(.applicationName)",
                 "Revert my location with \(.applicationName)",
-                "\(.applicationName) stop spoofing"
+                "\(.applicationName) stop simulating"
             ],
-            shortTitle: "Stop Spoofing",
+            shortTitle: "Stop Simulating",
             systemImageName: "stop.circle.fill"
         )
     }

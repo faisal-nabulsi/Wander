@@ -190,7 +190,7 @@ struct StabilizerBetaView: View {
             warningRow(L("stabilizer.warning.off",
                          fallback: "Turn it OFF when you're done."))
             warningRow(L("stabilizer.warning.error12",
-                         fallback: "This does NOT fix 'Error 12'. For that, see the Error 12 help (Settings → Help → Location not detected)."))
+                         fallback: "This does not fix location-not-detected errors. For that, see Settings → Help → Location not detected."))
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

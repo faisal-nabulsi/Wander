@@ -1329,7 +1329,7 @@ struct RouteModeView: View {
             // free teleporting. Each new spot needs the manual Location Services flush, which is what
             // makes route playback impossible here rather than just choppy. See WalkModeView.
             text: L("route.gsloc_teleport_only",
-                    fallback: "PoGo mode: one spot at a time. A new spot only lands after you flush Location Services, so live movement can't work here. Joystick, routes & auto-walk work in every other app and mode."),
+                    fallback: "Games mode: one spot at a time. A new spot only lands after you flush Location Services, so live movement can't work here. Joystick, routes & auto-walk work in every other app and mode."),
             icon: "hand.raised.fill"
         )
     }
@@ -3058,10 +3058,10 @@ struct RouteModeView: View {
                 if spoofActive {
                     WanderPanelNote(
                         status: .caution,
-                        text: "Stop spoofing to record your real route — recording captures your device's real GPS, not the simulated location."
+                        text: "Stop simulating to record your real route — recording captures your device's real GPS, not the simulated location."
                     )
                 } else {
-                    Text("Captures your device's real GPS + timing while you physically move, so you can replay a believable commute later.")
+                    Text("Captures your device's real GPS + timing while you physically move, so you can replay a recorded commute later.")
                         .wanderDetail()
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

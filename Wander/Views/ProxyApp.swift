@@ -5,7 +5,7 @@
 //  The set of third-party proxy apps that can host the Wander gs-loc rewrite. gs-loc mode needs a proxy
 //  app that can MITM Apple's Wi-Fi-location lookup and run our rewrite script; historically we only
 //  supported Shadowrocket, which forced users who already own Loon / Quantumult X / Stash to buy a second
-//  app. This enum is the single source of truth that parameterizes the setup wizard (and the Spoof Doctor's
+//  app. This enum is the single source of truth that parameterizes the setup wizard (and the Location Doctor's
 //  Rung-1 advice) per app: which file to import, where to get the app, and the app-specific CA-trust path.
 //
 //  Everything here is DATA, not behavior — the wizard reads these fields to render its steps. Deep links
@@ -113,7 +113,7 @@ enum ProxyApp: String, CaseIterable, Identifiable {
     var httpsDecryptionHint: String {
         switch self {
         case .shadowrocket:
-            return "In Shadowrocket: Configuration → tap the ⓘ → HTTPS Decryption → Certificate → Generate, then Install. iOS then shows \u{201C}Profile Downloaded\u{201D} — open Settings and install it. IMPORTANT: in that same HTTPS Decryption panel, also turn ON \u{201C}MitM over HTTP/2\u{201D} — Apple's location lookup runs over HTTP/2, and without this Shadowrocket decrypts the traffic but can't rewrite it, so the spoof silently does nothing."
+            return "In Shadowrocket: Configuration → tap the ⓘ → HTTPS Decryption → Certificate → Generate, then Install. iOS then shows \u{201C}Profile Downloaded\u{201D} — open Settings and install it. IMPORTANT: in that same HTTPS Decryption panel, also turn ON \u{201C}MitM over HTTP/2\u{201D} — Apple's location lookup runs over HTTP/2, and without this Shadowrocket decrypts the traffic but can't rewrite it, so the location change silently does nothing."
         case .loon:
             return "In Loon: General → HTTPS Decryption (MitM) → turn it on (and make sure HTTP/2 decryption is enabled), then Certificate → Generate and Install. iOS then shows \u{201C}Profile Downloaded\u{201D} — open Settings and install it."
         case .quantumultX:
@@ -132,7 +132,7 @@ enum ProxyApp: String, CaseIterable, Identifiable {
         "Settings › General › About › Certificate Trust Settings → turn ON the \(certificateName) certificate."
     }
 
-    // MARK: Spoof Doctor — Rung 1 tailored fix
+    // MARK: Location Doctor — Rung 1 tailored fix
 
     /// The exact "your proxy isn't intercepting" fix, in this app's own vocabulary. Rung 1 of the Doctor.
     var interceptionFixHint: String {

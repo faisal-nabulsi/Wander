@@ -351,7 +351,7 @@ struct OfflineMapView: UIViewRepresentable {
             userLocation.title = L("offline.map.user_dot.title",
                                    fallback: "Where your device reports you are")
             userLocation.subtitle = L("offline.map.user_dot.subtitle",
-                                      fallback: "Follows your spoof while one is running")
+                                      fallback: "Follows your simulated location while one is running")
         }
 
         // MARK: Floating layer button
@@ -461,7 +461,7 @@ struct OfflineMapView: UIViewRepresentable {
             }
             dotAction.subtitle = dotAllowed
                 ? L("offline.map.user_dot.explainer",
-                    fallback: "Where your device reports you are — your spoof, not your real spot")
+                    fallback: "Where your device reports you are — your simulated location, not your real spot")
                 : L("offline.map.user_dot.no_permission",
                     fallback: "Turn on Location Services for Wander to use this")
 

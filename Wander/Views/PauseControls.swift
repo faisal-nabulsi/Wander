@@ -124,7 +124,7 @@ struct PauseButton: View {
         // iPhone 16 Pro the caption fell below the panel's fold — the panel is a fixed-height
         // ScrollView, so the one line that explains what Pause does was invisible until you
         // scrolled, which nobody would. Title and subtitle inside one control can't be separated by
-        // a fold. It also matches the "Location-sharing mode" row directly above it, which is the
+        // a fold. It also matches the "Natural drift + smooth jumps" row directly above it, which is the
         // same shape of thing: a labelled state, not an action on the pin.
         Button {
             pause.isFrozen ? pause.unfreeze() : pause.pause()

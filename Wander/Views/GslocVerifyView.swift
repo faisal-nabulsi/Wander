@@ -129,7 +129,7 @@ struct GslocVerifyCard: View {
             Button {
                 verifier.check()
             } label: {
-                Label(verifier.state == .checking ? "Checking…" : "Check my spoof",
+                Label(verifier.state == .checking ? "Checking…" : "Check my location",
                       systemImage: "arrow.clockwise")
             }
             .disabled(verifier.state == .checking)
@@ -142,7 +142,7 @@ struct GslocVerifyCard: View {
                 }
             }
         } header: {
-            Text("Spoof check")
+            Text("Location check")
         }
         .onChange(of: scenePhase) { _, phase in
             pushOutcome = GslocMode.lastPushOutcome
@@ -158,7 +158,7 @@ struct GslocVerifyCard: View {
     }
 
     /// Shown ONLY when Wander's own control push failed — the half of the picture the spoof check below
-    /// can't see. "Check my spoof" asks iOS where it thinks the phone is; this says whether the
+    /// can't see. "Check my location" asks iOS where it thinks the phone is; this says whether the
     /// coordinate ever reached the proxy in the first place. They fail for different reasons and need
     /// different fixes, so a green spoof check on top of a dead push would be the worst of both.
     @ViewBuilder
@@ -189,8 +189,8 @@ struct GslocVerifyCard: View {
         switch verifier.state {
         case .idle:
             content(icon: "checkmark.shield", tint: .secondary,
-                    title: "Verify your spoof",
-                    message: "Teleport, then toggle Location Services off ~10s and back on — every new spot needs that flush — then tap below to confirm iOS is actually reporting your spoofed spot, the same fix Pokémon GO reads.")
+                    title: "Verify your location",
+                    message: "Teleport, then toggle Location Services off ~10s and back on — every new spot needs that flush — then tap below to confirm iOS is actually reporting your simulated spot, the same fix the game reads.")
         case .checking:
             HStack(spacing: 10) {
                 ProgressView()
@@ -198,11 +198,11 @@ struct GslocVerifyCard: View {
             }
         case .verified(let d):
             content(icon: "checkmark.seal.fill", tint: .green,
-                    title: "Spoofed — you're at your target",
-                    message: "iOS is reporting your spoofed location (within \(Int(d.rounded())) m). Pokémon GO reads the same fix.")
+                    title: "Location set — you're at your target",
+                    message: "iOS is reporting your simulated location (within \(Int(d.rounded())) m). The game reads the same fix.")
         case .wrongLocation(let d):
             content(icon: "exclamationmark.triangle.fill", tint: .orange,
-                    title: "Not spoofed yet",
+                    title: "Not simulated yet",
                     message: "iOS is still reporting a spot \(distanceLabel(d)) from your target. Toggle Location Services off, wait a full ~10 s (a quick flick usually isn't enough), back on — and make sure Shadowrocket is connected.")
         case .noTarget:
             content(icon: "location.slash", tint: .secondary,

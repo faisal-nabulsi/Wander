@@ -17,7 +17,7 @@ struct ExperimentLogView: View {
         List {
             if log.records.isEmpty {
                 Section {
-                    Text("Nothing captured yet. Run a spoof, open Location diagnostic, name what you're testing and tap Capture evidence.")
+                    Text("Nothing captured yet. Run a simulation, open Location diagnostic, name what you're testing and tap Capture evidence.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             } else {

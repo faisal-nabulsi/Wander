@@ -60,10 +60,10 @@ struct ExperimentRecord: Codable, Identifiable {
     /// reader cannot tell a working spoof from a capture of the user's real location.
     var targetText: String {
         guard let tLat = targetLatitude, let tLng = targetLongitude else {
-            return "  none pushed — nothing was being spoofed at capture time"
+            return "  none pushed — no simulation was running at capture time"
         }
         guard let d = distanceFromTargetMeters else { return "  \(tLat), \(tLng)" }
-        let verdict = d <= 150 ? "ON TARGET" : "OFF TARGET — the spoof was NOT in effect"
+        let verdict = d <= 150 ? "ON TARGET" : "OFF TARGET — the simulation was NOT in effect"
         return String(format: "  target %.5f, %.5f\n  distance %.0f m  → %@", tLat, tLng, d, verdict)
     }
 

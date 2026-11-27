@@ -75,7 +75,7 @@ struct ConsoleLogsView: View {
                             Button("Clear", systemImage: "trash", role: .destructive) {
                                 logManager.clearLogs()
                             }
-                            Button("Copy Spoof Diagnostics", systemImage: "stethoscope") {
+                            Button("Copy Location Diagnostics", systemImage: "stethoscope") {
                                 copySpoofDiagnostics()
                             }
                             Button(L("console.dump_interfaces", fallback: "Dump network interfaces"),
@@ -299,7 +299,7 @@ struct ConsoleLogsView: View {
             if m.count < 6, Int(m.trimmingCharacters(in: CharacterSet(charactersIn: " ,"))) != nil { return false }
             return keep.contains { m.contains($0) }
         }
-        var out = "=== WANDER SPOOF DIAGNOSTICS ===\n"
+        var out = "=== WANDER LOCATION DIAGNOSTICS ===\n"
         out += "iOS \(UIDevice.current.systemVersion) · build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")\n"
         out += "kept \(matched.count) of \(logManager.logs.count) lines\n\n"
         out += matched.map { "[\(formatTime(date: $0.timestamp))] \($0.message)" }.joined(separator: "\n")

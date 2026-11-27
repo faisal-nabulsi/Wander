@@ -50,7 +50,7 @@ struct GslocCASetupView: View {
                 Section("Step 2 — enable full trust") {
                     step(3, "This is the step almost everyone misses. Go to **Settings → General → About → Certificate Trust Settings**.")
                     step(4, "Under **Enable full trust for root certificates**, turn **ON** the switch for **Wander Local CA**.")
-                    Text("Without this, iOS installs the certificate but never uses it, and the spoof silently does nothing.")
+                    Text("Without this, iOS installs the certificate but never uses it, and the location change silently does nothing.")
                         .font(.caption).foregroundStyle(.orange)
                 }
 

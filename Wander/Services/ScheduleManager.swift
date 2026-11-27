@@ -236,7 +236,7 @@ final class ScheduleManager: ObservableObject {
             self.resend(schedule.coordinate, path: path) { self.chargeWindowIfNeeded() }
             SimulationSession.shared.started()
         }
-        LogManager.shared.addInfoLog("Schedule '\(schedule.name)' started (auto-spoof).")
+        LogManager.shared.addInfoLog("Schedule '\(schedule.name)' started (auto-start).")
     }
 
     /// Bill the running window's teleport to the trial — once per window occurrence, on a write the
@@ -353,7 +353,7 @@ final class ScheduleManager: ObservableObject {
 
     // MARK: - Next fire (for the UI)
 
-    /// The next Date any armed schedule will START (auto-spoof), or nil if none are armed.
+    /// The next Date any armed schedule will START (auto-start), or nil if none are armed.
     /// Looks up to 8 days ahead so weekly schedules always resolve.
     func nextFireDate(from date: Date = Date()) -> Date? {
         let armed = store.schedules.filter { $0.isArmed }

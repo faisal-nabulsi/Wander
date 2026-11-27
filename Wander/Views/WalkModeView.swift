@@ -421,7 +421,7 @@ struct WalkModeView: View {
                     if gameSpeedWarn, speedMps * 3.6 > Double(gamePreset.maxSafeSpeedKmh) {
                         WanderPanelNote(
                             status: .caution,
-                            text: "Above \(gamePreset.shortTitle)'s safe speed (~\(Int(SpeedFormat.fromMps(Double(gamePreset.maxSafeSpeedKmh) / 3.6, useMph: useMph))) \(SpeedFormat.unitLabel(useMph: useMph)))"
+                            text: "Above \(gamePreset.shortTitle)'s suggested speed (~\(Int(SpeedFormat.fromMps(Double(gamePreset.maxSafeSpeedKmh) / 3.6, useMph: useMph))) \(SpeedFormat.unitLabel(useMph: useMph)))"
                         )
                     }
                     headingLockRow
@@ -583,7 +583,7 @@ struct WalkModeView: View {
         WanderPanelNote(
             status: .caution,
             text: L("joystick.gsloc_teleport_only",
-                    fallback: "PoGo mode: one spot at a time. A new spot only lands after you flush Location Services, so live movement can't work here. Joystick, routes & auto-walk work in every other app and mode."),
+                    fallback: "Games mode: one spot at a time. A new spot only lands after you flush Location Services, so live movement can't work here. Joystick, routes & auto-walk work in every other app and mode."),
             icon: "hand.raised.fill"
         )
     }
@@ -595,7 +595,7 @@ struct WalkModeView: View {
             status: .caution,
             text: String(
                 format: L("joystick.cooldown_note",
-                          fallback: "Heads up — moving still counts as interacting; your soft-ban cooldown is still running (%@)."),
+                          fallback: "Heads up — moving still counts as interacting; your suggested wait is still running (%@)."),
                 cooldownClock(session.cooldownRemaining)),
             icon: "hourglass"
         )

@@ -91,7 +91,7 @@ enum AppFeature: String, CaseIterable, Identifiable {
         case .schedule:
             return "Be at a place during set hours"
         case .pogo:
-            return "Location-game hotspots & cooldown"
+            return "Location-game hotspots & suggested wait"
         case .places:
             return "Saved & recent spots"
         case .settings:

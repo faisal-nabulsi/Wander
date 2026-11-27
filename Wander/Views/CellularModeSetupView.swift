@@ -73,7 +73,7 @@ struct CellularModeSetupView: View {
             List {
                 // ANSWERS "AM I DONE NOW?" — the question this screen used to leave open.
                 //
-                // The old last sentence was "Your spoof holds." True about the radio, and read by
+                // The old last sentence was "Your location holds." True about the radio, and read by
                 // users as "you can put the phone away." It is not: the fake location lives INSIDE
                 // the tunnel connection (a DVT session, connection-scoped, nothing written to the
                 // phone), so closing Wander or dropping the tunnel ends the spoof instantly. Airplane
@@ -83,7 +83,7 @@ struct CellularModeSetupView: View {
                 // is superstition and ignore.
                 Section {
                     Text(localized: "cellular.setup.intro",
-                         fallback: "On mobile data with no Wi-Fi, iOS won't let the tunnel connect — but it stops checking once it's up. Cellular Mode turns Airplane Mode on just long enough to connect and set your location, then turns it back off. Your spoof holds — as long as the tunnel stays connected and Wander stays open, because your fake location lives in that connection and nothing is stored on your phone.")
+                         fallback: "On mobile data with no Wi-Fi, iOS won't let the tunnel connect — but it stops checking once it's up. Cellular Mode turns Airplane Mode on just long enough to connect and set your location, then turns it back off. Your location holds — as long as the tunnel stays connected and Wander stays open, because your fake location lives in that connection and nothing is stored on your phone.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

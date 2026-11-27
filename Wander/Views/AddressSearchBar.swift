@@ -383,7 +383,7 @@ struct AddressSearchBar: View {
     ///
     /// CONTRACT: this must be a coordinate captured BEFORE any simulation started.
     /// While a spoof is live, CoreLocation reports the FAKE position to this app too
-    /// (that is precisely what the "Check my spoof" card relies on), so a freshly
+    /// (that is precisely what the "Check my location" card relies on), so a freshly
     /// fetched device coordinate would be the spoof target wearing a "your real
     /// location" label — a lie in the one feature whose whole job is map honesty.
     /// Hosts that cannot guarantee a pre-simulation snapshot must pass `nil`, which

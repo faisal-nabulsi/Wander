@@ -142,7 +142,7 @@ struct PaywallView: View {
         if isTrial {
             return L("paywall.headline_trial", fallback: "You've used up your free trial. Unlock Wander Pro for unlimited teleports, joystick, and routes.")
         }
-        return L("paywall.headline_locked", fallback: "Wander now requires Wander Pro to spoof your location. Get Pro at wanderspoofer.com, then sign in to unlock.")
+        return L("paywall.headline_locked", fallback: "Wander now requires Wander Pro to change your location. Get Pro at wanderspoofer.com, then sign in to unlock.")
     }
 
     /// Shown when the account is Pro but this device is over the 5-device cap: the fix is to
@@ -219,7 +219,7 @@ struct PaywallView: View {
         VStack(spacing: 14) {
             VStack(spacing: 8) {
                 Text(localized: "paywall.choose_plan", fallback: "Choose a plan").font(.headline).foregroundStyle(.white)
-                planRow(L("paywall.plan.lifetime", fallback: "Lifetime"), prices.lifetime, L("paywall.plan.lifetime_note", fallback: "one-time, never expires"))
+                planRow(L("paywall.plan.lifetime", fallback: "Lifetime"), prices.lifetime, L("paywall.plan.lifetime_note", fallback: "One payment, no renewal. Pro for the life of the product."))
                 planRow(L("paywall.plan.yearly", fallback: "Yearly"), prices.yearly, prices.yearlyNote)
                 planRow(L("paywall.plan.monthly", fallback: "Monthly"), prices.monthly, "")
                 Text(localized: "paywall.buy_hint", fallback: "Buy Wander Pro at wanderspoofer.com, then sign in below — your Pro unlocks on iPhone, Android, and desktop, and survives reinstalls.")

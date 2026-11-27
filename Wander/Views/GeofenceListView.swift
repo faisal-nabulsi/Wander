@@ -24,7 +24,7 @@ struct GeofenceListView: View {
                         Text(localized: "geofence.empty.title", fallback: "No geofences yet")
                             .font(.headline)
                         Text(localized: "geofence.empty.body",
-                             fallback: "Add a geofence to auto-stop spoofing and return to real GPS when you actually arrive somewhere — like home.")
+                             fallback: "Add a geofence to auto-stop simulating and return to real GPS when you actually arrive somewhere — like home.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

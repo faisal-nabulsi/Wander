@@ -20,7 +20,7 @@
 //  HONEST LIMIT surfaced up-front: gs-loc only holds indoors / with weak GPS. It is NOT a full outdoor
 //  spoof (real GPS overrides it). We say so before the user invests any setup effort.
 //
-//  At the end (and on the CA-trust step) a "Check my setup" button runs the Spoof Doctor (SpoofDoctorView),
+//  At the end (and on the CA-trust step) a "Check my setup" button runs the Location Doctor (SpoofDoctorView),
 //  so a user who skipped the trust toggle or mis-set routing finds out immediately, with the exact fix.
 //
 import SwiftUI
@@ -63,7 +63,7 @@ struct ProxySetupView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var vpn = ProxyVPNMonitor()
 
-    /// The selected proxy app drives every parameterized step. Persisted so the Spoof Doctor can tailor its
+    /// The selected proxy app drives every parameterized step. Persisted so the Location Doctor can tailor its
     /// Rung-1 advice to the same app the user set up here.
     @AppStorage("gslocProxyApp") private var appRaw = ProxyApp.recommended.rawValue
     private var app: ProxyApp { ProxyApp(rawValue: appRaw) ?? .recommended }
@@ -75,7 +75,7 @@ struct ProxySetupView: View {
     /// Seed the passthrough exactly once, on the first detected proxy connect — re-firing on every reconnect
     /// would clobber an active teleport back to the real location.
     @State private var seededPassthrough = false
-    /// Presents the Spoof Doctor diagnostic.
+    /// Presents the Location Doctor diagnostic.
     @State private var showDoctor = false
 
     private let caStepID = "caStep"
@@ -112,7 +112,7 @@ struct ProxySetupView: View {
                     })
                 }
             }
-            .navigationTitle("PoGo gs-loc setup")
+            .navigationTitle("Games Wi-Fi positioning setup")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -171,7 +171,7 @@ struct ProxySetupView: View {
                 Label("Faster setup (beta): one import", systemImage: "bolt.badge.clock")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Wander.brand)
-                Text("Instead of steps 2–3, import a single Wander config that already has the rewrite AND HTTPS Decryption switched on. You still do step 1 (install \(app.title)), step 4 (generate + trust the certificate), and step 5 (connect) — the config can't trust the certificate for you. If the spoof doesn't work after importing, re-import the config (a partial or stale import fails silently) or tap “Check my setup” below — you shouldn't need to reinstall \(app.title). Best if you use \(app.title) only for Wander — importing a full config replaces your active one.")
+                Text("Instead of steps 2–3, import a single Wander config that already has the rewrite AND HTTPS Decryption switched on. You still do step 1 (install \(app.title)), step 4 (generate + trust the certificate), and step 5 (connect) — the config can't trust the certificate for you. If the location doesn't change after importing, re-import the config (a partial or stale import fails silently) or tap “Check my setup” below — you shouldn't need to reinstall \(app.title). Best if you use \(app.title) only for Wander — importing a full config replaces your active one.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -198,12 +198,12 @@ struct ProxySetupView: View {
             Label("What this does — and doesn't", systemImage: "info.circle.fill")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Wander.brand)
-            Text("This routes Pokémon GO's location through a Wi-Fi-location proxy instead of the dev tunnel, so the game sees a non-simulated fix (no Error 12 — or the related Error 11, the same transient location cross-check that flashes up then reverts; the same fixes clear both). It works ONLY while you're indoors or where GPS is weak — outdoors, real GPS overrides it and snaps you back. It's a sit-still tool, not a walk-around one. Setup takes about 5 minutes and involves trusting a certificate (read step 4 carefully).")
+            Text("This routes the game's location through a Wi-Fi-location proxy instead of the dev tunnel. It works ONLY while you're indoors or where GPS is weak — outdoors, real GPS overrides it and snaps you back. It's a sit-still tool, not a walk-around one. Setup takes about 5 minutes and involves trusting a certificate (read step 4 carefully).")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Label("This mode replaces LocalDevVPN. iOS runs only one VPN at a time, so while you're using it, keep LocalDevVPN OFF and your proxy app ON. Turn PoGo mode off in Settings to switch back to normal spoofing over LocalDevVPN.",
+            Label("This mode replaces LocalDevVPN. iOS runs only one VPN at a time, so while you're using it, keep LocalDevVPN OFF and your proxy app ON. Turn Games mode off in Settings to switch back to normal simulating over LocalDevVPN.",
                   systemImage: "arrow.triangle.2.circlepath")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -338,14 +338,14 @@ struct ProxySetupView: View {
         .background(Color.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-    // MARK: Spoof Doctor entry (end of wizard)
+    // MARK: Location Doctor entry (end of wizard)
 
     private var doctorCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Did it work?", systemImage: "stethoscope")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Wander.brand)
-            Text("Runs two quick checks — is your proxy intercepting, and is the location actually spoofed — and tells you the exact thing to fix if not.")
+            Text("Runs two quick checks — is your proxy intercepting, and is the location actually simulated — and tells you the exact thing to fix if not.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Button {
@@ -387,7 +387,7 @@ struct ProxySetupView: View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "location.fill.viewfinder").foregroundStyle(Wander.brand)
-                Text("How to spoof, once you're set up")
+                Text("How to set a location, once you're set up")
                     .font(.subheadline.weight(.semibold))
                 Spacer(minLength: 0)
             }
@@ -395,14 +395,14 @@ struct ProxySetupView: View {
 
             howToCard(
                 icon: "1.circle.fill",
-                title: "First spoof (once each session)",
+                title: "First location (once each session)",
                 steps: [
                     "Keep Wi-Fi on. Turn Location Services OFF.",
-                    "Leave it off for about 10 seconds — the WAIT is the flush, and rushing it is the single most common reason the first spoof doesn't take.",
+                    "Leave it off for about 10 seconds — the WAIT is the flush, and rushing it is the single most common reason the first location change doesn't take.",
                     "Open \(app.title) and connect it (VPN icon shows).",
                     "Open Wander and teleport to your spot.",
                     "Turn Location Services back ON.",
-                    "Open Apple Maps and wait until it shows a location — that's your spot. Then open Pokémon GO.",
+                    "Open Apple Maps and wait until it shows a location — that's your spot. Then open the game.",
                 ],
                 note: "No reboot needed: the long Location Services OFF is what makes iOS let go of its cached real location. Still snapping back after two honest tries? Then reboot once (with Location Services off) and run these steps again."
             )
@@ -415,18 +415,18 @@ struct ProxySetupView: View {
                     "Toggle Location Services OFF, wait about 10 seconds, then ON.",
                     "It jumps to the new spot. Repeat for each hop.",
                 ],
-                note: "The Location Services toggle is the whole flush — give it the full ~10 seconds rather than a quick flick. If a spot sticks, redo the First-spoof steps; only reboot if it still sticks after that."
+                note: "The Location Services toggle is the whole flush — give it the full ~10 seconds rather than a quick flick. If a spot sticks, redo the First-location steps; only reboot if it still sticks after that."
             )
 
             howToCard(
                 icon: "arrow.uturn.backward.circle.fill",
                 title: "Reset to your REAL location",
                 steps: [
-                    "Turn OFF PoGo (gs-loc) mode in Settings → Experimental — this tells the spoof to stop.",
+                    "Turn OFF Games mode (Wi-Fi positioning) in Settings → Experimental — this tells the simulated location to stop.",
                     "Toggle Location Services OFF, wait about 10 seconds, then ON.",
                     "You're back on your real location. If it lingers, disconnect \(app.title) too, then toggle Location Services again.",
                 ],
-                note: "Same idea in reverse: stop the spoof first, then force a fresh look so iOS grabs your real spot."
+                note: "Same idea in reverse: stop the simulated location first, then force a fresh look so iOS grabs your real spot."
             )
 
             // The one piece of advice on this screen that is about a SPECIFIC app's permission
@@ -435,13 +435,13 @@ struct ProxySetupView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "gamecontroller.fill").font(.title3)
                         .foregroundStyle(Wander.brand).frame(width: 28)
-                    Text("Set Pokémon GO to Always + Precise").font(.body.weight(.semibold))
+                    Text("Set the game to Always + Precise").font(.body.weight(.semibold))
                     Spacer(minLength: 0)
                 }
-                Text("This one is the game's own permission, not the system switch. Location = Always and Precise Location ON — a coarse fix fights the spoofed one and is a common Error 12 cause.")
+                Text("This one is the game's own permission, not the system switch. Location = Always and Precise Location ON — a coarse fix fights the simulated one and is a common cause of location problems in games.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                linkButton("Open Pokémon GO's location settings") {
+                linkButton("Open the game's location settings") {
                     AppLocationSettings.openLocationScreen(forBundleID: AppLocationSettings.BundleID.pokemonGo)
                 }
             }

@@ -1113,7 +1113,7 @@ enum LocationSimulationOutcome {
         // UNDERLYING transport, so Wander's own utun can't fool it into saying Wi-Fi).
         if NetworkReachability.isOnCellularSnapshot {
             return L("tunnel.down.message.cellular",
-                     fallback: "Wander couldn't reach the connection it injects location through, so nothing was sent to your device. You're on mobile data with no Wi-Fi, and iOS refuses to open this connection on cellular — reconnecting the tunnel won't help. Turn Airplane Mode ON, start the spoof, then turn Airplane Mode back OFF: the connection survives the switch. Cellular Mode does exactly that for you.")
+                     fallback: "Wander couldn't reach the connection it injects location through, so nothing was sent to your device. You're on mobile data with no Wi-Fi, and iOS refuses to open this connection on cellular — reconnecting the tunnel won't help. Turn Airplane Mode ON, start the simulation, then turn Airplane Mode back OFF: the connection survives the switch. Cellular Mode does exactly that for you.")
         }
         return L("tunnel.down.message",
                  fallback: "Wander couldn't reach the connection it injects location through, so nothing was sent to your device. Connect LocalDevVPN (or turn on Wander's own tunnel in Settings), wait for the chip to read \"Tunnel: connected\", then try again.")
@@ -1121,7 +1121,7 @@ enum LocationSimulationOutcome {
 
     /// Title + body for "the spoof you had is gone", as distinct from "it never started".
     static var sessionLostTitle: String {
-        L("spoof.lost.title", fallback: "Spoof stopped")
+        L("spoof.lost.title", fallback: "Location simulation stopped")
     }
 
     /// ⚠️ TAKES THE TRANSPORT AS AN ARGUMENT — IT MUST NOT RE-READ IT.

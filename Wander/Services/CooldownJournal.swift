@@ -655,13 +655,13 @@ enum CooldownRulebook {
 
     static let starts: [Rule] = [
         Rule(L("cooldown.rule.spin", fallback: "Spinning a PokéStop or gym photo disc")),
-        Rule(L("cooldown.rule.catch", fallback: "Catching a Pokémon"),
+        Rule(L("cooldown.rule.catch", fallback: "Catching a creature"),
              detail: L("cooldown.rule.catch.detail", fallback: "Counts even if it flees or breaks out.")),
-        Rule(L("cooldown.rule.raid", fallback: "Raid battles, gym battles, and placing a Pokémon in a gym")),
-        Rule(L("cooldown.rule.berry", fallback: "Feeding a berry to a Pokémon defending a gym"),
+        Rule(L("cooldown.rule.raid", fallback: "Raid battles, gym battles, and placing a creature in a gym")),
+        Rule(L("cooldown.rule.berry", fallback: "Feeding a berry to a creature defending a gym"),
              detail: L("cooldown.rule.berry.detail", fallback: "This is a map interaction — different from feeding your buddy, below.")),
         Rule(L("cooldown.rule.trade", fallback: "Trading with another trainer")),
-        Rule(L("cooldown.rule.during", fallback: "Doing any of the above while a cooldown is already running"),
+        Rule(L("cooldown.rule.during", fallback: "Doing any of the above while a suggested wait is already running"),
              detail: L("cooldown.rule.during.detail", fallback: "Widely reported to restart the wait from zero. Wander restarts your timer when you log one of these too.")),
     ]
 
@@ -679,7 +679,7 @@ enum CooldownRulebook {
     static let unclear: [Rule] = [
         Rule(L("cooldown.rule.gift", fallback: "Sending and opening gifts"),
              detail: L("cooldown.rule.gift.detail", fallback: "Gifts come from stops, and reports split on whether they count. Treat them as if they do.")),
-        Rule(L("cooldown.rule.snapshot", fallback: "Snapshots of wild Pokémon")),
+        Rule(L("cooldown.rule.snapshot", fallback: "Snapshots of wild creatures")),
         Rule(L("cooldown.rule.research", fallback: "Claiming field research rewards"),
              detail: L("cooldown.rule.research.detail", fallback: "The reward itself looks free; the stop spin that gave you the task is not.")),
     ]
@@ -687,6 +687,6 @@ enum CooldownRulebook {
     /// Printed at the top of the rulebook, and worth repeating anywhere these rules are quoted.
     static let disclaimer = L(
         "cooldown.rulebook.disclaimer",
-        fallback: "Niantic has never published any of this. Every rule below is community-observed — worked out by players comparing notes, and liable to change without warning when the game does. Wander shows it as guidance, never as a guarantee, and never stops you doing anything."
+        fallback: "The game's developer has not published any of this. Every rule below is community-observed — worked out by players comparing notes, and liable to change without warning when the game does. Wander shows it as guidance, never as a guarantee, and never stops you doing anything."
     )
 }
