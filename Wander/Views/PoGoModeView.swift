@@ -157,9 +157,9 @@ enum GamePreset: String, CaseIterable, Identifiable {
         case .monsterHunterNow:
             return "Uses the same suggested wait as the game (shown below). Its speed lock is stricter, though — stay under ~16 km/h or monsters hide and gathering fails."
         case .pikminBloom:
-            return "Step-based, not teleport-based — there's no suggested wait. Steps come from the pedometer (not GPS), so pace a realistic walk (a Route at ~8 km/h) and avoid implausible daily step counts."
+            return "Step-based, not teleport-based — there's no suggested wait. Steps come from the pedometer (not GPS), so pace a realistic walk (a Route at ~8 km/h) and keep daily step counts realistic."
         case .ingress:
-            return "No distance suggested wait — instead there's a ~60 km/h speed lock (actions fail if you move faster) and a ~5-minute per-portal hack suggested wait. Keep effective speed under ~60 km/h between actions."
+            return "No distance-based wait — instead there's a ~60 km/h speed lock (actions fail if you move faster) and a ~5-minute per-portal hack suggested wait. Keep effective speed under ~60 km/h between actions."
         }
     }
 }
@@ -379,7 +379,7 @@ struct PoGoModeView: View {
                         }
                         .tint(Wander.brand)
                     } header: {
-                        Text("Suggested wait safety")
+                        Text("Suggested wait settings")
                     } footer: {
                         // Explains the new per-row annotation, which is otherwise easy to miss —
                         // and states plainly that it only informs, so nobody expects it to stop them.

@@ -83,7 +83,7 @@ struct CellularModeSetupView: View {
                 // is superstition and ignore.
                 Section {
                     Text(localized: "cellular.setup.intro",
-                         fallback: "On mobile data with no Wi-Fi, iOS won't let the tunnel connect — but it stops checking once it's up. Cellular Mode turns Airplane Mode on just long enough to connect and set your location, then turns it back off. Your location holds — as long as the tunnel stays connected and Wander stays open, because your fake location lives in that connection and nothing is stored on your phone.")
+                         fallback: "On mobile data with no Wi-Fi, iOS won't let the tunnel connect — but it stops checking once it's up. Cellular Mode turns Airplane Mode on just long enough to connect and set your location, then turns it back off. Your location holds — as long as the tunnel stays connected and Wander stays open, because your simulated location lives in that connection and nothing is stored on your phone.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

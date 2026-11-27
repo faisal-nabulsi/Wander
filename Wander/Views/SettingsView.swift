@@ -411,7 +411,7 @@ struct SettingsView: View {
                     Text(localized: "tunnel.stability.header", fallback: "Tunnel stability")
                 } footer: {
                     Text(localized: "tunnel.stability.footer",
-                         fallback: "Wander watches the connection it injects location through and, if it drops, tries to reconnect on its own — best-effort only, since iOS can close the tunnel when memory runs low or the app is backgrounded (nothing can prevent that). Low memory can drop it, so close background apps for a steadier spoof.")
+                         fallback: "Wander watches the connection it injects location through and, if it drops, tries to reconnect on its own — best-effort only, since iOS can close the tunnel when memory runs low or the app is backgrounded (nothing can prevent that). Low memory can drop it, so close background apps for a steadier connection.")
                 }
                 // Health here is polled in the background, so the chip animates but deliberately
                 // carries NO haptic (see WanderStatusChip's note) — the phone must not buzz in a

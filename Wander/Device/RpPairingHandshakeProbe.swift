@@ -550,7 +550,7 @@ extension RpPairingHandshakeProbe {
         if let loopback = results.first(where: { $0.1.address == "127.0.0.1" })?.1 {
             out.append("VERDICT loopback 127.0.0.1 → \(loopback.stage.label): \(loopback.stage.meaning)")
             if loopback.stage == .replied {
-                out.append("VERDICT ⇒ THE NO-TUNNEL PATH IS OPEN AT THIS LAYER. remotepairingd answered a connection sourced from an address the device owns. Next question is whether pair-verify also passes — set the tunnel target to 127.0.0.1 and attempt a real spoof, but expect it to HANG rather than fail if the daemon stops answering later (the vendored FFI has no read timeout).")
+                out.append("VERDICT ⇒ THE NO-TUNNEL PATH IS OPEN AT THIS LAYER. remotepairingd answered a connection sourced from an address the device owns. Next question is whether pair-verify also passes — set the tunnel target to 127.0.0.1 and attempt a real location set, but expect it to HANG rather than fail if the daemon stops answering later (the vendored FFI has no read timeout).")
             } else if loopback.stage.reachedTheDaemon {
                 out.append("VERDICT ⇒ THE OLD RULE IS CONFIRMED, and this is the first time it has been measured rather than assumed. The TCP connect succeeding (errno 0) was never evidence of anything: the daemon accepts the socket and then refuses to converse with a device-owned source. A tunnel is not optional plumbing — it exists to give the connection a source address the daemon will talk to.")
             } else {

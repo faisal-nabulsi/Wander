@@ -2323,7 +2323,7 @@ struct LocationSimulationView: View {
                 WanderPanelNote(
                     status: .caution,
                     text: L("map.gsloc_teleport_only",
-                            fallback: "Games mode: one spot at a time. A new spot only lands after you flush Location Services, so route playback can't work here — it works in every other app and mode."),
+                            fallback: "Wi-Fi positioning: one spot at a time. A new spot only lands after you flush Location Services, so route playback can't work here — it works in every other app and mode."),
                     icon: "hand.raised.fill"
                 )
             }

@@ -152,7 +152,7 @@
 /* Toasts / banners */
 "toast.stopped_real_gps" = "Gestoppt — echtes GPS wiederhergestellt";
 "banner.spoofing_active" = "Location change active — keep Wander open";
-"panic.accessibility" = "Panic — stop all simulating";
+"panic.accessibility" = "Stop simulating";
 
 /* Language picker option */
 "language.system" = "Systemstandard";

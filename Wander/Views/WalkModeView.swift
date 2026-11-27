@@ -583,7 +583,7 @@ struct WalkModeView: View {
         WanderPanelNote(
             status: .caution,
             text: L("joystick.gsloc_teleport_only",
-                    fallback: "Games mode: one spot at a time. A new spot only lands after you flush Location Services, so live movement can't work here. Joystick, routes & auto-walk work in every other app and mode."),
+                    fallback: "Wi-Fi positioning: one spot at a time. A new spot only lands after you flush Location Services, so live movement can't work here. Joystick, routes & auto-walk work in every other app and mode."),
             icon: "hand.raised.fill"
         )
     }

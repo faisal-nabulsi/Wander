@@ -152,7 +152,7 @@
 /* Toasts / banners */
 "toast.stopped_real_gps" = "중지됨 — 실제 GPS로 복원되었습니다";
 "banner.spoofing_active" = "Location change active — keep Wander open";
-"panic.accessibility" = "Panic — stop all simulating";
+"panic.accessibility" = "Stop simulating";
 
 /* Language picker option */
 "language.system" = "시스템 기본값";

@@ -444,7 +444,7 @@ private enum MoreRoute: String, Identifiable, CaseIterable {
         case .tools:         return "Device info, app expiry & developer tools"
         case .timeline:      return "Where you appeared to be — private to this device"
         case .adventureSync: return "Write simulated steps to Apple Health (Pro)"
-        case .matchIP:       return "Line your IP up with your simulated country"
+        case .matchIP:       return "IP location (optional)"
         case .whatsNew:      return "See what changed in this version"
         case .community:     return "Star on GitHub & join our Discord"
         case .reportBug:     return "Something broken or an idea? Tell us"

@@ -110,11 +110,11 @@ struct PreFlightCard: View {
     private func vpnGuidance(for warning: LocationWarning) -> String {
         if let city = warning.spoofedCity {
             let template = L("preflight.ipgps.vpn_guidance",
-                             fallback: "Open NordVPN and connect to a server in %@ so your network location matches.")
+                             fallback: "Open NordVPN and connect to a server in %@ (optional).")
             return String(format: template, city)
         }
         return L("preflight.ipgps.vpn_guidance_generic",
-                 fallback: "Open NordVPN and connect to a server in the simulated city so your network location matches.")
+                 fallback: "Open NordVPN and connect to a server in the simulated city (optional).")
     }
 
     private func openAppSettings() {

@@ -31,7 +31,7 @@ struct GslocQuickControlsCard: View {
             controlRow(icon: "bolt.fill",
                        tint: .green,
                        title: "Connect Shadowrocket (games)",
-                       subtitle: "The proxy for the game + other games (Monster Hunter Now, etc.) — nothing else. Runs a shortcut, connects, and bounces back here to check your location.") {
+                       subtitle: "Wi-Fi positioning for location-based games only. Runs a shortcut, connects, and bounces back here to check your location.") {
                 autoVerifyArmed = true
                 ShortcutRunner.run(name: ShortcutRunner.shadowrocketConnectName, successHost: "vpnconnected")
             }
@@ -172,7 +172,7 @@ struct AutomationsView: View {
                            steps: ["New shortcut, name it EXACTLY: Wander Connect VPN",
                                    "Set VPN → On → pick LocalDevVPN",
                                    "Open App → Wander"])
-                    Text("The two “Connect …” buttons in Quick Controls invoke these BY NAME, so the names must match exactly. Shadowrocket is ONLY for the game + other games (Monster Hunter Now) — nothing else; LocalDevVPN is your default tunnel for Find My, everything else, and app updates. iOS runs one VPN at a time, so turning one on drops the other.")
+                    Text("The two “Connect …” buttons in Quick Controls invoke these BY NAME, so the names must match exactly. Shadowrocket is only for location-based games, nothing else; LocalDevVPN is your default tunnel for Find My, everything else, and app updates. iOS runs one VPN at a time, so turning one on drops the other.")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Section {

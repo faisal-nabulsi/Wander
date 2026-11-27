@@ -749,7 +749,7 @@ struct MainTabView: View {
                 .overlay(Circle().strokeBorder(.white.opacity(0.85), lineWidth: 2))
                 .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
         }
-        .accessibilityLabel(L("panic.accessibility", fallback: "Panic — stop all simulating"))
+        .accessibilityLabel(L("panic.accessibility", fallback: "Stop simulating"))
         .padding(.trailing, 18)
         .padding(.bottom, panicBottomInset)
     }

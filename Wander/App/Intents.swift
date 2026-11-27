@@ -564,7 +564,7 @@ struct StartTunnelIntent: AppIntent {
 struct PauseLocationIntent: AppIntent {
     static var title: LocalizedStringResource = "Pause My Location"
     static var description = IntentDescription(
-        "Freezes your location where it is now, so apps you share with keep showing you there after you leave.",
+        "Freezes your location at the current spot.",
         categoryName: "Wander")
     static var openAppWhenRun: Bool = true
 
@@ -629,7 +629,7 @@ struct StikDebugShortcuts: AppShortcutsProvider {
                 "\(.applicationName) teleport",
                 "Set my location with \(.applicationName)",
                 "Change my location with \(.applicationName)",
-                "Fake my location with \(.applicationName)"
+                "Move my location with \(.applicationName)"
             ],
             shortTitle: "Teleport",
             systemImageName: "location.fill"

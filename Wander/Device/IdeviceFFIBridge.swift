@@ -1073,7 +1073,7 @@ enum LocationSimulationOutcome {
     }
 
     static var stopRefusedTitle: String {
-        L("stop.refused.title", fallback: "Your device is still showing the fake location")
+        L("stop.refused.title", fallback: "Your device is still showing the simulated location")
     }
 
     /// ⚠️ THE DEVICE, NOT WANDER, IS THE ONE STILL HOLDING THE FIX HERE, and the copy has to say so —

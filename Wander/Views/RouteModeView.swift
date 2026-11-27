@@ -1329,7 +1329,7 @@ struct RouteModeView: View {
             // free teleporting. Each new spot needs the manual Location Services flush, which is what
             // makes route playback impossible here rather than just choppy. See WalkModeView.
             text: L("route.gsloc_teleport_only",
-                    fallback: "Games mode: one spot at a time. A new spot only lands after you flush Location Services, so live movement can't work here. Joystick, routes & auto-walk work in every other app and mode."),
+                    fallback: "Wi-Fi positioning: one spot at a time. A new spot only lands after you flush Location Services, so live movement can't work here. Joystick, routes & auto-walk work in every other app and mode."),
             icon: "hand.raised.fill"
         )
     }

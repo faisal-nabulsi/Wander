@@ -141,7 +141,7 @@ enum SpoofClaims {
             setup: [
                 "PoGo mode (gs-loc) ON, Shadowrocket connected, certificate trusted.",
                 "Teleport, then do the refresh (Location Services off ~10s, on).",
-                "Confirm Apple Maps shows the fake location BEFORE capturing.",
+                "Confirm Apple Maps shows the simulated location BEFORE capturing.",
             ],
             evaluate: { r in
                 guard requireEngine(r, gsloc: true), gslocPlausiblyActive(r) else { return .inconclusive }
@@ -156,7 +156,7 @@ enum SpoofClaims {
             stakes: "This is why gs-loc has no wire-level tell: the fix is computed by locationd's own pipeline from poisoned inputs, so it looks like any other network fix. If these come back 0/-1, gs-loc has the same fingerprint as DVT and one of its two advantages is imaginary.",
             setup: [
                 "Same as the gs-loc flag claim.",
-                "Capture while Maps still shows the fake location.",
+                "Capture while Maps still shows the simulated location.",
             ],
             evaluate: { r in
                 guard requireEngine(r, gsloc: true), gslocPlausiblyActive(r) else { return .inconclusive }

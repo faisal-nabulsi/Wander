@@ -96,7 +96,7 @@ struct MatchIPView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Label("Match your IP", systemImage: Wander.Icon.matchIP)
                             .font(.wanderTitle)
-                        Text("Apps can also estimate your location from your IP address. A VPN in the same region keeps the two consistent.")
+                        Text("Some apps also estimate your country from your IP address.")
                             .wanderDetail()
                         Link(destination: MoreFeatureLinks.vpn) {
                             Label("Get a matching VPN", systemImage: Wander.Icon.externalLink)
@@ -106,7 +106,7 @@ struct MatchIPView: View {
                     }
                     .padding(.vertical, 4)
                 } footer: {
-                    Text("Wander doesn't run a VPN itself — it helps you line your IP up with your simulated country using any VPN you already trust.")
+                    Text("Wander doesn't run a VPN itself. If you already use one, you can pick a server in the country you are previewing.")
                 }
             }
             .navigationTitle("Match your IP")
@@ -315,7 +315,7 @@ struct AdventureSyncView: View {
                 } footer: {
                     Text(license.isLicensed
                          ? L("settings.adventuresync.footer",
-                             fallback: "Best-effort: writes step + walking-distance samples to Apple Health that mirror your simulated walk, so games like a game's fitness features can credit the distance. Steps are paced realistically from your actual movement — only while the Joystick or a Route drive is moving. Teleports write nothing. Off by default.")
+                             fallback: "Best-effort: writes step + walking-distance samples to Apple Health that mirror your simulated walk, so fitness-reading games can credit the distance. Steps are paced realistically from your actual movement — only while the Joystick or a Route drive is moving. Teleports write nothing. Off by default.")
                          : L("settings.adventuresync.footer_locked",
                              fallback: "Wander Pro mirrors your simulated walk into Apple Health as steps + distance, so fitness-reading games can credit it. Best-effort, paced realistically, off by default."))
                 }

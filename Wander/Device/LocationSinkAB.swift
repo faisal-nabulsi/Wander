@@ -548,7 +548,7 @@ final class LocationSinkABRunner: ObservableObject {
         let b = legB.isSimulatedBySoftware
         if a == "true" && b == "false" && legB.isProducedByAccessory != "true" {
             out.append(L("sinkab.verdict.sinkmatters",
-                         fallback: "THE SINK MATTERS. The same coordinate read isSimulatedBySoftware=true through the DVT service and false through the lockdown sibling, with isProducedByAccessory still false. Switching Wander's injection to the lockdown service is now a real candidate for clearing Pokémon GO's Error 12 over a tunnel that holds — which would beat gs-loc outright, since it keeps movement and works outdoors. This run is a MEASUREMENT, not a migration: the switch is a separate, deliberate decision."))
+                         fallback: "THE SINK MATTERS. The same coordinate read isSimulatedBySoftware=true through the DVT service and false through the lockdown sibling, with isProducedByAccessory still false. Switching Wander's injection to the lockdown service is now a real candidate for clearing the game's Error 12 over a tunnel that holds — which would beat gs-loc outright, since it keeps movement and works outdoors. This run is a MEASUREMENT, not a migration: the switch is a separate, deliberate decision."))
         } else if a == "true" && b == "false" {
             out.append("HALF A WIN, NOT A WIN. isSimulatedBySoftware went false through the lockdown sink, but")
             out.append("isProducedByAccessory came back \(legB.isProducedByAccessory) — one readable flag was traded")

@@ -142,7 +142,7 @@ struct TunnelLabView: View {
                             Text(L("tunnellab.sinkab.title",
                                    fallback: "Location sink A/B (does the sink set isSimulatedBySoftware?)"))
                             Text(L("tunnellab.sinkab.detail",
-                                   fallback: "Sends ONE coordinate twice — first through the DVT service Wander ships, then through the lockdown sibling com.apple.dt.simulatelocation — and reads the flags off the LIVE location feed each time. Takes 1–2 minutes. Stop any spoof first; gs-loc mode must be OFF."))
+                                   fallback: "Sends ONE coordinate twice — first through the DVT service Wander ships, then through the lockdown sibling com.apple.dt.simulatelocation — and reads the flags off the LIVE location feed each time. Takes 1–2 minutes. Stop any simulation first; gs-loc mode must be OFF."))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -177,7 +177,7 @@ struct TunnelLabView: View {
                 Text(L("tunnellab.sinkab.header", fallback: "The last open door — this one WRITES"))
             } footer: {
                 Text(L("tunnellab.sinkab.footer",
-                       fallback: "Keep Wander in the foreground for the whole run. It moves your device's reported location to a far-away landmark, reads what iOS hands apps, clears it, repeats through the other service, then clears again — it never leaves a spoof running. It refuses to start while a simulation is active or while gs-loc mode is on, because two writers to one location is a bug we already shipped once."))
+                       fallback: "Keep Wander in the foreground for the whole run. It moves your device's reported location to a far-away landmark, reads what iOS hands apps, clears it, repeats through the other service, then clears again — it never leaves a simulation running. It refuses to start while a simulation is active or while gs-loc mode is on, because two writers to one location is a bug we already shipped once."))
             }
 
             Section {
